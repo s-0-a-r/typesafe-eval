@@ -1,28 +1,57 @@
 """Sanitizer and guard utilities for documents sent to TypeSafe."""
 
 import re
-from typing import Tuple
+from typing import Tuple, Dict, Any, Union, Literal, overload
 
-SECRET_PATTERNS = [
-    (re.compile(r"apikey_[0-9a-zA-Z_]{20,}", re.IGNORECASE), "[REDACTED_API_KEY]"),
-    (re.compile(r"gh[pousr]_[0-9a-zA-Z]{36}", re.IGNORECASE), "[REDACTED_GH_TOKEN]"),
-    (re.compile(r"sk-[0-9a-zA-Z]{20,}", re.IGNORECASE), "[REDACTED_SECRET_KEY]"),
-    (re.compile(r"AKIA[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]"),
-    (re.compile(r"bearer\s+[a-zA-Z0-9\-_\.=]{20,}", re.IGNORECASE), "Bearer [REDACTED_TOKEN]"),
-    (re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"), "[REDACTED_EMAIL]"),
+PATTERN_SPECS = [
+    (re.compile(r"apikey_[0-9a-zA-Z_]{20,}", re.IGNORECASE), "[REDACTED_API_KEY]", "credentials", "api_key"),
+    (re.compile(r"gh[pousr]_[0-9a-zA-Z]{36}", re.IGNORECASE), "[REDACTED_GH_TOKEN]", "credentials", "github_token"),
+    (re.compile(r"sk-[0-9a-zA-Z]{20,}", re.IGNORECASE), "[REDACTED_SECRET_KEY]", "credentials", "secret_key"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]", "credentials", "aws_key"),
+    (re.compile(r"bearer\s+[a-zA-Z0-9\-_\.=]{20,}", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "credentials", "bearer_token"),
+    (re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"), "[REDACTED_EMAIL]", "pii", "email"),
 ]
 
-def mask_sensitive_data(text: str) -> Tuple[str, int]:
+SECRET_PATTERNS = [(pattern, replacement) for pattern, replacement, _, _ in PATTERN_SPECS]
+
+@overload
+def mask_sensitive_data(text: str, return_details: Literal[False] = False) -> Tuple[str, int]: ...
+
+@overload
+def mask_sensitive_data(text: str, return_details: Literal[True]) -> Tuple[str, int, Dict[str, Any]]: ...
+
+def mask_sensitive_data(
+    text: str, return_details: bool = False
+) -> Union[Tuple[str, int], Tuple[str, int, Dict[str, Any]]]:
     """Replaces detected credentials, tokens, and PII with redaction placeholders.
     
+    Args:
+        text: Original document content.
+        return_details: If True, returns detailed breakdown by category and type.
+
     Returns:
-        (sanitized_text, count_of_redactions)
+        (sanitized_text, count_of_redactions) when return_details=False,
+        or (sanitized_text, count_of_redactions, details_dict) when return_details=True.
     """
     total_redactions = 0
+    details: Dict[str, Any] = {
+        "total": 0,
+        "credentials": 0,
+        "pii": 0,
+        "by_type": {},
+    }
     sanitized = text
-    for pattern, replacement in SECRET_PATTERNS:
+    for pattern, replacement, category, type_name in PATTERN_SPECS:
         sanitized, count = pattern.subn(replacement, sanitized)
-        total_redactions += count
+        if count > 0:
+            total_redactions += count
+            details[category] = details.get(category, 0) + count
+            details["by_type"][type_name] = details["by_type"].get(type_name, 0) + count
+
+    details["total"] = total_redactions
+
+    if return_details:
+        return sanitized, total_redactions, details
     return sanitized, total_redactions
 
 

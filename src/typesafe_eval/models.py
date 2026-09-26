@@ -47,3 +47,4 @@ class DocumentEvalResult(BaseModel):
     model: Optional[str] = None
     was_truncated: bool = False
     redactions_count: int = 0
+    redaction_details: Optional[Dict[str, Any]] = None
