@@ -1,0 +1,41 @@
+name: "tech-spec"
+title: "Technical Spec & Architecture Evaluation"
+description: "Evaluates architectural depth, failure mode coverage, and readiness to code."
+questions:
+  technical_depth:
+    type: score
+    label: "Technical Depth"
+    instructions: "How concrete and technically sound is the architecture or design described?"
+    criteria:
+      - "High-level hand-waving without architectural specifics or data structures"
+      - "Identifies components and flow, but omits important error states or performance considerations"
+      - "Thorough, well-specified architecture with clear boundaries, data flows, and failure modes"
+    weight: 0.4
+    min_threshold: 0.6
+
+  edge_case_coverage:
+    type: score
+    label: "Edge Cases & Reliability"
+    instructions: "Does this spec anticipate error conditions, edge cases, and operational limits?"
+    criteria:
+      - "Happy path only; ignores failure cases, timeouts, and limits"
+      - "Considers basic failure cases, but misses scaling or network error handling"
+      - "Explicitly defines limits, timeouts, retries, and failure recovery"
+    weight: 0.4
+    min_threshold: 0.5
+
+  has_test_plan:
+    type: noul
+    label: "Test / Verification Plan"
+    instructions: "Does this spec include or define a concrete testing or verification strategy?"
+    weight: 0.2
+    min_threshold: 0.5
+
+  readiness:
+    type: choice
+    label: "Engineering Readiness"
+    instructions: "What is the implementation readiness of this technical specification?"
+    criteria:
+      ready: "Well-specified; engineers can start implementation immediately"
+      needs_revision: "Requires clarification on key interfaces or constraints before coding"
+      blocked: "Fundamentally unfeasible, contradictory, or lacks core prerequisites"

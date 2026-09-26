@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "typesafe-eval"
+version = "0.1.0"
+description = "Fast, typed multi-dimensional document evaluation CLI powered by TypeSafe System One (Jev)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "s-0-a-r" }
+]
+keywords = [
+    "typesafe",
+    "jev",
+    "evaluation",
+    "system-one",
+    "ai",
+    "cli",
+    "nlp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0.0",
+    "typesafe-sdk>=0.7.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+typesafe-eval = "typesafe_eval.cli:main"
+jev-eval = "typesafe_eval.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/typesafe_eval"]

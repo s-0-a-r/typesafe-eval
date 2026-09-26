@@ -1,0 +1,34 @@
+name: "safety"
+title: "Content Safety & Secret Leakage"
+description: "Screens for exposed credentials, PII, and sensitive business risk."
+questions:
+  has_secrets:
+    type: noul
+    label: "Credential Exposure"
+    instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials?"
+    max_threshold: 0.2
+
+  has_pii:
+    type: noul
+    label: "PII Exposure"
+    instructions: "Does this document contain personal identifiable information (PII) such as individual full names, private phone numbers, or personal emails?"
+    max_threshold: 0.3
+
+  confidentiality_risk:
+    type: score
+    label: "Confidentiality Risk"
+    instructions: "What is the degree of confidentiality risk if this document were shared publicly?"
+    criteria:
+      - "Public or non-sensitive information; safe to share externally"
+      - "Internal business context; should remain internal but causes minimal direct harm if exposed"
+      - "Critical proprietary IP, security vulnerability details, or high-damage secrets"
+    max_threshold: 0.5
+
+  policy_compliance:
+    type: choice
+    label: "Policy Compliance"
+    instructions: "Does this content comply with typical corporate disclosure and safety policies?"
+    criteria:
+      compliant: "Safe and compliant with standard disclosure guidelines"
+      borderline: "Contains questionable details requiring human security review"
+      violating: "Directly exposes dangerous data or violates safety policies"
