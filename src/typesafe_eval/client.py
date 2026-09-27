@@ -22,8 +22,6 @@ def _find_preflight_question(preset: PresetConfig, target: str) -> Optional[str]
             return q_id
     if target == "credentials" and "has_secrets" in preset.questions:
         return "has_secrets"
-    if target == "pii" and "has_pii" in preset.questions:
-        return "has_pii"
     return None
 
 class TypeSafeEvaluator:
@@ -142,8 +140,8 @@ class TypeSafeEvaluator:
                     probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                 )
 
-        # Deterministic credential enforcement:
-        # If pre-flight masking detected credentials, record the pre-flight override
+        # Deterministic pre-flight enforcement for credentials & PII:
+        # If pre-flight masking detected credentials or personal PII, record the override
         # on the configured target question without overwriting the model's raw probability.
         cred_q_id = _find_preflight_question(preset, "credentials")
         cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
@@ -153,6 +151,18 @@ class TypeSafeEvaluator:
                 nouls[cred_q_id].overridden_by = "preflight_scan"
             else:
                 nouls[cred_q_id] = NoulResult(
+                    probability=None,
+                    overridden_by="preflight_scan",
+                )
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+
+        if mask_secrets and pii_count > 0 and pii_q_id:
+            if pii_q_id in nouls:
+                nouls[pii_q_id].overridden_by = "preflight_scan"
+            else:
+                nouls[pii_q_id] = NoulResult(
                     probability=None,
                     overridden_by="preflight_scan",
                 )
@@ -211,20 +221,26 @@ class TypeSafeEvaluator:
             elif q_cfg.type == "noul" and q_id in nouls:
                 val = nouls[q_id].probability
 
+            # Weighted score calculation: contributes whenever model probability is present
+            if val is not None and q_cfg.weight is not None and q_cfg.weight > 0:
+                weighted_sum += val * q_cfg.weight
+                total_weight += q_cfg.weight
+
             # Pre-flight scan override violation check
             if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
                 passed = False
                 label = q_cfg.label or q_id
+                target_count = (
+                    redaction_details.get("pii_personal", 0)
+                    if q_cfg.preflight == "pii"
+                    else redaction_details.get("credentials", 0)
+                ) if redaction_details else 0
+                item_name = "personal PII item(s)" if q_cfg.preflight == "pii" else "credential(s)"
                 model_str = f" (model: {val:.2f})" if val is not None else ""
                 violations.append(
-                    f"{label}: {cred_count} credential(s) detected by pre-flight scan{model_str}"
+                    f"{label}: {target_count} {item_name} detected by pre-flight scan{model_str}"
                 )
             elif val is not None:
-                # Weighted score calculation
-                if q_cfg.weight is not None and q_cfg.weight > 0:
-                    weighted_sum += val * q_cfg.weight
-                    total_weight += q_cfg.weight
-
                 # Threshold verification
                 if q_cfg.min_threshold is not None and val < q_cfg.min_threshold:
                     passed = False
@@ -283,6 +299,11 @@ class TypeSafeEvaluator:
         cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
         if cred_count > 0 and cred_q_id and cred_q_id in nouls:
             nouls[cred_q_id].overridden_by = "preflight_scan"
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+        if pii_count > 0 and pii_q_id and pii_q_id in nouls:
+            nouls[pii_q_id].overridden_by = "preflight_scan"
 
         composite, passed, violations = self._evaluate_thresholds_and_composite(
             preset, scores, nouls, choices, redaction_details=redaction_details
