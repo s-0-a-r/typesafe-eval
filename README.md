@@ -169,6 +169,27 @@ pairs:
     expect: {clarity: neutral}
 ```
 
+### 10. Baseline Regression Detection (`--baseline`)
+
+A fixed absolute threshold cannot reliably catch subtle quality degradation between document edits. `typesafe-eval` provides `--baseline` mode to detect score drops against previous evaluation results:
+
+```bash
+# Save baseline evaluation to JSON
+typesafe-eval docs/*.md --preset quality --format json --out baseline.json
+
+# Check modified documents against previous baseline
+typesafe-eval docs/*.md --preset quality --baseline baseline.json
+```
+
+- **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
+- **Empirical Noise Calibration**: In noise measurements across 3 documents × 10 runs on each built-in preset (90 evaluations, 1,215 pairwise comparisons), run-to-run noise was:
+  - `quality`: 99th percentile |Δ| = `0.020`, max = `0.020`
+  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.040`
+  - `tech-spec`: 99th percentile |Δ| = `0.030`, max = `0.050`
+  - Overall 99th percentile is `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
+- **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
+- **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
+
 ---
 
 ## ⚙️ Custom YAML Configuration

@@ -12,6 +12,7 @@ from typesafe_eval import __version__
 from typesafe_eval.presets import load_preset, list_builtin_presets
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.reporter import render_table, render_json, render_markdown
+from typesafe_eval.baseline import load_baseline, compare_document_with_baseline
 from typesafe_eval.validator import (
     load_labels_file,
     run_validation,
@@ -106,6 +107,11 @@ def main():
     help="Exit with non-zero status code (exit 1) if any threshold violation occurs. Default: enabled.",
 )
 @click.option(
+    "--baseline",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Previous JSON report to compare against and detect score regressions.",
+)
+@click.option(
     "--list-presets",
     is_flag=True,
     help="List all available built-in evaluation presets and exit.",
@@ -121,6 +127,7 @@ def eval_command(
     dry_run: bool,
     api_key: Optional[str],
     fail_on_threshold: bool,
+    baseline: Optional[Path],
     list_presets: bool,
 ):
     """Evaluate documents against quality, safety, or custom evaluation presets."""
@@ -163,10 +170,22 @@ def eval_command(
         err_console.print(f"[bold red]Error loading preset:[/bold red] {e}")
         sys.exit(2)
 
-    # 3. Initialize Evaluator
+    # 3. Load baseline if specified
+    baseline_lookup = None
+    if baseline:
+        try:
+            baseline_lookup = load_baseline(baseline)
+        except FileNotFoundError as e:
+            err_console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(2)
+        except Exception as e:
+            err_console.print(f"[bold red]Error loading baseline:[/bold red] {e}")
+            sys.exit(2)
+
+    # 4. Initialize Evaluator
     evaluator = TypeSafeEvaluator(api_key=api_key)
 
-    # 4. Evaluate documents
+    # 5. Evaluate documents
     results = []
     has_violations = False
     has_errors = False
@@ -180,6 +199,20 @@ def eval_command(
                 max_chars=max_chars,
                 dry_run=dry_run,
             )
+
+            # Compare against baseline if active
+            if baseline_lookup is not None:
+                res, has_reg, warn_msg = compare_document_with_baseline(
+                    result=res,
+                    baseline_lookup=baseline_lookup,
+                    preset=preset_cfg,
+                    default_max_drop=0.10,
+                )
+                if warn_msg:
+                    click.echo(f"Warning: {warn_msg}", err=True)
+                if has_reg:
+                    has_violations = True
+
             results.append(res)
             if not res.passed_thresholds:
                 has_violations = True
