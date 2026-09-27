@@ -7,24 +7,43 @@ def test_mask_sensitive_data():
     assert "apikey_" not in masked
     assert "user@example.com" not in masked
     assert "[REDACTED_API_KEY]" in masked
-    assert "[REDACTED_EMAIL]" in masked
+    assert "[REDACTED_PERSONAL_EMAIL]" in masked
 
 def test_mask_sensitive_data_details():
     raw = (
         "AWS: AKIA1234567890ABCDEF, "
         "GH: ghp_123456789012345678901234567890123456, "
         "Bearer: Bearer my_secret_token_1234567890_xyz, "
-        "Email: test@company.com"
+        "Role: admin@company.com, "
+        "Personal: john.doe@gmail.com"
     )
     masked, count, details = mask_sensitive_data(raw, return_details=True)
-    assert count == 4
-    assert details["total"] == 4
+    assert count == 5
+    assert details["total"] == 5
     assert details["credentials"] == 3
-    assert details["pii"] == 1
-    assert details["by_type"]["aws_key"] == 1
-    assert details["by_type"]["github_token"] == 1
-    assert details["by_type"]["bearer_token"] == 1
-    assert details["by_type"]["email"] == 1
+    assert details["pii"] == 2
+    assert details["pii_role"] == 1
+    assert details["pii_personal"] == 1
+    assert "[REDACTED_ROLE_EMAIL]" in masked
+    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+
+def test_mask_boundaries_and_placeholder_skipping():
+    # Boundary check: task-... and desk-... must not match sk- pattern
+    not_secrets = "ID task-1234567890123456789012 and desk-1234567890123456789012"
+    masked, count = mask_sensitive_data(not_secrets)
+    assert count == 0
+    assert masked == not_secrets
+
+    # Placeholder skipping: dummy / your_ / xxxx must not be flagged as credentials
+    placeholders = (
+        "Config: apikey_your_api_key_here_1234 "
+        "OpenAI: sk-xxxxxxxxxxxxxxxxxxxxxxxx "
+        "Bearer: Bearer dummy_token_1234567890_xyz "
+        "AWS: AKIAEXAMPLEKEY1234"
+    )
+    masked_ph, count_ph = mask_sensitive_data(placeholders)
+    assert count_ph == 0
+    assert masked_ph == placeholders
 
 def test_guard_document_length_normal():
     text = "Short document content."
