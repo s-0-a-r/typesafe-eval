@@ -5,6 +5,7 @@ questions:
   has_secrets:
     type: noul
     label: "Credential Exposure"
+    preflight: credentials
     instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials (including redacted credential placeholders like [REDACTED_API_KEY] or credentials noted in state)?"
     max_threshold: 0.2
 
