@@ -13,7 +13,15 @@ ROLE_EMAIL_LOCAL_PARTS = {
     "careers", "jobs", "press", "media", "privacy", "postmaster",
     "hostmaster", "root", "noreply", "no-reply", "team", "office",
     "dev", "ops", "hr", "inquiries", "feedback",
+    "hello", "hi", "notifications", "notification", "alerts", "alert",
+    "accounts", "account", "newsletter", "news", "service", "services",
+    "general", "community", "events", "partners", "partnership",
+    "customercare", "customer-care", "customerservice", "customer-service",
 }
+
+ROLE_EMAIL_AFFIXES = (
+    "-team", "team-", "-support", "support-", "-ops", "-dev", "-service",
+)
 
 FREE_OR_PERSONAL_DOMAINS = {
     "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "hotmail.com",
@@ -35,6 +43,8 @@ def classify_email(email_str: str) -> str:
     if domain in FREE_OR_PERSONAL_DOMAINS:
         return "personal"
     if local_part in ROLE_EMAIL_LOCAL_PARTS:
+        return "role"
+    if any(local_part.startswith(affix) or local_part.endswith(affix) for affix in ROLE_EMAIL_AFFIXES):
         return "role"
     return "personal"
 

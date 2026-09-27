@@ -66,6 +66,31 @@ def test_classify_email_domain():
     assert classify_email("support@company.com") == "role"
     assert classify_email("hanako.suzuki@acme-corp.com") == "personal"
 
+def test_generic_and_team_role_emails():
+    # Issue #27: Common generic addresses and team affixes should be role emails
+    from typesafe_eval.sanitizer import classify_email, mask_sensitive_data
+    assert classify_email("hello@company.com") == "role"
+    assert classify_email("hi@company.com") == "role"
+    assert classify_email("notifications@company.com") == "role"
+    assert classify_email("accounts@company.com") == "role"
+    assert classify_email("newsletter@company.com") == "role"
+    assert classify_email("hr-team@company.com") == "role"
+    assert classify_email("dev-team@company.com") == "role"
+    assert classify_email("team-infra@company.com") == "role"
+    assert classify_email("it-support@company.com") == "role"
+
+    # Free domain takes precedence
+    assert classify_email("hello@gmail.com") == "personal"
+    assert classify_email("team@yahoo.com") == "personal"
+
+    # Masking test
+    masked, count, details = mask_sensitive_data("Questions? Write to hello@company.com for help.", return_details=True)
+    assert count == 1
+    assert details["pii_role"] == 1
+    assert details["pii_personal"] == 0
+    assert "[REDACTED_ROLE_EMAIL]" in masked
+    assert "[REDACTED_PERSONAL_EMAIL]" not in masked
+
 def test_example_key_doc_snippet_regression():
     # Issue #17: Example key snippet from README/docs
     snippet = """
