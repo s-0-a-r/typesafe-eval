@@ -112,6 +112,22 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
                 f"between baseline and current evaluation. Scores may be shifted."
             )
 
+    # Print warnings summary if any
+    warning_items = [r for r in results if r.warnings]
+    if warning_items:
+        console.print()
+        warning_texts = []
+        for r in warning_items:
+            for w in r.warnings:
+                warning_texts.append(f"• [bold yellow]{r.filename}[/bold yellow]: {w}")
+        console.print(
+            Panel(
+                "\n".join(warning_texts),
+                title="[bold yellow]Warnings[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+
     # Print violations summary if any
     failed_items = [r for r in results if not r.passed_thresholds]
     if failed_items:
@@ -196,6 +212,15 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
                     f"| {r.filename} | `{q_id}` | {q_diff.previous:.2f} | {q_diff.current:.2f} | "
                     f"{q_diff.delta:+.2f} | {q_diff.max_drop:.2f} | {status_badge} |"
                 )
+        lines.append("")
+
+    warned = [r for r in results if r.warnings]
+    if warned:
+        lines.append("## Warnings")
+        lines.append("")
+        for r in warned:
+            for w in r.warnings:
+                lines.append(f"- **{r.filename}**: {w}")
         lines.append("")
 
     failed = [r for r in results if not r.passed_thresholds]

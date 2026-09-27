@@ -22,6 +22,7 @@ class PresetConfig(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     sanitizer: Optional[SanitizerConfig] = None
+    thresholds_as_warnings: bool = False
     questions: Dict[str, QuestionConfig]
 
 class ScoreResult(BaseModel):
@@ -108,6 +109,7 @@ class DocumentEvalResult(BaseModel):
     composite_score: Optional[float] = None
     passed_thresholds: bool = True
     violations: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
     usage: Optional[Dict[str, int]] = None
     model: Optional[str] = None
     was_truncated: bool = False

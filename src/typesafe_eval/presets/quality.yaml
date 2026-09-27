@@ -1,6 +1,7 @@
 name: "quality"
-title: "Document Quality & Actionability"
-description: "Evaluates structure clarity, objective completeness, and actionable next steps."
+title: "Structure and Readability Regression Detection"
+description: "Evaluates structure clarity and stylistic tone for regression detection."
+thresholds_as_warnings: true
 questions:
   clarity:
     type: score
@@ -10,26 +11,8 @@ questions:
       - "Confusing structure, hard to follow, frequent ambiguities"
       - "Generally readable, but some sections lack context or clear flow"
       - "Crisp structure, logical progression, and unambiguous phrasing"
-    weight: 0.4
+    weight: 1.0
     min_threshold: 0.6
-
-  completeness:
-    type: score
-    label: "Completeness"
-    instructions: "How thoroughly does the document cover its stated objectives, prerequisites, and necessary context?"
-    criteria:
-      - "Major gaps; missing essential background, requirements, or conclusion"
-      - "Covers the core topic, but leaves notable questions or secondary details unaddressed"
-      - "Comprehensive; covers context, details, edge cases, and next steps"
-    weight: 0.4
-    min_threshold: 0.5
-
-  actionable:
-    type: noul
-    label: "Actionability"
-    instructions: "Does this document provide concrete, actionable next steps or clear takeaways for the reader?"
-    weight: 0.2
-    min_threshold: 0.5
 
   tone:
     type: choice
