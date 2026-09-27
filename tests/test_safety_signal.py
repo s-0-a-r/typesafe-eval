@@ -44,3 +44,36 @@ def test_cli_no_mask_flag(tmp_path):
     result = runner.invoke(main, [str(doc), "--preset", "quality", "--dry-run", "--no-mask"])
     assert result.exit_code == 0
     assert "TypeSafe Evaluation Report" in result.output
+
+def test_context_free_email_classification_regression(tmp_path):
+    doc_personal = tmp_path / "personal.txt"
+    doc_personal.write_text("Please forward the contract draft to taro.yamada1987@gmail.com for review.", encoding="utf-8")
+    doc_role = tmp_path / "role.txt"
+    doc_role.write_text("Please forward the contract draft to billing@company.com for review.", encoding="utf-8")
+
+    preset = load_preset("safety")
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+    
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.nouls = {"has_secrets": MagicMock(noul=0.01), "has_pii": MagicMock(noul=0.15)}
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    # Evaluate personal email
+    r_pers = evaluator.evaluate_document(str(doc_personal), preset=preset, mask_secrets=True)
+    state_pers = mock_client.system_one.call_args.kwargs["state"]
+    assert "[REDACTED_PERSONAL_EMAIL]" in state_pers["document"]
+    assert state_pers["redactions"]["pii_personal"] == 1
+    assert state_pers["redactions"]["pii_role"] == 0
+
+    # Evaluate role email
+    r_role = evaluator.evaluate_document(str(doc_role), preset=preset, mask_secrets=True)
+    state_role = mock_client.system_one.call_args.kwargs["state"]
+    assert "[REDACTED_ROLE_EMAIL]" in state_role["document"]
+    assert state_role["redactions"]["pii_personal"] == 0
+    assert state_role["redactions"]["pii_role"] == 1
