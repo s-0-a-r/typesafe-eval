@@ -55,8 +55,8 @@ def test_baseline_load_and_match(tmp_path):
     baseline_file.write_text(json.dumps([prev_res.model_dump()]), encoding="utf-8")
 
     lookup = load_baseline(baseline_file)
-    assert doc_path.name in lookup
     assert str(doc_path) in lookup
+    assert str(doc_path.resolve()) in lookup
 
 
 def test_baseline_drop_exceeding_threshold_fails(tmp_path, monkeypatch):
@@ -257,3 +257,90 @@ def test_baseline_missing_file_exit_code_2(tmp_path):
         [str(doc), "--baseline", str(tmp_path / "nonexistent.json")],
     )
     assert result.exit_code == 2
+
+
+def test_baseline_risk_question_rise_and_drop(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc", encoding="utf-8")
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    # Case 1: Baseline has_pii was 0.00 -> Current is 0.78 (rise of 0.78 > 0.10 max_drop) -> FAILS
+    prev_res_low = _make_eval_result(str(doc), prob_val=0.00, preset_name="safety")
+    baseline_file_low = tmp_path / "baseline_low.json"
+    baseline_file_low.write_text(json.dumps([prev_res_low.model_dump()]), encoding="utf-8")
+
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_eval_result(str(doc), prob_val=0.78, preset_name="safety"),
+    )
+
+    runner = CliRunner()
+    res1 = runner.invoke(main, [str(doc), "--preset", "safety", "--baseline", str(baseline_file_low)])
+    assert res1.exit_code == 1
+    assert "Baseline risk rise: 'has_pii' rose by 0.78" in res1.output
+
+    # Case 2: Baseline has_pii was 0.99 -> Current is 0.78 (drop in risk is an improvement) -> PASSES
+    prev_res_high = _make_eval_result(str(doc), prob_val=0.99, preset_name="safety")
+    baseline_file_high = tmp_path / "baseline_high.json"
+    baseline_file_high.write_text(json.dumps([prev_res_high.model_dump()]), encoding="utf-8")
+
+    res2 = runner.invoke(main, [str(doc), "--preset", "safety", "--baseline", str(baseline_file_high)])
+    assert res2.exit_code == 0
+    assert "Baseline risk rise" not in res2.output
+    assert "Baseline drop" not in res2.output
+
+
+def test_baseline_multiple_same_filename_no_collision(tmp_path, monkeypatch):
+    doc_a = tmp_path / "docs" / "a" / "README.md"
+    doc_b = tmp_path / "docs" / "b" / "README.md"
+    doc_c = tmp_path / "docs" / "c" / "README.md"
+
+    doc_a.parent.mkdir(parents=True, exist_ok=True)
+    doc_b.parent.mkdir(parents=True, exist_ok=True)
+    doc_c.parent.mkdir(parents=True, exist_ok=True)
+
+    doc_a.write_text("# Doc A", encoding="utf-8")
+    doc_b.write_text("# Doc B", encoding="utf-8")
+    doc_c.write_text("# Doc C", encoding="utf-8")
+
+    # Baseline only contains a/README.md and b/README.md
+    res_a = _make_eval_result(str(doc_a), score_val=0.90)
+    res_b = _make_eval_result(str(doc_b), score_val=0.85)
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(json.dumps([res_a.model_dump(), res_b.model_dump()]), encoding="utf-8")
+
+    lookup = load_baseline(baseline_file)
+    assert str(doc_a) in lookup or str(doc_a.resolve()) in lookup
+    assert str(doc_b) in lookup or str(doc_b.resolve()) in lookup
+    assert "README.md" not in lookup
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(self, filepath, **kwargs):
+        p = Path(filepath)
+        if "a" in p.parts:
+            return _make_eval_result(str(doc_a), score_val=0.90)
+        elif "b" in p.parts:
+            return _make_eval_result(str(doc_b), score_val=0.85)
+        else:
+            return _make_eval_result(str(doc_c), score_val=0.80)
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [str(doc_a), str(doc_b), str(doc_c), "--preset", "quality", "--baseline", str(baseline_file), "--format", "json"],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 3
+
+    diffs_by_file = {d["filepath"]: d["baseline_diff"] for d in data}
+    assert diffs_by_file[str(doc_a)]["status"] == "compared"
+    assert diffs_by_file[str(doc_b)]["status"] == "compared"
+    # doc_c must be "new", not falsely compared to a or b!
+    assert diffs_by_file[str(doc_c)]["status"] == "new"
+

@@ -210,6 +210,21 @@ def run_validation(
     else:
         preset_cfg = load_preset(target_preset)
 
+    # Validate question IDs against preset
+    label_q_ids = set()
+    for doc_item in labels_cfg.documents:
+        label_q_ids.update(doc_item.expect.keys())
+    for pair_item in labels_cfg.pairs:
+        label_q_ids.update(pair_item.expect.keys())
+
+    preset_q_ids = set(preset_cfg.questions.keys())
+    unknown_q_ids = sorted(label_q_ids - preset_q_ids)
+    if unknown_q_ids:
+        raise ValueError(
+            f"Labels file contains unknown question ID(s): {', '.join(unknown_q_ids)}. "
+            f"Available question ID(s) in preset '{preset_cfg.name}': {', '.join(sorted(preset_q_ids))}."
+        )
+
     presence_results: List[DocumentPresenceResult] = []
     pair_results: List[PairScoreResult] = []
     has_runtime_error = False
@@ -227,12 +242,27 @@ def run_validation(
                     dry_run=dry_run,
                 )
                 for q_id in doc_item.expect:
-                    if q_id in res.nouls and res.nouls[q_id].probability is not None:
-                        probs_by_question[q_id].append(res.nouls[q_id].probability)
+                    if q_id in res.nouls:
+                        noul_obj = res.nouls[q_id]
+                        if noul_obj.probability is not None:
+                            probs_by_question[q_id].append(noul_obj.probability)
+                        elif noul_obj.overridden_by is not None:
+                            # Preflight decided: violation = present!
+                            probs_by_question[q_id].append(1.0)
+                        else:
+                            click.echo(
+                                f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' probability is None without preflight decision",
+                                err=True,
+                            )
+                            has_runtime_error = True
                     elif q_id in res.scores:
                         probs_by_question[q_id].append(res.scores[q_id].normalized_score)
                     else:
-                        probs_by_question[q_id].append(0.0)
+                        click.echo(
+                            f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' was not returned by evaluator",
+                            err=True,
+                        )
+                        has_runtime_error = True
             except Exception as e:
                 click.echo(f"{doc_path} (run {r+1}/{runs}): {e}", err=True)
                 has_runtime_error = True
@@ -243,19 +273,28 @@ def run_validation(
                 continue
 
             q_cfg = preset_cfg.questions.get(q_id)
-            threshold = (q_cfg.min_threshold if q_cfg and q_cfg.min_threshold is not None else 0.5)
+            is_max_threshold = bool(q_cfg and q_cfg.max_threshold is not None)
+
+            if is_max_threshold:
+                threshold = q_cfg.max_threshold
+                is_present = lambda p, t=threshold: p > t
+                is_absent = lambda p, t=threshold: p <= t
+            else:
+                threshold = q_cfg.min_threshold if (q_cfg and q_cfg.min_threshold is not None) else 0.5
+                is_present = lambda p, t=threshold: p >= t
+                is_absent = lambda p, t=threshold: p < t
 
             spread = max(probs) - min(probs) if probs else 0.0
 
             if expected == "absent":
-                # Detected if below threshold in EVERY run
-                if all(p < threshold for p in probs):
+                # Detected if absent in EVERY run
+                if all(is_absent(p) for p in probs):
                     verdict = "detected"
                 else:
                     verdict = "missed"
             else:
-                # False alarm if below threshold in ANY run
-                if any(p < threshold for p in probs):
+                # False alarm if absent in ANY run
+                if any(is_absent(p) for p in probs):
                     verdict = "false_alarm"
                 else:
                     verdict = "correct_present"
@@ -292,10 +331,21 @@ def run_validation(
                     dry_run=dry_run,
                 )
                 for q_id in pair_item.expect:
-                    sb = res_b.scores[q_id].normalized_score if q_id in res_b.scores else 0.0
-                    sa = res_a.scores[q_id].normalized_score if q_id in res_a.scores else 0.0
-                    before_scores_by_q[q_id].append(sb)
-                    after_scores_by_q[q_id].append(sa)
+                    if q_id in res_b.scores:
+                        before_scores_by_q[q_id].append(res_b.scores[q_id].normalized_score)
+                    elif q_id in res_b.nouls and res_b.nouls[q_id].probability is not None:
+                        before_scores_by_q[q_id].append(res_b.nouls[q_id].probability)
+                    else:
+                        click.echo(f"{before_path} (run {r+1}/{runs}): Question '{q_id}' not returned in pair", err=True)
+                        has_runtime_error = True
+
+                    if q_id in res_a.scores:
+                        after_scores_by_q[q_id].append(res_a.scores[q_id].normalized_score)
+                    elif q_id in res_a.nouls and res_a.nouls[q_id].probability is not None:
+                        after_scores_by_q[q_id].append(res_a.nouls[q_id].probability)
+                    else:
+                        click.echo(f"{after_path} (run {r+1}/{runs}): Question '{q_id}' not returned in pair", err=True)
+                        has_runtime_error = True
             except Exception as e:
                 click.echo(f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{runs}): {e}", err=True)
                 has_runtime_error = True
@@ -724,9 +774,13 @@ def generate_ablation_variants(
         variant_file.write_text(variant_content, encoding="utf-8")
         variant_paths.append(variant_file)
 
+        variant_expect = {}
+        for _, other_slug, _ in sections:
+            variant_expect[other_slug] = "absent" if other_slug == slug else "present"
+
         variant_docs.append({
             "path": variant_filename,
-            "expect": {slug: "absent"},
+            "expect": variant_expect,
         })
 
     labels_data = {
@@ -740,4 +794,6 @@ def generate_ablation_variants(
     }
 
     labels_yaml = yaml.dump(labels_data, sort_keys=False, allow_unicode=True)
+    labels_file = target_dir / "labels.yaml"
+    labels_file.write_text(labels_yaml, encoding="utf-8")
     return variant_paths, labels_yaml

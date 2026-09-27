@@ -99,21 +99,32 @@ def test_ablation_generator(tmp_path):
     assert "## Migration" in content
 
     # Check starter labels YAML
+    assert (out_dir / "labels.yaml").is_file()
     assert "preset: design_doc" in labels_yaml
     assert "min_detected: 3" in labels_yaml
     assert "design_without_goal.md" in labels_yaml
     assert "goal: absent" in labels_yaml
+    assert "rollback_plan: present" in labels_yaml
+    assert "migration: present" in labels_yaml
 
 
 def test_cli_validate_ablate_flag(tmp_path):
     doc = tmp_path / "doc.md"
     doc.write_text("# Title\n\n## Section One\nContent 1\n\n## Section Two\nContent 2\n", encoding="utf-8")
 
+    labels_out = tmp_path / "custom_labels.yaml"
     runner = CliRunner()
-    result = runner.invoke(main, ["validate", "--ablate", str(doc), "--ablate-out-dir", str(tmp_path / "variants")])
+    result = runner.invoke(
+        main,
+        ["validate", "--ablate", str(doc), "--ablate-out-dir", str(tmp_path / "variants"), "--ablate-labels-out", str(labels_out)],
+    )
     assert result.exit_code == 0
     assert "Generated 2 ablation variants:" in result.output
     assert "doc_without_section_one.md" in result.output
+    assert labels_out.is_file()
+    content = labels_out.read_text(encoding="utf-8")
+    assert "section_one: absent" in content
+    assert "section_two: present" in content
 
 
 def test_validate_presence_detected_and_false_alarm(tmp_path, monkeypatch):
@@ -366,3 +377,144 @@ def test_validate_precedence_1_over_3(tmp_path, monkeypatch):
     result = runner.invoke(main, ["validate", str(labels_file)])
     # Criterion failed (code 1) takes precedence over runtime error (code 3)
     assert result.exit_code == 1
+
+
+def test_validate_max_threshold_prob_0_4(tmp_path, monkeypatch):
+    # has_pii has max_threshold 0.3. A probability of 0.4 is > 0.3, so it is considered "present".
+    doc_present = tmp_path / "doc_present.md"
+    doc_present.write_text("Present doc", encoding="utf-8")
+    doc_absent = tmp_path / "doc_absent.md"
+    doc_absent.write_text("Absent doc", encoding="utf-8")
+
+    from typesafe_eval.client import TypeSafeEvaluator
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_noul_result("dummy", prob=0.4, question_id="has_pii"),
+    )
+
+    # When expected: present -> 0.4 > 0.3 means detected as present -> PASS
+    labels_ok = tmp_path / "labels_ok.yaml"
+    labels_ok.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc_present.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    res_ok = runner.invoke(main, ["validate", str(labels_ok)])
+    assert res_ok.exit_code == 0
+    assert "✔ PASS" in res_ok.output
+
+    # When expected: absent -> 0.4 > 0.3 means not absent -> FAIL (missed)
+    labels_fail = tmp_path / "labels_fail.yaml"
+    labels_fail.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  min_detected: 1\n"
+        f"documents:\n"
+        f"  - path: {doc_absent.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+    res_fail = runner.invoke(main, ["validate", str(labels_fail)])
+    assert res_fail.exit_code == 1
+    assert "✘ FAIL" in res_fail.output
+
+
+def test_validate_unknown_question_id_exit_2(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Doc", encoding="utf-8")
+
+    labels_file = tmp_path / "labels_unknown.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: absent, non_existent_q: present}}\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 2
+    assert "unknown question ID(s)" in (result.stderr or result.output)
+    assert "non_existent_q" in (result.stderr or result.output)
+    assert "Available question ID(s) in preset 'safety'" in (result.stderr or result.output)
+
+
+def test_validate_preflight_decided_counts_as_present(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Preflight match", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    # Return noul with probability=None, overridden_by="rule:personal_email"
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={"has_pii": NoulResult(probability=None, overridden_by="rule:personal_email")},
+            passed_thresholds=False,
+            violations=["Preflight personal email detected"],
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 0
+    assert "✔ PASS" in result.output
+
+
+def test_validate_missing_question_causes_runtime_error(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Doc", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    # Evaluator does NOT return has_pii at all
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={},
+            passed_thresholds=True,
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 3
+    assert "not returned by evaluator" in (result.stderr or result.output)
+

@@ -33,9 +33,8 @@ def load_baseline(baseline_path: Union[str, Path]) -> Dict[str, DocumentEvalResu
     for item in items:
         try:
             doc_res = DocumentEvalResult(**item)
-            # Index by multiple keys for resilient matching
+            # Index by filepath and resolved path only (do not index by filename to prevent collision)
             lookup[doc_res.filepath] = doc_res
-            lookup[doc_res.filename] = doc_res
             try:
                 resolved_key = str(Path(doc_res.filepath).resolve())
                 lookup[resolved_key] = doc_res
@@ -57,10 +56,10 @@ def compare_document_with_baseline(
     
     Returns (updated_result, has_regression, optional_truncation_warning).
     """
-    # Match candidate
+    # Match candidate by filepath or resolved path only
     match_key = None
     prev = None
-    for key in (result.filepath, result.filename, str(Path(result.filepath).resolve())):
+    for key in (result.filepath, str(Path(result.filepath).resolve())):
         if key in baseline_lookup:
             prev = baseline_lookup[key]
             match_key = key
@@ -99,24 +98,50 @@ def compare_document_with_baseline(
 
         if curr_val is not None and prev_val is not None:
             delta = curr_val - prev_val
-            drop = prev_val - curr_val
-            regressed = drop > threshold
+            is_risk_question = bool(q_cfg and q_cfg.max_threshold is not None)
 
-            diff_questions[q_id] = QuestionDiff(
-                previous=prev_val,
-                current=curr_val,
-                delta=delta,
-                max_drop=threshold,
-                regressed=regressed,
-            )
+            if is_risk_question:
+                # For risk questions with max_threshold (e.g. has_secrets, has_pii, confidentiality_risk):
+                # A rise in probability/risk is a regression
+                rise = curr_val - prev_val
+                regressed = rise > threshold
 
-            if regressed:
-                has_regression = True
-                result.passed_thresholds = False
-                result.violations.append(
-                    f"Baseline drop: '{q_id}' dropped by {drop:.2f} "
-                    f"(prev: {prev_val:.2f}, curr: {curr_val:.2f}, max allowed drop: {threshold:.2f})"
+                diff_questions[q_id] = QuestionDiff(
+                    previous=prev_val,
+                    current=curr_val,
+                    delta=delta,
+                    max_drop=threshold,
+                    regressed=regressed,
                 )
+
+                if regressed:
+                    has_regression = True
+                    result.passed_thresholds = False
+                    result.violations.append(
+                        f"Baseline risk rise: '{q_id}' rose by {rise:.2f} "
+                        f"(prev: {prev_val:.2f}, curr: {curr_val:.2f}, max allowed rise: {threshold:.2f})"
+                    )
+            else:
+                # For standard/min_threshold questions (e.g. clarity, completeness):
+                # A drop in score is a regression
+                drop = prev_val - curr_val
+                regressed = drop > threshold
+
+                diff_questions[q_id] = QuestionDiff(
+                    previous=prev_val,
+                    current=curr_val,
+                    delta=delta,
+                    max_drop=threshold,
+                    regressed=regressed,
+                )
+
+                if regressed:
+                    has_regression = True
+                    result.passed_thresholds = False
+                    result.violations.append(
+                        f"Baseline drop: '{q_id}' dropped by {drop:.2f} "
+                        f"(prev: {prev_val:.2f}, curr: {curr_val:.2f}, max allowed drop: {threshold:.2f})"
+                    )
 
     result.baseline_diff = BaselineDiff(
         status="compared",
