@@ -163,7 +163,7 @@ class TypeSafeEvaluator:
                 q_id = f"secret_{num_suffix}"
                 sdk_questions[q_id] = Noul(
                     instructions=(
-                        f"Is {placeholder} an actual secret, credential, or password value (not a placeholder, example, or template)? "
+                        f"Is the value represented by {placeholder} an actual secret, credential, or password (not an example, placeholder, or template)? "
                         f"Use the surrounding text and state.redacted_secrets."
                     )
                 )
@@ -177,7 +177,7 @@ class TypeSafeEvaluator:
         if redaction_details and (redaction_details.get("total", 0) > 0 or redaction_details.get("examples", 0) > 0):
             state["redactions"] = {
                 "credentials": redaction_details.get("credentials", 0),
-                "pii": redaction_details.get("pii", 0),
+                "pii": redaction_details.get("pii_personal", 0),
                 "pii_personal": redaction_details.get("pii_personal", 0),
                 "pii_role": redaction_details.get("pii_role", 0),
                 "examples": redaction_details.get("examples", 0),

@@ -519,14 +519,15 @@ def mask_sensitive_data(
             url_feat = distinct_urls[norm_url]["features"]
 
         total_redactions += 1
-        details["pii"] += 1
         if url_feat["is_example_domain"] or url_feat["is_public_common"]:
             details["examples"] += 1
             details["by_type"]["example_url"] = details["by_type"].get("example_url", 0) + 1
         elif url_feat["is_internal_tld"]:
+            details["pii"] += 1
             details["pii_personal"] += 1
             details["by_type"]["url_internal"] = details["by_type"].get("url_internal", 0) + 1
         else:
+            details["pii"] += 1
             details["by_type"]["url_public"] = details["by_type"].get("url_public", 0) + 1
 
         add_span(s, e, placeholder)
@@ -556,14 +557,15 @@ def mask_sensitive_data(
             ip_feat = distinct_ips[ip_str]["features"]
 
         total_redactions += 1
-        details["pii"] += 1
         if ip_feat["is_documentation"] or ip_feat["is_loopback"]:
             details["examples"] += 1
             details["by_type"]["example_ip"] = details["by_type"].get("example_ip", 0) + 1
         elif ip_feat["is_private"]:
+            details["pii"] += 1
             details["pii_personal"] += 1
             details["by_type"]["ip_private"] = details["by_type"].get("ip_private", 0) + 1
         else:
+            details["pii"] += 1
             details["by_type"]["ip_public"] = details["by_type"].get("ip_public", 0) + 1
 
         add_span(s, e, placeholder)
