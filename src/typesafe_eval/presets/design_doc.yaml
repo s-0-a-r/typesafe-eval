@@ -1,0 +1,63 @@
+name: "design_doc"
+title: "Design Doc Review Checklist"
+description: "Checks whether a design document covers the items reviewers usually ask about."
+questions:
+  goal:
+    type: noul
+    label: "Goal"
+    instructions: "Does this document state the problem it solves and the goal of the change?"
+    min_threshold: 0.5
+
+  non_goals:
+    type: noul
+    label: "Non-goals"
+    instructions: "Does this document explicitly list what is out of scope or intentionally not addressed (non-goals)?"
+    min_threshold: 0.5
+
+  alternatives:
+    type: noul
+    label: "Alternatives"
+    instructions: "Does this document describe alternative approaches that were considered and why they were not chosen?"
+    min_threshold: 0.5
+
+  risks:
+    type: noul
+    label: "Risks"
+    instructions: "Does this document identify risks or failure modes of the proposed change, with mitigations?"
+    min_threshold: 0.5
+
+  rollback:
+    type: noul
+    label: "Rollback"
+    instructions: "Does this document describe how to roll back or disable the change if it causes problems in production?"
+    min_threshold: 0.5
+
+  metrics:
+    type: noul
+    label: "Success metrics"
+    instructions: "Does this document define how success will be measured (metrics, targets, or acceptance criteria)?"
+    min_threshold: 0.5
+
+  migration:
+    type: noul
+    label: "Migration"
+    instructions: "Does this document describe the rollout or migration steps from the current system to the new one?"
+    min_threshold: 0.5
+
+  impact:
+    type: noul
+    label: "Impact"
+    instructions: "Does this document list the other systems, teams, or users affected by the change?"
+    min_threshold: 0.5
+
+  open_questions:
+    type: noul
+    label: "Open questions"
+    instructions: "Does this document list unresolved questions or decisions that are still pending?"
+    min_threshold: 0.5
+
+  owner_timeline:
+    type: noul
+    label: "Owner and timeline"
+    instructions: "Does this document name who owns the work and give a timeline or target dates?"
+    min_threshold: 0.5

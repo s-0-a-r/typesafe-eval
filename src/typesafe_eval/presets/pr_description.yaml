@@ -1,0 +1,33 @@
+name: "pr_description"
+title: "Pull Request Description Checklist"
+description: "Checks whether a pull request description covers the essential items reviewers need."
+questions:
+  summary:
+    type: noul
+    label: "Summary"
+    instructions: "Does this PR description explain what changes are made and the reason or problem they solve?"
+    min_threshold: 0.5
+
+  testing:
+    type: noul
+    label: "Testing"
+    instructions: "Does this PR description describe how the changes were tested or verified (e.g., test suites, commands, or manual verification steps)?"
+    min_threshold: 0.5
+
+  impact:
+    type: noul
+    label: "Impact"
+    instructions: "Does this PR description describe the impact, affected components, or potential operational risks of the changes?"
+    min_threshold: 0.5
+
+  breaking_changes:
+    type: noul
+    label: "Breaking changes"
+    instructions: "Does this PR description explicitly mention whether there are breaking changes, migrations, or backwards-incompatible behavior?"
+    min_threshold: 0.5
+
+  related_issues:
+    type: noul
+    label: "Related issues"
+    instructions: "Does this PR description reference or link related issues, tickets, design docs, or discussions?"
+    min_threshold: 0.5

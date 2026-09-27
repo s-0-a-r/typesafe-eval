@@ -569,3 +569,17 @@ def test_validate_candidate_violation_counts_as_present(tmp_path, monkeypatch):
     assert "✔ PASS" in result.output
 
 
+def test_validate_design_doc_labels_structure():
+    # Verify that the design_doc labels_en.yaml and labels_ja.yaml can be parsed and executed in dry-run mode
+    runner = CliRunner()
+    for lang in ("en", "ja"):
+        labels_file = Path(f"tests/fixtures/design_doc/labels_{lang}.yaml")
+        assert labels_file.exists()
+        result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+        assert "Preset: design_doc" in result.output
+        assert "Presence Questions (Noul)" in result.output
+        assert "goal" in result.output
+        assert "owner_ti" in result.output
+
+
+
