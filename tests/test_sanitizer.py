@@ -7,7 +7,7 @@ def test_mask_sensitive_data():
     assert "apikey_" not in masked
     assert "user@example.com" not in masked
     assert "[REDACTED_API_KEY]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+    assert "[EMAIL_1]" in masked
 
 def test_mask_sensitive_data_details():
     raw = (
@@ -24,8 +24,13 @@ def test_mask_sensitive_data_details():
     assert details["pii"] == 2
     assert details["pii_role"] == 1
     assert details["pii_personal"] == 1
-    assert "[REDACTED_ROLE_EMAIL]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+    assert "[EMAIL_1]" in masked
+    assert "[EMAIL_2]" in masked
+    assert len(details["redacted_emails"]) == 2
+    assert details["redacted_emails"][0]["placeholder"] == "[EMAIL_1]"
+    assert details["redacted_emails"][0]["domain_type"] == "corporate"
+    assert details["redacted_emails"][1]["placeholder"] == "[EMAIL_2]"
+    assert details["redacted_emails"][1]["domain_type"] == "free_mail"
 
 def test_mask_boundaries_and_placeholder_neutralization():
     # Boundary check: task-... and desk-... must not match sk- pattern
@@ -88,8 +93,8 @@ def test_generic_and_team_role_emails():
     assert count == 1
     assert details["pii_role"] == 1
     assert details["pii_personal"] == 0
-    assert "[REDACTED_ROLE_EMAIL]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" not in masked
+    assert "[EMAIL_1]" in masked
+    assert "hello@company.com" not in masked
 
 def test_example_key_doc_snippet_regression():
     # Issue #17: Example key snippet from README/docs
@@ -150,5 +155,5 @@ def test_custom_role_email_glob_patterns():
     assert details["pii_personal"] == 1
     assert "ops-lead@company.com" not in masked
     assert "john@company.com" not in masked
-    assert "[REDACTED_ROLE_EMAIL]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+    assert "[EMAIL_1]" in masked
+    assert "[EMAIL_2]" in masked

@@ -91,15 +91,28 @@ When exporting results with `--format json`, each document evaluation result con
   - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
   - `overridden_by`: Set to `"preflight_scan"` when deterministic regex pre-flight masking caught exposed credentials (for questions bound to `preflight: credentials`) or personal PII (for `preflight: pii`, ignoring generic role emails like `support@company.com`). Overridden questions continue to contribute their model probability to `composite_score` when present, while independently failing the evaluation gate.
 - `choices`: Map of choice questions with selected `choice` and `confidence`.
+- `email_evaluations`: List of evaluated email addresses with placeholder, question ID, structural features, outcome (`personal` or `role`), and decision source (`model` or `free_mail`).
 - `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
 - `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
 
-### 5. Dry-Run Mode (Validation without Calling API)
+### 5. Contextual Email PII Evaluation (v0.4.0)
+
+`typesafe-eval` utilizes an LLM-native contextual evaluation architecture for email privacy:
+1. **Numbered Placeholders**: Replaces distinct email addresses with `[EMAIL_1]`, `[EMAIL_2]`... (lowercased before numbering for deduplication).
+2. **Metadata in State**: Extracts structural features into `state.redacted_emails` (`domain_type`, `local_part_shape`, `known_role_word`, `matches_custom_role`).
+3. **Parallel Per-Email Evaluation**: Evaluates corporate addresses via batched parallel `Noul` questions in a single `system_one` call, letting the model determine personal vs role status from surrounding document context.
+4. **Deterministic Free-mail Gating**: Free-mail providers (`gmail.com`, `yahoo.com`, `icloud.com`, etc.) deterministically fail as personal PII (`decided_by: "free_mail"`) without consuming question tokens.
+5. **Score Isolation**: Dynamic per-email questions act as pass/fail gate checks only and do not alter `composite_score`.
+
+#### Known Limitations
+- **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
+
+### 6. Dry-Run Mode (Validation without Calling API)
 ```bash
 typesafe-eval docs/*.md --dry-run
 ```
 
-### 6. List Built-in Presets
+### 7. List Built-in Presets
 ```bash
 typesafe-eval --list-presets
 ```

@@ -12,6 +12,7 @@ from typesafe_eval.models import (
     ScoreResult,
     NoulResult,
     ChoiceResult,
+    EmailEvaluationResult,
 )
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
@@ -96,6 +97,20 @@ class TypeSafeEvaluator:
                     criteria=criteria,
                 )
 
+        # Dynamic per-email Noul questions for corporate domains (batched)
+        redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
+        for feature in redacted_emails:
+            if feature.get("domain_type") == "corporate":
+                placeholder = feature["placeholder"]
+                num_suffix = placeholder.strip("[]").replace("EMAIL_", "")
+                q_id = f"email_pii_{num_suffix}"
+                sdk_questions[q_id] = Noul(
+                    instructions=(
+                        f"Is {placeholder} an address of an individual person (not a shared role, team, or system mailbox)? "
+                        f"Use the surrounding text and state.redacted_emails."
+                    )
+                )
+
         # 5. Call TypeSafe System One (Jev)
         client = self._get_client()
         state: Dict[str, Any] = {
@@ -110,6 +125,8 @@ class TypeSafeEvaluator:
                 "pii_role": redaction_details.get("pii_role", 0),
                 "examples": redaction_details.get("examples", 0),
             }
+        if redacted_emails:
+            state["redacted_emails"] = redacted_emails
         response = client.system_one(state=state, questions=sdk_questions)
 
         # 6. Parse answers
@@ -142,6 +159,53 @@ class TypeSafeEvaluator:
                     confidence=ans.confidence,
                     probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                 )
+
+        # Evaluate and aggregate emails
+        email_evaluations: List[EmailEvaluationResult] = []
+        email_violations: List[str] = []
+
+        for feature in redacted_emails:
+            placeholder = feature["placeholder"]
+            num_suffix = placeholder.strip("[]").replace("EMAIL_", "")
+            q_id = f"email_pii_{num_suffix}"
+
+            if feature.get("domain_type") == "free_mail":
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="personal",
+                        probability=None,
+                        decided_by="free_mail",
+                    )
+                )
+                email_violations.append(
+                    f"PII Exposure: {placeholder} is an individual address (free-mail)"
+                )
+            else:
+                prob = None
+                if q_id in response.nouls:
+                    prob = response.nouls[q_id].noul
+                outcome: Literal["personal", "role", "undecided"] = "undecided"
+                if prob is not None:
+                    outcome = "personal" if prob >= 0.5 else "role"
+
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome=outcome,
+                        probability=prob,
+                        decided_by="model",
+                    )
+                )
+                if outcome == "personal":
+                    prob_str = f" (model: {prob:.2f})" if prob is not None else ""
+                    email_violations.append(
+                        f"PII Exposure: {placeholder} is an individual address{prob_str}"
+                    )
 
         # Deterministic pre-flight enforcement for credentials & PII:
         # If pre-flight masking detected credentials or personal PII, record the override
@@ -179,6 +243,10 @@ class TypeSafeEvaluator:
             redaction_details=redaction_details,
         )
 
+        if email_violations:
+            violations.extend(email_violations)
+            passed = False
+
         usage_dict = None
         if response.usage:
             usage_dict = {
@@ -193,6 +261,7 @@ class TypeSafeEvaluator:
             scores=scores,
             nouls=nouls,
             choices=choices,
+            email_evaluations=email_evaluations,
             composite_score=composite_score,
             passed_thresholds=passed,
             violations=violations,
@@ -308,9 +377,51 @@ class TypeSafeEvaluator:
         if pii_count > 0 and pii_q_id and pii_q_id in nouls:
             nouls[pii_q_id].overridden_by = "preflight_scan"
 
+        email_evaluations: List[EmailEvaluationResult] = []
+        email_violations: List[str] = []
+        redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
+        for feature in redacted_emails:
+            placeholder = feature["placeholder"]
+            num_suffix = placeholder.strip("[]").replace("EMAIL_", "")
+            q_id = f"email_pii_{num_suffix}"
+            if feature.get("domain_type") == "free_mail":
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="personal",
+                        probability=None,
+                        decided_by="free_mail",
+                    )
+                )
+                email_violations.append(
+                    f"PII Exposure: {placeholder} is an individual address (free-mail)"
+                )
+            else:
+                mock_prob = 0.10 if (feature.get("known_role_word") or feature.get("matches_custom_role")) else 0.80
+                outcome: Literal["personal", "role", "undecided"] = "personal" if mock_prob >= 0.5 else "role"
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome=outcome,
+                        probability=mock_prob,
+                        decided_by="model",
+                    )
+                )
+                if outcome == "personal":
+                    email_violations.append(
+                        f"PII Exposure: {placeholder} is an individual address (model: {mock_prob:.2f})"
+                    )
+
         composite, passed, violations = self._evaluate_thresholds_and_composite(
             preset, scores, nouls, choices, redaction_details=redaction_details
         )
+        if email_violations:
+            violations.extend(email_violations)
+            passed = False
 
         return DocumentEvalResult(
             filepath=filepath,
@@ -319,6 +430,7 @@ class TypeSafeEvaluator:
             scores=scores,
             nouls=nouls,
             choices=choices,
+            email_evaluations=email_evaluations,
             composite_score=composite,
             passed_thresholds=passed,
             violations=violations,
