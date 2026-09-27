@@ -518,3 +518,54 @@ def test_validate_missing_question_causes_runtime_error(tmp_path, monkeypatch):
     assert result.exit_code == 3
     assert "not returned by evaluator" in (result.stderr or result.output)
 
+
+def test_validate_candidate_violation_counts_as_present(tmp_path, monkeypatch):
+    # Tests that when document-level has_pii probability is low (e.g. 0.05),
+    # but a candidate (e.g. personal phone number in phone_05) is a violation,
+    # validate treats has_pii as present rather than triggering a false alarm.
+    doc = tmp_path / "phone_05.md"
+    doc.write_text("Call 090-1234-5678", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+    from typesafe_eval.models import PhoneEvaluationResult
+
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={"has_pii": NoulResult(probability=0.05)},
+            phone_evaluations=[
+                PhoneEvaluationResult(
+                    placeholder="[PHONE_1]",
+                    question_id="phone_pii_1",
+                    features={},
+                    outcome="personal",
+                    probability=0.85,
+                    decided_by="model",
+                )
+            ],
+            passed_thresholds=False,
+            violations=["PII Exposure: [PHONE_1] is an individual phone number"],
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 0
+    assert "✔ PASS" in result.output
+
+

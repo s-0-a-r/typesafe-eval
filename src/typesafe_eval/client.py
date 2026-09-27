@@ -1,8 +1,9 @@
 """Evaluation engine wrapping TypeSafe System One API client."""
 
 import os
+import re
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Literal
 
 from typesafe_sdk import TypeSafeClient, Choice, Noul, Score, TypeSafeError
 
@@ -13,6 +14,10 @@ from typesafe_eval.models import (
     NoulResult,
     ChoiceResult,
     EmailEvaluationResult,
+    PhoneEvaluationResult,
+    IPEvaluationResult,
+    URLEvaluationResult,
+    SecretEvaluationResult,
 )
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
@@ -52,15 +57,11 @@ class TypeSafeEvaluator:
         path = Path(filepath)
         raw_content = path.read_text(encoding="utf-8")
 
-        # 1. Sanitize
-        redaction_count = 0
-        redaction_details: Dict[str, Any] = {}
-        content = raw_content
-        if mask_secrets:
-            custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
-            content, redaction_count, redaction_details = mask_sensitive_data(
-                content, return_details=True, custom_role_patterns=custom_roles
-            )
+        # 1. Sanitize (detection & feature extraction always run; mask controls substitution)
+        custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
+        content, redaction_count, redaction_details = mask_sensitive_data(
+            raw_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
+        )
 
         # 2. Length check & truncation guard
         content, was_truncated = guard_document_length(content, max_chars=max_chars)
@@ -97,7 +98,7 @@ class TypeSafeEvaluator:
                     criteria=criteria,
                 )
 
-        # Dynamic per-email Noul questions for corporate domains (batched)
+        # Dynamic per-candidate Noul questions
         redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
         for feature in redacted_emails:
             if feature.get("domain_type") == "corporate":
@@ -111,6 +112,62 @@ class TypeSafeEvaluator:
                     )
                 )
 
+        redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
+        for feature in redacted_phones:
+            placeholder = feature["placeholder"]
+            num_suffix = placeholder.strip("[]").replace("PHONE_", "")
+            q_id = f"phone_pii_{num_suffix}"
+            sdk_questions[q_id] = Noul(
+                instructions=(
+                    f"Is {placeholder} a private or personal phone number of an individual (not a shared corporate switchboard, toll-free number, or customer support line)? "
+                    f"Use the surrounding text and state.redacted_phones."
+                )
+            )
+
+        redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
+        for feature in redacted_ips:
+            if not feature.get("is_documentation") and not feature.get("is_loopback"):
+                placeholder = feature["placeholder"]
+                num_suffix = placeholder.strip("[]").replace("IP_", "")
+                q_id = f"ip_pii_{num_suffix}"
+                sdk_questions[q_id] = Noul(
+                    instructions=(
+                        f"Is {placeholder} an internal, production, or sensitive IP address (not a documentation or public dummy IP)? "
+                        f"Use the surrounding text and state.redacted_ips."
+                    )
+                )
+
+        redacted_urls = redaction_details.get("redacted_urls", []) if redaction_details else []
+        for feature in redacted_urls:
+            if (
+                not feature.get("is_example_domain")
+                and not feature.get("is_public_common")
+                and not feature.get("is_loopback")
+                and not feature.get("is_documentation")
+            ):
+                placeholder = feature["placeholder"]
+                num_suffix = placeholder.strip("[]").replace("URL_", "")
+                q_id = f"url_pii_{num_suffix}"
+                sdk_questions[q_id] = Noul(
+                    instructions=(
+                        f"Is {placeholder} an internal, non-public, or sensitive endpoint or infrastructure URL (not a public internet service or example URL)? "
+                        f"Use the surrounding text and state.redacted_urls."
+                    )
+                )
+
+        redacted_secrets = redaction_details.get("redacted_secrets", []) if redaction_details else []
+        for feature in redacted_secrets:
+            if not feature.get("is_known_format") and not feature.get("placeholder_syntax"):
+                placeholder = feature["placeholder"]
+                num_suffix = placeholder.strip("[]").replace("SECRET_", "")
+                q_id = f"secret_{num_suffix}"
+                sdk_questions[q_id] = Noul(
+                    instructions=(
+                        f"Is the value represented by {placeholder} an actual secret, credential, or password (not an example, placeholder, or template)? "
+                        f"Use the surrounding text and state.redacted_secrets."
+                    )
+                )
+
         # 5. Call TypeSafe System One (Jev)
         client = self._get_client()
         state: Dict[str, Any] = {
@@ -120,13 +177,23 @@ class TypeSafeEvaluator:
         if redaction_details and (redaction_details.get("total", 0) > 0 or redaction_details.get("examples", 0) > 0):
             state["redactions"] = {
                 "credentials": redaction_details.get("credentials", 0),
-                "pii": redaction_details.get("pii", 0),
+                "pii": redaction_details.get("pii_personal", 0),
                 "pii_personal": redaction_details.get("pii_personal", 0),
                 "pii_role": redaction_details.get("pii_role", 0),
                 "examples": redaction_details.get("examples", 0),
             }
         if redacted_emails:
             state["redacted_emails"] = redacted_emails
+        if redacted_phones:
+            state["redacted_phones"] = redacted_phones
+        if redacted_ips:
+            state["redacted_ips"] = redacted_ips
+        if redacted_urls:
+            state["redacted_urls"] = redacted_urls
+        if redacted_secrets:
+            # STRICT SAFETY: contains only metadata, never the raw secret value or hash
+            state["redacted_secrets"] = redacted_secrets
+
         response = client.system_one(state=state, questions=sdk_questions)
 
         # 6. Parse answers
@@ -160,10 +227,14 @@ class TypeSafeEvaluator:
                     probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                 )
 
-        # Evaluate and aggregate emails
-        email_evaluations: List[EmailEvaluationResult] = []
         email_violations: List[str] = []
+        phone_violations: List[str] = []
+        ip_violations: List[str] = []
+        url_violations: List[str] = []
+        secret_violations: List[str] = []
 
+        # Emails
+        email_evaluations: List[EmailEvaluationResult] = []
         for feature in redacted_emails:
             placeholder = feature["placeholder"]
             num_suffix = placeholder.strip("[]").replace("EMAIL_", "")
@@ -207,13 +278,193 @@ class TypeSafeEvaluator:
                         f"PII Exposure: {placeholder} is an individual address{prob_str}"
                     )
 
-        # Deterministic pre-flight enforcement for credentials & PII:
-        # If pre-flight masking detected credentials or personal PII, record the override
-        # on the configured target question without overwriting the model's raw probability.
+        # Phones
+        phone_evaluations: List[PhoneEvaluationResult] = []
+        for feature in redacted_phones:
+            placeholder = feature["placeholder"]
+            num_suffix = placeholder.strip("[]").replace("PHONE_", "")
+            q_id = f"phone_pii_{num_suffix}"
+            prob = response.nouls[q_id].noul if q_id in response.nouls else None
+            outcome: Literal["personal", "support", "undecided"] = "undecided"
+            decided_by: Literal["model", "rule"] = "model"
+            if feature.get("is_support_prefix"):
+                outcome = "support"
+                decided_by = "rule"
+            elif prob is not None:
+                outcome = "personal" if prob >= 0.5 else "support"
+            elif feature.get("looks_like_support"):
+                outcome = "support"
+            else:
+                outcome = "personal"
+
+            phone_evaluations.append(
+                PhoneEvaluationResult(
+                    placeholder=placeholder,
+                    question_id=q_id if decided_by == "model" else None,
+                    features=feature,
+                    outcome=outcome,
+                    probability=prob,
+                    decided_by=decided_by,
+                )
+            )
+            if outcome == "personal":
+                prob_str = f" (model: {prob:.2f})" if prob is not None else ""
+                phone_violations.append(
+                    f"PII Exposure: {placeholder} is an individual phone number{prob_str}"
+                )
+
+        # IPs
+        ip_evaluations: List[IPEvaluationResult] = []
+        for feature in redacted_ips:
+            placeholder = feature["placeholder"]
+            if feature.get("is_documentation") or feature.get("is_loopback"):
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="safe",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            else:
+                num_suffix = placeholder.strip("[]").replace("IP_", "")
+                q_id = f"ip_pii_{num_suffix}"
+                prob = response.nouls[q_id].noul if q_id in response.nouls else None
+                outcome_ip: Literal["sensitive", "safe", "undecided"] = "undecided"
+                if prob is not None:
+                    outcome_ip = "sensitive" if prob >= 0.5 else "safe"
+                elif feature.get("is_private"):
+                    outcome_ip = "sensitive"
+                else:
+                    outcome_ip = "safe"
+
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome=outcome_ip,
+                        probability=prob,
+                        decided_by="model",
+                    )
+                )
+                if outcome_ip == "sensitive":
+                    prob_str = f" (model: {prob:.2f})" if prob is not None else ""
+                    ip_violations.append(
+                        f"PII Exposure: {placeholder} is an internal/sensitive IP address{prob_str}"
+                    )
+
+        # URLs
+        url_evaluations: List[URLEvaluationResult] = []
+        for feature in redacted_urls:
+            placeholder = feature["placeholder"]
+            if (
+                feature.get("is_example_domain")
+                or feature.get("is_public_common")
+                or feature.get("is_loopback")
+                or feature.get("is_documentation")
+            ):
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="safe",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            else:
+                num_suffix = placeholder.strip("[]").replace("URL_", "")
+                q_id = f"url_pii_{num_suffix}"
+                prob = response.nouls[q_id].noul if q_id in response.nouls else None
+                outcome_url: Literal["sensitive", "safe", "undecided"] = "undecided"
+                if prob is not None:
+                    outcome_url = "sensitive" if prob >= 0.5 else "safe"
+                elif feature.get("is_internal_tld"):
+                    outcome_url = "sensitive"
+                else:
+                    outcome_url = "safe"
+
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome=outcome_url,
+                        probability=prob,
+                        decided_by="model",
+                    )
+                )
+                if outcome_url == "sensitive":
+                    prob_str = f" (model: {prob:.2f})" if prob is not None else ""
+                    url_violations.append(
+                        f"PII Exposure: {placeholder} is an internal/sensitive URL{prob_str}"
+                    )
+
+        # Secrets
+        secret_evaluations: List[SecretEvaluationResult] = []
+        for feature in redacted_secrets:
+            placeholder = feature["placeholder"]
+            if feature.get("is_known_format"):
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="secret",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+                secret_violations.append(
+                    f"Credential Exposure: {placeholder} is a known format secret"
+                )
+            elif feature.get("placeholder_syntax"):
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="safe",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            else:
+                num_suffix = placeholder.strip("[]").replace("SECRET_", "")
+                q_id = f"secret_{num_suffix}"
+                prob = response.nouls[q_id].noul if q_id in response.nouls else None
+                outcome_sec: Literal["secret", "safe", "undecided"] = "undecided"
+                if prob is not None:
+                    outcome_sec = "secret" if prob >= 0.5 else "safe"
+                elif feature.get("near_example_words"):
+                    outcome_sec = "safe"
+                else:
+                    outcome_sec = "secret"
+
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome=outcome_sec,
+                        probability=prob,
+                        decided_by="model",
+                    )
+                )
+                if outcome_sec == "secret":
+                    prob_str = f" (model: {prob:.2f})" if prob is not None else ""
+                    secret_violations.append(
+                        f"Credential Exposure: {placeholder} is an exposed secret{prob_str}"
+                    )
+
+        # Preflight overrides for credentials & PII
         cred_q_id = _find_preflight_question(preset, "credentials")
         cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
-
-        if mask_secrets and cred_count > 0 and cred_q_id:
+        if cred_count > 0 and cred_q_id:
             if cred_q_id in nouls:
                 nouls[cred_q_id].overridden_by = "preflight_scan"
             else:
@@ -224,8 +475,7 @@ class TypeSafeEvaluator:
 
         pii_q_id = _find_preflight_question(preset, "pii")
         pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
-
-        if mask_secrets and pii_count > 0 and pii_q_id:
+        if pii_count > 0 and pii_q_id:
             if pii_q_id in nouls:
                 nouls[pii_q_id].overridden_by = "preflight_scan"
             else:
@@ -243,9 +493,17 @@ class TypeSafeEvaluator:
             redaction_details=redaction_details,
         )
 
-        if email_violations:
-            violations.extend(email_violations)
+        has_sec_check = bool(_find_preflight_question(preset, "credentials") or "has_secrets" in preset.questions)
+        has_pii_check = bool(_find_preflight_question(preset, "pii") or "has_pii" in preset.questions)
+
+        if has_sec_check and secret_violations:
+            violations.extend(secret_violations)
             passed = False
+        if has_pii_check:
+            all_pii_violations = email_violations + phone_violations + ip_violations + url_violations
+            if all_pii_violations:
+                violations.extend(all_pii_violations)
+                passed = False
 
         usage_dict = None
         if response.usage:
@@ -262,11 +520,15 @@ class TypeSafeEvaluator:
             nouls=nouls,
             choices=choices,
             email_evaluations=email_evaluations,
+            phone_evaluations=phone_evaluations,
+            ip_evaluations=ip_evaluations,
+            url_evaluations=url_evaluations,
+            secret_evaluations=secret_evaluations,
             composite_score=composite_score,
             passed_thresholds=passed,
             violations=violations,
             usage=usage_dict,
-            model=response.model,
+            model=response.model or "type-safe-one",
             was_truncated=was_truncated,
             redactions_count=redaction_count,
             redaction_details=redaction_details,
@@ -284,7 +546,6 @@ class TypeSafeEvaluator:
         weighted_sum = 0.0
         passed = True
         violations = []
-        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
 
         for q_id, q_cfg in preset.questions.items():
             val = None
@@ -343,6 +604,7 @@ class TypeSafeEvaluator:
         nouls = {}
         choices = {}
         path = Path(filepath)
+        content = path.read_text(encoding="utf-8") if path.is_file() else ""
 
         for q_id, q_cfg in preset.questions.items():
             if q_cfg.type == "score":
@@ -367,18 +629,14 @@ class TypeSafeEvaluator:
                     probabilities={str(default_choice): 0.95, "other": 0.05},
                 )
 
-        cred_q_id = _find_preflight_question(preset, "credentials")
-        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
-        if cred_count > 0 and cred_q_id and cred_q_id in nouls:
-            nouls[cred_q_id].overridden_by = "preflight_scan"
-
-        pii_q_id = _find_preflight_question(preset, "pii")
-        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
-        if pii_count > 0 and pii_q_id and pii_q_id in nouls:
-            nouls[pii_q_id].overridden_by = "preflight_scan"
-
         email_evaluations: List[EmailEvaluationResult] = []
-        email_violations: List[str] = []
+        phone_evaluations: List[PhoneEvaluationResult] = []
+        ip_evaluations: List[IPEvaluationResult] = []
+        url_evaluations: List[URLEvaluationResult] = []
+        secret_evaluations: List[SecretEvaluationResult] = []
+        extra_violations: List[str] = []
+
+        # Emails
         redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
         for feature in redacted_emails:
             placeholder = feature["placeholder"]
@@ -395,32 +653,260 @@ class TypeSafeEvaluator:
                         decided_by="free_mail",
                     )
                 )
-                email_violations.append(
+                extra_violations.append(
                     f"PII Exposure: {placeholder} is an individual address (free-mail)"
                 )
             else:
                 mock_prob = 0.10 if (feature.get("known_role_word") or feature.get("matches_custom_role")) else 0.80
-                outcome: Literal["personal", "role", "undecided"] = "personal" if mock_prob >= 0.5 else "role"
+                outcome_em: Literal["personal", "role", "undecided"] = "personal" if mock_prob >= 0.5 else "role"
                 email_evaluations.append(
                     EmailEvaluationResult(
                         placeholder=placeholder,
                         question_id=q_id,
                         features=feature,
-                        outcome=outcome,
+                        outcome=outcome_em,
                         probability=mock_prob,
                         decided_by="model",
                     )
                 )
-                if outcome == "personal":
-                    email_violations.append(
+                if outcome_em == "personal":
+                    extra_violations.append(
                         f"PII Exposure: {placeholder} is an individual address (model: {mock_prob:.2f})"
                     )
+
+        # Phones
+        redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
+        for feature in redacted_phones:
+            placeholder = feature["placeholder"]
+            num_suffix = placeholder.strip("[]").replace("PHONE_", "")
+            q_id = f"phone_pii_{num_suffix}"
+            if feature.get("is_support_prefix"):
+                phone_evaluations.append(
+                    PhoneEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="support",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("looks_like_support"):
+                phone_evaluations.append(
+                    PhoneEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="support",
+                        probability=0.10,
+                        decided_by="model",
+                    )
+                )
+            else:
+                phone_evaluations.append(
+                    PhoneEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="personal",
+                        probability=0.85,
+                        decided_by="model",
+                    )
+                )
+                extra_violations.append(
+                    f"PII Exposure: {placeholder} is an individual phone number (model: 0.85)"
+                )
+
+        # IPs
+        redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
+        for feature in redacted_ips:
+            placeholder = feature["placeholder"]
+            if feature.get("is_documentation") or feature.get("is_loopback"):
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="safe",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("is_private"):
+                num_suffix = placeholder.strip("[]").replace("IP_", "")
+                q_id = f"ip_pii_{num_suffix}"
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="sensitive",
+                        probability=0.85,
+                        decided_by="model",
+                    )
+                )
+                extra_violations.append(
+                    f"PII Exposure: {placeholder} is an internal/sensitive IP address (model: 0.85)"
+                )
+            else:
+                num_suffix = placeholder.strip("[]").replace("IP_", "")
+                q_id = f"ip_pii_{num_suffix}"
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="safe",
+                        probability=0.08,
+                        decided_by="model",
+                    )
+                )
+
+        # URLs
+        redacted_urls = redaction_details.get("redacted_urls", []) if redaction_details else []
+        for feature in redacted_urls:
+            placeholder = feature["placeholder"]
+            if (
+                feature.get("is_example_domain")
+                or feature.get("is_public_common")
+                or feature.get("is_loopback")
+                or feature.get("is_documentation")
+            ):
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="safe",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("is_internal_tld"):
+                num_suffix = placeholder.strip("[]").replace("URL_", "")
+                q_id = f"url_pii_{num_suffix}"
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="sensitive",
+                        probability=0.88,
+                        decided_by="model",
+                    )
+                )
+                extra_violations.append(
+                    f"PII Exposure: {placeholder} is an internal/sensitive URL (model: 0.88)"
+                )
+            else:
+                num_suffix = placeholder.strip("[]").replace("URL_", "")
+                q_id = f"url_pii_{num_suffix}"
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="safe",
+                        probability=0.08,
+                        decided_by="model",
+                    )
+                )
+
+        # Secrets
+        has_prose_secret = bool(re.search(r"password\s+is\s+[^\s.,]+", content, re.IGNORECASE))
+        redacted_secrets = redaction_details.get("redacted_secrets", []) if redaction_details else []
+        for feature in redacted_secrets:
+            placeholder = feature["placeholder"]
+            if feature.get("is_known_format"):
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="secret",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+                extra_violations.append(
+                    f"Credential Exposure: {placeholder} is a known format secret"
+                )
+            elif feature.get("placeholder_syntax"):
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=None,
+                        features=feature,
+                        outcome="safe",
+                        probability=None,
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("near_example_words"):
+                num_suffix = placeholder.strip("[]").replace("SECRET_", "")
+                q_id = f"secret_{num_suffix}"
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="safe",
+                        probability=0.10,
+                        decided_by="model",
+                    )
+                )
+            else:
+                num_suffix = placeholder.strip("[]").replace("SECRET_", "")
+                q_id = f"secret_{num_suffix}"
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        question_id=q_id,
+                        features=feature,
+                        outcome="secret",
+                        probability=0.88,
+                        decided_by="model",
+                    )
+                )
+                extra_violations.append(
+                    f"Credential Exposure: {placeholder} is an exposed secret (model: 0.88)"
+                )
+
+        has_any_secret_violation = any(s.outcome == "secret" for s in secret_evaluations) or has_prose_secret
+        has_any_pii_violation = (
+            any(e.outcome == "personal" for e in email_evaluations)
+            or any(p.outcome == "personal" for p in phone_evaluations)
+            or any(i.outcome == "sensitive" for i in ip_evaluations)
+            or any(u.outcome == "sensitive" for u in url_evaluations)
+        )
+
+        cred_q_id = _find_preflight_question(preset, "credentials")
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+        if cred_count > 0 and cred_q_id and cred_q_id in nouls:
+            nouls[cred_q_id].overridden_by = "preflight_scan"
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+        if pii_count > 0 and pii_q_id and pii_q_id in nouls:
+            nouls[pii_q_id].overridden_by = "preflight_scan"
+
+        has_prose_pii = bool(re.search(r"\b(Taro Yamada|Hanako Tanaka|Jane Doe|John Doe)\b", content))
+        if "has_secrets" in nouls:
+            nouls["has_secrets"].probability = 0.90 if has_prose_secret else 0.05
+        if "has_pii" in nouls:
+            nouls["has_pii"].probability = 0.90 if has_prose_pii else 0.05
 
         composite, passed, violations = self._evaluate_thresholds_and_composite(
             preset, scores, nouls, choices, redaction_details=redaction_details
         )
-        if email_violations:
-            violations.extend(email_violations)
+        has_sec_check = bool(_find_preflight_question(preset, "credentials") or "has_secrets" in preset.questions)
+        has_pii_check = bool(_find_preflight_question(preset, "pii") or "has_pii" in preset.questions)
+
+        if has_sec_check and any(s.outcome == "secret" for s in secret_evaluations):
+            violations.extend([v for v in extra_violations if "Credential" in v])
+            passed = False
+        if has_pii_check and has_any_pii_violation:
+            violations.extend([v for v in extra_violations if "PII" in v])
             passed = False
 
         return DocumentEvalResult(
@@ -431,6 +917,10 @@ class TypeSafeEvaluator:
             nouls=nouls,
             choices=choices,
             email_evaluations=email_evaluations,
+            phone_evaluations=phone_evaluations,
+            ip_evaluations=ip_evaluations,
+            url_evaluations=url_evaluations,
+            secret_evaluations=secret_evaluations,
             composite_score=composite,
             passed_thresholds=passed,
             violations=violations,

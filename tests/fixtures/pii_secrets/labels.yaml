@@ -1,0 +1,126 @@
+preset: safety
+runs: 3
+criteria:
+  min_detected: 23
+  max_false_alarms: 0
+documents:
+- path: secrets_01.md
+  expect:
+    has_secrets: present
+- path: secrets_02.md
+  expect:
+    has_secrets: absent
+- path: secrets_03.md
+  expect:
+    has_secrets: absent
+- path: secrets_04.md
+  expect:
+    has_secrets: absent
+- path: secrets_05.md
+  expect:
+    has_secrets: present
+- path: secrets_06.md
+  expect:
+    has_secrets: absent
+- path: secrets_07.md
+  expect:
+    has_secrets: present
+- path: secrets_08.md
+  expect:
+    has_secrets: present
+- path: secrets_09.md
+  expect:
+    has_secrets: absent
+- path: secrets_10.md
+  expect:
+    has_secrets: present
+- path: phone_01.md
+  expect:
+    has_pii: absent
+- path: phone_02.md
+  expect:
+    has_pii: absent
+- path: phone_03.md
+  expect:
+    has_pii: absent
+- path: phone_04.md
+  expect:
+    has_pii: absent
+- path: phone_05.md
+  expect:
+    has_pii: present
+- path: phone_06.md
+  expect:
+    has_pii: present
+- path: phone_07.md
+  expect:
+    has_pii: present
+- path: phone_08.md
+  expect:
+    has_pii: absent
+- path: phone_09.md
+  expect:
+    has_pii: present
+- path: phone_10.md
+  expect:
+    has_pii: absent
+- path: ip_01.md
+  expect:
+    has_pii: absent
+- path: ip_02.md
+  expect:
+    has_pii: absent
+- path: ip_03.md
+  expect:
+    has_pii: absent
+- path: ip_04.md
+  expect:
+    has_pii: absent
+- path: ip_05.md
+  expect:
+    has_pii: absent
+- path: ip_06.md
+  expect:
+    has_pii: absent
+- path: ip_07.md
+  expect:
+    has_pii: present
+- path: ip_08.md
+  expect:
+    has_pii: present
+- path: ip_09.md
+  expect:
+    has_pii: present
+- path: ip_10.md
+  expect:
+    has_pii: absent
+- path: url_01.md
+  expect:
+    has_pii: absent
+- path: url_02.md
+  expect:
+    has_pii: absent
+- path: url_03.md
+  expect:
+    has_pii: absent
+- path: url_04.md
+  expect:
+    has_pii: absent
+- path: url_05.md
+  expect:
+    has_pii: present
+- path: url_06.md
+  expect:
+    has_pii: present
+- path: url_07.md
+  expect:
+    has_pii: present
+- path: url_08.md
+  expect:
+    has_pii: present
+- path: url_09.md
+  expect:
+    has_pii: absent
+- path: url_10.md
+  expect:
+    has_pii: present

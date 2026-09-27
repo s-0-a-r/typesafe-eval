@@ -244,11 +244,42 @@ def run_validation(
                 for q_id in doc_item.expect:
                     if q_id in res.nouls:
                         noul_obj = res.nouls[q_id]
+                        q_cfg = preset_cfg.questions.get(q_id)
+                        is_max_threshold = bool(q_cfg and q_cfg.max_threshold is not None)
+                        threshold = (
+                            q_cfg.max_threshold
+                            if is_max_threshold
+                            else (q_cfg.min_threshold if q_cfg and q_cfg.min_threshold is not None else 0.5)
+                        )
+
+                        # Check candidate violations for category
+                        has_cand_violation = False
+                        if q_id == "has_pii":
+                            has_cand_violation = (
+                                any(e.outcome == "personal" for e in res.email_evaluations)
+                                or any(p.outcome == "personal" for p in res.phone_evaluations)
+                                or any(i.outcome == "sensitive" for i in res.ip_evaluations)
+                                or any(u.outcome == "sensitive" for u in res.url_evaluations)
+                            )
+                        elif q_id == "has_secrets":
+                            has_cand_violation = any(s.outcome == "secret" for s in res.secret_evaluations)
+
+                        # Determine presence
+                        is_preflight = noul_obj.overridden_by is not None
+                        doc_present = False
                         if noul_obj.probability is not None:
+                            doc_present = (
+                                noul_obj.probability > threshold
+                                if is_max_threshold
+                                else noul_obj.probability >= threshold
+                            )
+
+                        if has_cand_violation or is_preflight:
+                            # Present via candidate or preflight: count as 1.0 (or prob if higher)
+                            p_val = max(noul_obj.probability, 1.0) if noul_obj.probability is not None else 1.0
+                            probs_by_question[q_id].append(p_val)
+                        elif noul_obj.probability is not None:
                             probs_by_question[q_id].append(noul_obj.probability)
-                        elif noul_obj.overridden_by is not None:
-                            # Preflight decided: violation = present!
-                            probs_by_question[q_id].append(1.0)
                         else:
                             click.echo(
                                 f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' probability is None without preflight decision",
