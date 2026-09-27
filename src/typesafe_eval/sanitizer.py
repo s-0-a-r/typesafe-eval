@@ -192,8 +192,15 @@ def extract_url_features(url_str: str) -> Dict[str, Any]:
     except Exception:
         host = ""
 
+    ip_feat = extract_ip_features(host) if host else None
+    is_loop = bool(ip_feat and ip_feat["is_loopback"])
+    is_doc_ip = bool(ip_feat and ip_feat["is_documentation"])
+
     is_example = (
-        host in EXAMPLE_DOMAINS
+        is_loop
+        or is_doc_ip
+        or host == "localhost"
+        or host in EXAMPLE_DOMAINS
         or any(host.endswith(tld) for tld in EXAMPLE_TLDS)
         or host.startswith("example.")
         or host.startswith("api.example.")
@@ -204,6 +211,8 @@ def extract_url_features(url_str: str) -> Dict[str, Any]:
     return {
         "domain": host,
         "is_example_domain": is_example,
+        "is_loopback": is_loop,
+        "is_documentation": is_doc_ip,
         "is_internal_tld": is_internal,
         "is_public_common": is_public,
     }
@@ -447,7 +456,6 @@ def mask_sensitive_data(
             add_span(s, e, f"{key_name}{delim}{placeholder}")
         else:
             total_redactions += 1
-            details["credentials"] += 1
             details["by_type"]["ambiguous_secret"] = details["by_type"].get("ambiguous_secret", 0) + 1
             feat["decided_by"] = "model"
             add_span(s, e, f"{key_name}{delim}{placeholder}")

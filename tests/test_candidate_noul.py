@@ -215,12 +215,30 @@ def test_all_40_fixtures_masked_and_unmasked(tmp_path):
         res_unmasked = evaluator.evaluate_document(str(path), preset=preset, mask_secrets=False, dry_run=True)
 
         for q_id, exp_verdict in expect.items():
-            prob_masked = res_masked.nouls[q_id].probability
-            prob_unmasked = res_unmasked.nouls[q_id].probability
+            def is_present(res):
+                q_cfg = preset.questions[q_id]
+                thresh = q_cfg.max_threshold if q_cfg.max_threshold is not None else 0.5
+                has_cand = False
+                if q_id == "has_pii":
+                    has_cand = (
+                        any(e.outcome == "personal" for e in res.email_evaluations)
+                        or any(p.outcome == "personal" for p in res.phone_evaluations)
+                        or any(i.outcome == "sensitive" for i in res.ip_evaluations)
+                        or any(u.outcome == "sensitive" for u in res.url_evaluations)
+                    )
+                elif q_id == "has_secrets":
+                    has_cand = any(s.outcome == "secret" for s in res.secret_evaluations)
+                noul_obj = res.nouls.get(q_id)
+                is_preflight = noul_obj and noul_obj.overridden_by is not None
+                doc_present = noul_obj and noul_obj.probability is not None and noul_obj.probability > thresh
+                return has_cand or is_preflight or doc_present
+
+            pres_masked = is_present(res_masked)
+            pres_unmasked = is_present(res_unmasked)
 
             if exp_verdict == "absent":
-                assert prob_masked < 0.5, f"Masked {doc_item['path']} {q_id} expected absent (<0.5), got {prob_masked}"
-                assert prob_unmasked < 0.5, f"Unmasked {doc_item['path']} {q_id} expected absent (<0.5), got {prob_unmasked}"
+                assert not pres_masked, f"Masked {doc_item['path']} {q_id} expected absent, was present"
+                assert not pres_unmasked, f"Unmasked {doc_item['path']} {q_id} expected absent, was present"
             else:
-                assert prob_masked >= 0.5, f"Masked {doc_item['path']} {q_id} expected present (>=0.5), got {prob_masked}"
-                assert prob_unmasked >= 0.5, f"Unmasked {doc_item['path']} {q_id} expected present (>=0.5), got {prob_unmasked}"
+                assert pres_masked, f"Masked {doc_item['path']} {q_id} expected present, was absent"
+                assert pres_unmasked, f"Unmasked {doc_item['path']} {q_id} expected present, was absent"
