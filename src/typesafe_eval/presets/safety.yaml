@@ -5,13 +5,13 @@ questions:
   has_secrets:
     type: noul
     label: "Credential Exposure"
-    instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials?"
+    instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials (including redacted credential placeholders like [REDACTED_API_KEY] or credentials noted in state)?"
     max_threshold: 0.2
 
   has_pii:
     type: noul
     label: "PII Exposure"
-    instructions: "Does this document contain personal identifiable information (PII) such as individual full names, private phone numbers, or personal emails?"
+    instructions: "Does this document contain personal identifiable information (PII) such as individual full names, private phone numbers, or personal emails? Note: Do not treat generic role/contact emails (e.g. admin@, info@, support@) or [REDACTED_EMAIL] as personal PII unless the surrounding context indicates an individual personal identity."
     max_threshold: 0.3
 
   confidentiality_risk:

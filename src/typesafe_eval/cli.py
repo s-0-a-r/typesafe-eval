@@ -40,6 +40,7 @@ err_console = Console(stderr=True)
 )
 @click.option(
     "--mask-secrets/--no-mask-secrets",
+    "--mask/--no-mask",
     default=True,
     help="Automatically redact detected API keys, credentials, and PII before API call. Default: enabled.",
 )

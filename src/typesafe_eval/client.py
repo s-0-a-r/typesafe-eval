@@ -44,9 +44,10 @@ class TypeSafeEvaluator:
 
         # 1. Sanitize
         redaction_count = 0
+        redaction_details: Dict[str, Any] = {}
         content = raw_content
         if mask_secrets:
-            content, redaction_count = mask_sensitive_data(content)
+            content, redaction_count, redaction_details = mask_sensitive_data(content, return_details=True)
 
         # 2. Length check & truncation guard
         content, was_truncated = guard_document_length(content, max_chars=max_chars)
@@ -58,6 +59,7 @@ class TypeSafeEvaluator:
                 preset=preset,
                 was_truncated=was_truncated,
                 redaction_count=redaction_count,
+                redaction_details=redaction_details,
             )
 
         # 4. Build SDK questions
@@ -84,10 +86,15 @@ class TypeSafeEvaluator:
 
         # 5. Call TypeSafe System One (Jev)
         client = self._get_client()
-        state = {
+        state: Dict[str, Any] = {
             "document": content,
             "filename": path.name,
         }
+        if redaction_details and redaction_details.get("total", 0) > 0:
+            state["redactions"] = {
+                "credentials": redaction_details.get("credentials", 0),
+                "pii": redaction_details.get("pii", 0),
+            }
         response = client.system_one(state=state, questions=sdk_questions)
 
         # 6. Parse answers
@@ -121,6 +128,15 @@ class TypeSafeEvaluator:
                     probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                 )
 
+        # Deterministic credential enforcement:
+        # If pre-flight masking detected credentials deterministically,
+        # code ensures credential exposure is flagged without relying solely on model inference.
+        if mask_secrets and redaction_details.get("credentials", 0) > 0 and "has_secrets" in preset.questions:
+            if "has_secrets" in nouls:
+                nouls["has_secrets"].probability = max(nouls["has_secrets"].probability, 1.0)
+            else:
+                nouls["has_secrets"] = NoulResult(probability=1.0)
+
         # 7. Compute deterministic composite score and threshold check
         composite_score, passed, violations = self._evaluate_thresholds_and_composite(
             preset=preset,
@@ -150,6 +166,7 @@ class TypeSafeEvaluator:
             model=response.model,
             was_truncated=was_truncated,
             redactions_count=redaction_count,
+            redaction_details=redaction_details,
         )
 
     def _evaluate_thresholds_and_composite(
@@ -200,6 +217,7 @@ class TypeSafeEvaluator:
         preset: PresetConfig,
         was_truncated: bool,
         redaction_count: int,
+        redaction_details: Optional[Dict[str, Any]] = None,
     ) -> DocumentEvalResult:
         """Returns mock evaluation result for dry-run or testing."""
         scores = {}
@@ -248,4 +266,5 @@ class TypeSafeEvaluator:
             model="mock-jev",
             was_truncated=was_truncated,
             redactions_count=redaction_count,
+            redaction_details=redaction_details,
         )
