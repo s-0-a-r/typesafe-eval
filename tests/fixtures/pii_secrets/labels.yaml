@@ -1,6 +1,7 @@
 preset: safety
 runs: 3
 criteria:
+  min_detected: 23
   max_false_alarms: 0
 documents:
 - path: secrets_01.md
