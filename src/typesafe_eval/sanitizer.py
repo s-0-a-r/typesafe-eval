@@ -32,16 +32,26 @@ def classify_email(email_str: str) -> str:
     if len(parts) != 2:
         return "personal"
     local_part, domain = parts[0].lower(), parts[1].lower()
+    if domain in FREE_OR_PERSONAL_DOMAINS:
+        return "personal"
     if local_part in ROLE_EMAIL_LOCAL_PARTS:
         return "role"
     return "personal"
+
+EXAMPLE_REPLACEMENTS = {
+    "api_key": "[EXAMPLE_API_KEY]",
+    "github_token": "[EXAMPLE_GH_TOKEN]",
+    "secret_key": "[EXAMPLE_SECRET_KEY]",
+    "aws_key": "[EXAMPLE_AWS_KEY]",
+    "bearer_token": "Bearer [EXAMPLE_TOKEN]",
+}
 
 PATTERN_SPECS = [
     (re.compile(r"\bapikey_[0-9a-zA-Z_]{20,}\b", re.IGNORECASE), "[REDACTED_API_KEY]", "credentials", "api_key"),
     (re.compile(r"\bgh[pousr]_[0-9a-zA-Z]{36}\b", re.IGNORECASE), "[REDACTED_GH_TOKEN]", "credentials", "github_token"),
     (re.compile(r"\bsk-[0-9a-zA-Z]{20,}\b", re.IGNORECASE), "[REDACTED_SECRET_KEY]", "credentials", "secret_key"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_KEY]", "credentials", "aws_key"),
-    (re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}\b", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "credentials", "bearer_token"),
+    (re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}(?![a-zA-Z0-9\-_\.=])", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "credentials", "bearer_token"),
     (re.compile(r"\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b"), "[REDACTED_EMAIL]", "pii", "email"),
 ]
 
@@ -73,6 +83,7 @@ def mask_sensitive_data(
         "pii": 0,
         "pii_personal": 0,
         "pii_role": 0,
+        "examples": 0,
         "by_type": {},
     }
     sanitized = text
@@ -83,7 +94,10 @@ def mask_sensitive_data(
                 nonlocal total_redactions
                 token = match.group(0)
                 if is_credential_placeholder(token):
-                    return token
+                    example_token = EXAMPLE_REPLACEMENTS.get(type_name, "[EXAMPLE_SECRET]")
+                    details["examples"] = details.get("examples", 0) + 1
+                    details["by_type"][f"example_{type_name}"] = details["by_type"].get(f"example_{type_name}", 0) + 1
+                    return example_token
                 total_redactions += 1
                 details["credentials"] += 1
                 details["by_type"][type_name] = details["by_type"].get(type_name, 0) + 1
