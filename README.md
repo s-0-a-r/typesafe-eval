@@ -114,6 +114,12 @@ You can create project-specific evaluation dimensions by creating a YAML file (e
 name: "proposal-eval"
 title: "Project Proposal Evaluation"
 description: "Evaluates business feasibility, ROI clarity, and risk."
+sanitizer:
+  role_emails:
+    - "helpdesk"
+    - "*-team"
+    - "ops-*"
+    - "contact-*"
 questions:
   business_clarity:
     type: score

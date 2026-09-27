@@ -121,3 +121,34 @@ def test_guard_document_length_truncate():
     assert truncated
     assert len(processed) < 500
     assert "TRUNCATED" in processed
+
+def test_custom_role_email_glob_patterns():
+    from typesafe_eval.sanitizer import classify_email, mask_sensitive_data
+    patterns = ["helpdesk", "ops-*", "*-duty", "*-incident-*"]
+
+    # Exact match
+    assert classify_email("helpdesk@company.com", patterns) == "role"
+    # Prefix match
+    assert classify_email("ops-lead@company.com", patterns) == "role"
+    # Suffix match
+    assert classify_email("night-duty@company.com", patterns) == "role"
+    # Infix match
+    assert classify_email("apac-incident-response@company.com", patterns) == "role"
+
+    # Unmatched custom email defaults to personal
+    assert classify_email("random.engineer@company.com", patterns) == "personal"
+
+    # Free personal domains still take precedence
+    assert classify_email("helpdesk@gmail.com", patterns) == "personal"
+    assert classify_email("ops-lead@yahoo.com", patterns) == "personal"
+
+    # Masking with custom patterns
+    doc = "For assistance reach out to ops-lead@company.com or john@company.com."
+    masked, count, details = mask_sensitive_data(doc, return_details=True, custom_role_patterns=patterns)
+    assert count == 2
+    assert details["pii_role"] == 1
+    assert details["pii_personal"] == 1
+    assert "ops-lead@company.com" not in masked
+    assert "john@company.com" not in masked
+    assert "[REDACTED_ROLE_EMAIL]" in masked
+    assert "[REDACTED_PERSONAL_EMAIL]" in masked

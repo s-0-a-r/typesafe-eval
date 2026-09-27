@@ -13,10 +13,14 @@ class QuestionConfig(BaseModel):
     max_threshold: Optional[float] = None
     preflight: Optional[Literal["credentials", "pii"]] = None
 
+class SanitizerConfig(BaseModel):
+    role_emails: List[str] = Field(default_factory=list)
+
 class PresetConfig(BaseModel):
     name: str
     title: Optional[str] = None
     description: Optional[str] = None
+    sanitizer: Optional[SanitizerConfig] = None
     questions: Dict[str, QuestionConfig]
 
 class ScoreResult(BaseModel):

@@ -56,7 +56,10 @@ class TypeSafeEvaluator:
         redaction_details: Dict[str, Any] = {}
         content = raw_content
         if mask_secrets:
-            content, redaction_count, redaction_details = mask_sensitive_data(content, return_details=True)
+            custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
+            content, redaction_count, redaction_details = mask_sensitive_data(
+                content, return_details=True, custom_role_patterns=custom_roles
+            )
 
         # 2. Length check & truncation guard
         content, was_truncated = guard_document_length(content, max_chars=max_chars)
