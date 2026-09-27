@@ -11,6 +11,7 @@ class QuestionConfig(BaseModel):
     weight: Optional[float] = None
     min_threshold: Optional[float] = None
     max_threshold: Optional[float] = None
+    max_drop: Optional[float] = None
     preflight: Optional[Literal["credentials", "pii"]] = None
 
 class SanitizerConfig(BaseModel):
@@ -47,6 +48,19 @@ class EmailEvaluationResult(BaseModel):
     probability: Optional[float] = None
     decided_by: Literal["model", "free_mail"]
 
+class QuestionDiff(BaseModel):
+    previous: float
+    current: float
+    delta: float
+    max_drop: float
+    regressed: bool
+
+class BaselineDiff(BaseModel):
+    status: Literal["compared", "new"]
+    baseline_filepath: Optional[str] = None
+    truncation_mismatch: bool = False
+    questions: Dict[str, QuestionDiff] = Field(default_factory=dict)
+
 class DocumentEvalResult(BaseModel):
     filepath: str
     filename: str
@@ -63,3 +77,4 @@ class DocumentEvalResult(BaseModel):
     was_truncated: bool = False
     redactions_count: int = 0
     redaction_details: Optional[Dict[str, Any]] = None
+    baseline_diff: Optional[BaselineDiff] = None

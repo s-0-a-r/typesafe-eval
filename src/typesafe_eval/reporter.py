@@ -41,6 +41,8 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
 
     table.add_column("Status", justify="center")
 
+    has_baseline = any(r.baseline_diff is not None for r in results)
+
     for res in results:
         row_cells = []
         doc_display = res.filename
@@ -50,16 +52,28 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
             doc_display += f" [dim red]({res.redactions_count} masked)[/dim red]"
         row_cells.append(doc_display)
 
+        b_diff = res.baseline_diff
+
         for q_id, q_cfg in preset.questions.items():
+            diff_info = b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+
             if q_cfg.type == "score" and q_id in res.scores:
                 s_obj = res.scores[q_id]
                 badge = format_score_badge(s_obj.normalized_score)
-                row_cells.append(f"{badge}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f} (c: {s_obj.confidence:.2f})[/dim]")
+                cell_text = f"{badge}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f}[/dim]"
+                if diff_info:
+                    delta_color = "red" if diff_info.regressed else ("green" if diff_info.delta > 0 else "dim")
+                    cell_text += f"\n[{delta_color}]prev: {diff_info.previous*100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
+                row_cells.append(cell_text)
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 prob = res.nouls[q_id].probability
                 if prob is not None:
                     badge = format_score_badge(prob)
-                    row_cells.append(f"{badge}\n[dim]p(yes)[/dim]")
+                    cell_text = f"{badge}\n[dim]p(yes)[/dim]"
+                    if diff_info:
+                        delta_color = "red" if diff_info.regressed else ("green" if diff_info.delta > 0 else "dim")
+                        cell_text += f"\n[{delta_color}]prev: {diff_info.previous*100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
+                    row_cells.append(cell_text)
                 else:
                     row_cells.append("[dim red]overridden[/dim red]\n[dim]preflight[/dim]")
             elif q_cfg.type == "choice" and q_id in res.choices:
@@ -75,15 +89,28 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
             else:
                 row_cells.append("-")
 
+        # Status cell
+        status_suffix = ""
+        if b_diff and b_diff.status == "new":
+            status_suffix = " (new)"
+
         if res.passed_thresholds:
-            row_cells.append("[bold green]✔ PASS[/bold green]")
+            row_cells.append(f"[bold green]✔ PASS{status_suffix}[/bold green]")
         else:
-            row_cells.append("[bold red]✘ FAIL[/bold red]")
+            row_cells.append(f"[bold red]✘ FAIL{status_suffix}[/bold red]")
 
         table.add_row(*row_cells)
 
     console.print()
     console.print(table)
+
+    # Print baseline truncation warnings if any
+    for r in results:
+        if r.baseline_diff and r.baseline_diff.truncation_mismatch:
+            console.print(
+                f"[bold yellow]Warning:[/bold yellow] Truncation status differs for {r.filename} "
+                f"between baseline and current evaluation. Scores may be shifted."
+            )
 
     # Print violations summary if any
     failed_items = [r for r in results if not r.passed_thresholds]
@@ -96,7 +123,7 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
         console.print(
             Panel(
                 "\n".join(violation_texts),
-                title="[bold red]Threshold Violations[/bold red]",
+                title="[bold red]Threshold & Baseline Violations[/bold red]",
                 border_style="red",
             )
         )
@@ -115,16 +142,28 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
         f"| :--- | " + " | ".join([":---:"] * len(preset.questions)) + " | :---: | :---: |",
     ]
 
+    has_baseline = any(r.baseline_diff is not None for r in results)
+
     for res in results:
         cells = [res.filename]
+        b_diff = res.baseline_diff
+
         for q_id, q_cfg in preset.questions.items():
+            diff_info = b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+
             if q_cfg.type == "score" and q_id in res.scores:
                 s = res.scores[q_id]
-                cells.append(f"{s.normalized_score * 100:.0f}% ({s.score:.1f}/{s.max_score:.0f}, conf: {s.confidence:.2f})")
+                val_str = f"{s.normalized_score * 100:.0f}%"
+                if diff_info:
+                    val_str += f"<br>(prev: {diff_info.previous*100:.0f}%, Δ: {diff_info.delta:+.2f})"
+                cells.append(val_str)
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 n = res.nouls[q_id]
                 if n.probability is not None:
-                    cells.append(f"{n.probability * 100:.0f}% (p={n.probability:.2f})")
+                    val_str = f"{n.probability * 100:.0f}%"
+                    if diff_info:
+                        val_str += f"<br>(prev: {diff_info.previous*100:.0f}%, Δ: {diff_info.delta:+.2f})"
+                    cells.append(val_str)
                 else:
                     cells.append(f"overridden ({n.overridden_by or 'preflight'})")
             elif q_cfg.type == "choice" and q_id in res.choices:
@@ -134,16 +173,35 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
                 cells.append("-")
 
         composite_str = f"{res.composite_score * 100:.0f}%" if res.composite_score is not None else "-"
-        status_str = "PASS" if res.passed_thresholds else "FAIL"
+        status_suffix = " (new)" if (b_diff and b_diff.status == "new") else ""
+        status_str = f"PASS{status_suffix}" if res.passed_thresholds else f"FAIL{status_suffix}"
         cells.append(composite_str)
         cells.append(status_str)
 
         lines.append("| " + " | ".join(cells) + " |")
 
     lines.append("")
+
+    # Baseline diff table if baseline was compared
+    compared_docs = [r for r in results if r.baseline_diff and r.baseline_diff.status == "compared"]
+    if compared_docs:
+        lines.append("## Baseline Comparison Details")
+        lines.append("")
+        lines.append("| Document | Question | Previous | Current | Δ (Drop) | Max Allowed Drop | Result |")
+        lines.append("| :--- | :--- | :---: | :---: | :---: | :---: | :---: |")
+        for r in compared_docs:
+            for q_id, q_diff in r.baseline_diff.questions.items():
+                status_badge = "**REGRESSED**" if q_diff.regressed else "OK"
+                lines.append(
+                    f"| {r.filename} | `{q_id}` | {q_diff.previous:.2f} | {q_diff.current:.2f} | "
+                    f"{q_diff.delta:+.2f} | {q_diff.max_drop:.2f} | {status_badge} |"
+                )
+        lines.append("")
+
     failed = [r for r in results if not r.passed_thresholds]
     if failed:
-        lines.append("## Threshold Violations")
+        lines.append("## Threshold & Baseline Violations")
+        lines.append("")
         for r in failed:
             for v in r.violations:
                 lines.append(f"- **{r.filename}**: {v}")
