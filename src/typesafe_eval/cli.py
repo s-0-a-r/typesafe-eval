@@ -1,4 +1,4 @@
-"""Command line interface for TypeSafe document evaluation."""
+"""Command line interface for TypeSafe document evaluation and validation."""
 
 import sys
 import glob
@@ -12,10 +12,50 @@ from typesafe_eval import __version__
 from typesafe_eval.presets import load_preset, list_builtin_presets
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.reporter import render_table, render_json, render_markdown
+from typesafe_eval.validator import (
+    load_labels_file,
+    run_validation,
+    render_validation_table,
+    render_validation_json,
+    render_validation_markdown,
+    generate_ablation_variants,
+)
 
 err_console = Console(stderr=True)
 
-@click.command(name="typesafe-eval", context_settings=dict(help_option_names=["-h", "--help"]))
+
+class DefaultGroup(click.Group):
+    """Click Group that defaults to a specified command if no subcommand matches."""
+
+    def __init__(self, *args, **kwargs):
+        self.default_cmd_name = kwargs.pop("default_if_no_match", None)
+        super().__init__(*args, **kwargs)
+
+    def parse_args(self, ctx, args):
+        if not args:
+            if self.default_cmd_name:
+                args = [self.default_cmd_name]
+            return super().parse_args(ctx, args)
+        cmd_name = args[0]
+        if cmd_name not in self.commands:
+            if self.default_cmd_name and cmd_name not in ("--help", "-h", "--version"):
+                args.insert(0, self.default_cmd_name)
+        return super().parse_args(ctx, args)
+
+
+@click.group(
+    name="typesafe-eval",
+    cls=DefaultGroup,
+    default_if_no_match="eval",
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.version_option(version=__version__, prog_name="typesafe-eval")
+def main():
+    """Fast, typed multi-dimensional document evaluation CLI using TypeSafe API (Jev)."""
+    pass
+
+
+@main.command(name="eval", context_settings=dict(help_option_names=["-h", "--help"]))
 @click.argument("files", nargs=-1, type=str)
 @click.option(
     "-p", "--preset",
@@ -70,8 +110,7 @@ err_console = Console(stderr=True)
     is_flag=True,
     help="List all available built-in evaluation presets and exit.",
 )
-@click.version_option(version=__version__, prog_name="typesafe-eval")
-def main(
+def eval_command(
     files: List[str],
     preset: str,
     config: Optional[Path],
@@ -84,7 +123,7 @@ def main(
     fail_on_threshold: bool,
     list_presets: bool,
 ):
-    """Fast, typed multi-dimensional document evaluation CLI using TypeSafe API (Jev)."""
+    """Evaluate documents against quality, safety, or custom evaluation presets."""
     if list_presets:
         click.echo("Available built-in presets:")
         for name in list_builtin_presets():
@@ -166,7 +205,6 @@ def main(
         elif output_format == "markdown":
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         else:
-            # Default to Markdown if table was rendered to console
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
@@ -177,6 +215,145 @@ def main(
         sys.exit(3)
     else:
         sys.exit(0)
+
+
+@main.command(name="validate", context_settings=dict(help_option_names=["-h", "--help"]))
+@click.argument("labels_file", required=False, type=str)
+@click.option(
+    "--runs",
+    type=int,
+    default=None,
+    help="Number of evaluation runs per document/pair (default: 3, or set in labels file).",
+)
+@click.option(
+    "-f", "--format", "output_format",
+    type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
+    default="table",
+    help="Output presentation format. Default: table.",
+)
+@click.option(
+    "-o", "--out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Save report output to specified file path.",
+)
+@click.option(
+    "--ablate",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Generate 'one section removed' variants from a markdown document split on '## ' headings.",
+)
+@click.option(
+    "--ablate-out-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Output directory for ablated document variants (defaults to document directory).",
+)
+@click.option(
+    "--ablate-preset",
+    default="design_doc",
+    help="Preset name to specify in the generated labels.yaml (default: design_doc).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Run validation with mock evaluator results.",
+)
+@click.option(
+    "--api-key",
+    envvar="TYPESAFE_API_KEY",
+    help="TypeSafe API key (falls back to TYPESAFE_API_KEY environment variable).",
+)
+def validate_command(
+    labels_file: Optional[str],
+    runs: Optional[int],
+    output_format: str,
+    out: Optional[Path],
+    ablate: Optional[Path],
+    ablate_out_dir: Optional[Path],
+    ablate_preset: str,
+    dry_run: bool,
+    api_key: Optional[str],
+):
+    """Run validation across fixed test documents using a labels.yaml specification or generate ablation variants."""
+    # Handle --ablate helper mode
+    if ablate:
+        try:
+            variants, labels_yaml = generate_ablation_variants(
+                doc_path=ablate,
+                out_dir=ablate_out_dir,
+                preset_name=ablate_preset,
+            )
+            click.echo(f"Generated {len(variants)} ablation variants:")
+            for v in variants:
+                click.echo(f"  • {v.name}")
+            click.echo("\nStarter labels configuration:")
+            click.echo(labels_yaml)
+            if out:
+                out.write_text(labels_yaml, encoding="utf-8")
+                err_console.print(f"[green]Labels configuration saved to:[/green] {out}")
+            sys.exit(0)
+        except Exception as e:
+            err_console.print(f"[bold red]Ablation error:[/bold red] {e}")
+            sys.exit(2)
+
+    if not labels_file:
+        err_console.print("[bold red]Error:[/bold red] No labels file specified.")
+        err_console.print("Usage: typesafe-eval validate <labels.yaml> [OPTIONS]")
+        err_console.print("       typesafe-eval validate --ablate <doc.md> [OPTIONS]")
+        sys.exit(2)
+
+    # Load labels file
+    try:
+        labels_cfg, base_dir = load_labels_file(labels_file)
+    except FileNotFoundError as e:
+        err_console.print(f"[bold red]Error:[/bold red] {e}")
+        sys.exit(2)
+    except Exception as e:
+        err_console.print(f"[bold red]Error loading labels file:[/bold red] {e}")
+        sys.exit(2)
+
+    # Initialize evaluator
+    evaluator = TypeSafeEvaluator(api_key=api_key)
+
+    # Run validation
+    try:
+        report, has_runtime_error = run_validation(
+            labels_cfg=labels_cfg,
+            base_dir=base_dir,
+            evaluator=evaluator,
+            runs_override=runs,
+            dry_run=dry_run,
+        )
+    except Exception as e:
+        err_console.print(f"[bold red]Validation setup error:[/bold red] {e}")
+        sys.exit(2)
+
+    # Output handling
+    if output_format == "table":
+        render_validation_table(report)
+    elif output_format == "json":
+        json_out = render_validation_json(report)
+        click.echo(json_out)
+    elif output_format == "markdown":
+        md_out = render_validation_markdown(report)
+        click.echo(md_out)
+
+    # Save to out if specified
+    if out:
+        if output_format == "json":
+            out.write_text(render_validation_json(report), encoding="utf-8")
+        elif output_format == "markdown":
+            out.write_text(render_validation_markdown(report), encoding="utf-8")
+        else:
+            out.write_text(render_validation_markdown(report), encoding="utf-8")
+        err_console.print(f"[green]Report saved successfully to:[/green] {out}")
+
+    # Exit code resolution (1 over 3 precedence)
+    if not report.all_passed:
+        sys.exit(1)
+    elif has_runtime_error:
+        sys.exit(3)
+    else:
+        sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

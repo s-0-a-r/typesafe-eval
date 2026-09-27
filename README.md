@@ -134,6 +134,41 @@ When evaluating multiple files, evaluation continues across all remaining files 
 
 If **any** evaluated file has a threshold violation, the CLI exits with **code 1**, even if other files encountered runtime errors. A detected violation is certain and is not masked by subsequent runtime errors. Code 3 is returned only when runtime errors occur and **no** threshold violations were detected. Code 2 is determined before evaluation starts, so it never overlaps.
 
+### 9. Validation Command & Ablation Helper (`validate`)
+
+`typesafe-eval validate` runs presets over fixed test documents defined in a `labels.yaml` file to verify preset calibration, detection rates, false alarms, and regression direction:
+
+```bash
+# Validate against fixed labels specification
+typesafe-eval validate labels.yaml --runs 3
+
+# Generate "one section removed" ablation variants and starter labels.yaml from a Markdown document:
+typesafe-eval validate --ablate docs/design.md --ablate-preset design_doc
+```
+
+#### Labels File Format (`labels.yaml`)
+```yaml
+preset: design_doc          # or config: path/to/custom.yaml
+runs: 3
+criteria:
+  min_detected: 9           # minimum required detections across absent expectations
+  max_false_alarms: 0       # maximum allowed false alarms across present expectations
+  max_neutral_delta: 0.05   # maximum allowed mean delta for neutral pairs
+  min_degradation_drop: 0.1 # minimum required drop for degraded pairs
+documents:
+  - path: fixtures/design_doc/en.md
+    expect: {goal: present, rollback: present, migration: present}
+  - path: fixtures/design_doc/en_without_rollback.md
+    expect: {rollback: absent}
+pairs:
+  - before: fixtures/quality/a.md
+    after: fixtures/quality/a_shuffled.md
+    expect: {clarity: down}
+  - before: fixtures/quality/a.md
+    after: fixtures/quality/a_paraphrased.md
+    expect: {clarity: neutral}
+```
+
 ---
 
 ## ⚙️ Custom YAML Configuration
