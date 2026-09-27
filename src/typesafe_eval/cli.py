@@ -285,6 +285,11 @@ def eval_command(
     help="Preset name to specify in the generated labels.yaml (default: design_doc).",
 )
 @click.option(
+    "--ablate-labels-out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write starter labels.yaml to this file path.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Run validation with mock evaluator results.",
@@ -302,6 +307,7 @@ def validate_command(
     ablate: Optional[Path],
     ablate_out_dir: Optional[Path],
     ablate_preset: str,
+    ablate_labels_out: Optional[Path],
     dry_run: bool,
     api_key: Optional[str],
 ):
@@ -319,9 +325,10 @@ def validate_command(
                 click.echo(f"  • {v.name}")
             click.echo("\nStarter labels configuration:")
             click.echo(labels_yaml)
-            if out:
-                out.write_text(labels_yaml, encoding="utf-8")
-                err_console.print(f"[green]Labels configuration saved to:[/green] {out}")
+            target_labels_out = ablate_labels_out or out
+            if target_labels_out:
+                target_labels_out.write_text(labels_yaml, encoding="utf-8")
+                err_console.print(f"[green]Labels configuration saved to:[/green] {target_labels_out}")
             sys.exit(0)
         except Exception as e:
             err_console.print(f"[bold red]Ablation error:[/bold red] {e}")
