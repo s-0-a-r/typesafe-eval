@@ -11,10 +11,13 @@ def test_list_builtin_presets():
 def test_load_quality_preset():
     preset = load_preset("quality")
     assert preset.name == "quality"
+    assert preset.thresholds_as_warnings is True
     assert "clarity" in preset.questions
     assert preset.questions["clarity"].type == "score"
-    assert "actionable" in preset.questions
-    assert preset.questions["actionable"].type == "noul"
+    assert preset.questions["clarity"].weight == 1.0
+    assert preset.questions["clarity"].min_threshold == 0.6
+    assert "completeness" not in preset.questions
+    assert "actionable" not in preset.questions
     assert "tone" in preset.questions
     assert preset.questions["tone"].type == "choice"
 

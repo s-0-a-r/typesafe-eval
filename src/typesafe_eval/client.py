@@ -485,7 +485,7 @@ class TypeSafeEvaluator:
                 )
 
         # 7. Compute deterministic composite score and threshold check
-        composite_score, passed, violations = self._evaluate_thresholds_and_composite(
+        composite_score, passed, violations, warnings = self._evaluate_thresholds_and_composite(
             preset=preset,
             scores=scores,
             nouls=nouls,
@@ -527,6 +527,7 @@ class TypeSafeEvaluator:
             composite_score=composite_score,
             passed_thresholds=passed,
             violations=violations,
+            warnings=warnings,
             usage=usage_dict,
             model=response.model or "type-safe-one",
             was_truncated=was_truncated,
@@ -546,6 +547,8 @@ class TypeSafeEvaluator:
         weighted_sum = 0.0
         passed = True
         violations = []
+        warnings = []
+        is_warning_only = bool(preset.thresholds_as_warnings or preset.name == "quality")
 
         for q_id, q_cfg in preset.questions.items():
             val = None
@@ -576,20 +579,30 @@ class TypeSafeEvaluator:
             elif val is not None:
                 # Threshold verification
                 if q_cfg.min_threshold is not None and val < q_cfg.min_threshold:
-                    passed = False
                     label = q_cfg.label or q_id
-                    violations.append(
-                        f"{label}: score {val:.2f} is below required minimum {q_cfg.min_threshold:.2f}"
-                    )
+                    if is_warning_only:
+                        warnings.append(
+                            f"{label}: score {val:.2f} is below minimum {q_cfg.min_threshold:.2f} (warning)"
+                        )
+                    else:
+                        passed = False
+                        violations.append(
+                            f"{label}: score {val:.2f} is below required minimum {q_cfg.min_threshold:.2f}"
+                        )
                 if q_cfg.max_threshold is not None and val > q_cfg.max_threshold:
-                    passed = False
                     label = q_cfg.label or q_id
-                    violations.append(
-                        f"{label}: risk {val:.2f} exceeds allowed maximum {q_cfg.max_threshold:.2f}"
-                    )
+                    if is_warning_only:
+                        warnings.append(
+                            f"{label}: risk {val:.2f} exceeds maximum {q_cfg.max_threshold:.2f} (warning)"
+                        )
+                    else:
+                        passed = False
+                        violations.append(
+                            f"{label}: risk {val:.2f} exceeds allowed maximum {q_cfg.max_threshold:.2f}"
+                        )
 
         composite = (weighted_sum / total_weight) if total_weight > 0 else None
-        return composite, passed, violations
+        return composite, passed, violations, warnings
 
     def _build_mock_result(
         self,
@@ -896,7 +909,7 @@ class TypeSafeEvaluator:
         if "has_pii" in nouls:
             nouls["has_pii"].probability = 0.90 if has_prose_pii else 0.05
 
-        composite, passed, violations = self._evaluate_thresholds_and_composite(
+        composite, passed, violations, warnings = self._evaluate_thresholds_and_composite(
             preset, scores, nouls, choices, redaction_details=redaction_details
         )
         has_sec_check = bool(_find_preflight_question(preset, "credentials") or "has_secrets" in preset.questions)
@@ -924,6 +937,7 @@ class TypeSafeEvaluator:
             composite_score=composite,
             passed_thresholds=passed,
             violations=violations,
+            warnings=warnings,
             usage={"input_tokens": 120, "output_tokens": 30},
             model="mock-jev",
             was_truncated=was_truncated,
