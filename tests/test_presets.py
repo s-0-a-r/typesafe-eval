@@ -5,6 +5,8 @@ def test_list_builtin_presets():
     assert "quality" in presets
     assert "safety" in presets
     assert "tech-spec" in presets
+    assert "design-doc" in presets
+    assert "pr-description" in presets
 
 def test_load_quality_preset():
     preset = load_preset("quality")
@@ -15,6 +17,24 @@ def test_load_quality_preset():
     assert preset.questions["actionable"].type == "noul"
     assert "tone" in preset.questions
     assert preset.questions["tone"].type == "choice"
+
+def test_load_design_doc_preset():
+    preset = load_preset("design_doc")
+    assert preset.name == "design_doc"
+    assert len(preset.questions) == 10
+    for q_id, q_cfg in preset.questions.items():
+        assert q_cfg.type == "noul"
+        assert q_cfg.min_threshold == 0.5
+        assert q_cfg.weight is None
+
+def test_load_pr_description_preset():
+    preset = load_preset("pr_description")
+    assert preset.name == "pr_description"
+    assert len(preset.questions) == 5
+    for q_id, q_cfg in preset.questions.items():
+        assert q_cfg.type == "noul"
+        assert q_cfg.min_threshold == 0.5
+        assert q_cfg.weight is None
 
 def test_preflight_validation():
     import pytest
