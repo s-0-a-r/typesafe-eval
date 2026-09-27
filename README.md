@@ -106,7 +106,7 @@ When exporting results with `--format json`, each document evaluation result con
 
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
-- **Unmasked Mode (`--no-mask`)**: When masking is explicitly disabled via `--no-mask`, numbered email redaction and per-email Noul questions are bypassed; unmasked text is sent directly to the model without feature extraction.
+- **Unmasked Mode (`--no-mask`)**: When masking is explicitly disabled via `--no-mask`, numbered email redaction, per-email Noul questions, and deterministic free-mail personal classification are bypassed; raw text is sent directly to the model (e.g. `support@gmail.com` may not be flagged as personal PII).
 
 ### 6. Dry-Run Mode (Validation without Calling API)
 ```bash
