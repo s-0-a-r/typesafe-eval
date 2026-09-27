@@ -11,7 +11,7 @@ class QuestionConfig(BaseModel):
     weight: Optional[float] = None
     min_threshold: Optional[float] = None
     max_threshold: Optional[float] = None
-    preflight: Optional[str] = None
+    preflight: Optional[Literal["credentials", "pii"]] = None
 
 class PresetConfig(BaseModel):
     name: str
@@ -27,8 +27,7 @@ class ScoreResult(BaseModel):
     probabilities: Dict[Union[str, int], float]
 
 class NoulResult(BaseModel):
-    probability: float
-    raw_probability: Optional[float] = None
+    probability: Optional[float] = None
     overridden_by: Optional[str] = None
 
 class ChoiceResult(BaseModel):

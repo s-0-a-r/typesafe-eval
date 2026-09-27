@@ -15,3 +15,25 @@ def test_load_quality_preset():
     assert preset.questions["actionable"].type == "noul"
     assert "tone" in preset.questions
     assert preset.questions["tone"].type == "choice"
+
+def test_preflight_validation():
+    import pytest
+    from pydantic import ValidationError
+    from typesafe_eval.models import QuestionConfig
+
+    # Valid values
+    q_cred = QuestionConfig(type="noul", instructions="test", preflight="credentials")
+    assert q_cred.preflight == "credentials"
+
+    q_pii = QuestionConfig(type="noul", instructions="test", preflight="pii")
+    assert q_pii.preflight == "pii"
+
+    q_none = QuestionConfig(type="noul", instructions="test")
+    assert q_none.preflight is None
+
+    # Invalid preflight typo should raise ValidationError
+    with pytest.raises(ValidationError):
+        QuestionConfig(type="noul", instructions="test", preflight="credential")
+
+    with pytest.raises(ValidationError):
+        QuestionConfig(type="noul", instructions="test", preflight="passwords")

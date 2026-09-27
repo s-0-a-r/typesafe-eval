@@ -30,15 +30,39 @@ def test_deterministic_credential_override(tmp_path):
     assert "redactions" in state_arg
     assert state_arg["redactions"]["credentials"] >= 1
 
-    # Raw model probability is preserved (Issue #7, #8)
+    # Model probability is preserved (Issue #7, #8, #19)
     assert result.nouls["has_secrets"].probability == 0.38
-    assert result.nouls["has_secrets"].raw_probability == 0.38
     assert result.nouls["has_secrets"].overridden_by == "preflight_scan"
 
     # Pre-flight scan enforces failure and transparently mentions model score
     assert not result.passed_thresholds
     assert any("detected by pre-flight scan (model: 0.38)" in v for v in result.violations)
     assert result.redaction_details["credentials"] >= 1
+
+def test_preflight_override_when_model_absent(tmp_path):
+    doc = tmp_path / "secret_unanswered.txt"
+    doc.write_text("Here is sk-abcdef1234567890abcdef123456 confidential data", encoding="utf-8")
+
+    preset = load_preset("safety")
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.scores = {}
+    mock_resp.nouls = {}  # Jev did not return has_secrets
+    mock_resp.choices = {}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    result = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    # Pre-flight scan registers override with probability=None (Issue #19)
+    assert result.nouls["has_secrets"].probability is None
+    assert result.nouls["has_secrets"].overridden_by == "preflight_scan"
+    assert not result.passed_thresholds
+    assert any("detected by pre-flight scan" in v for v in result.violations)
 
 def test_custom_preset_preflight_override(tmp_path):
     doc = tmp_path / "custom_secret.txt"

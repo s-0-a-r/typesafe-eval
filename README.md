@@ -82,6 +82,18 @@ typesafe-eval rfc/*.md --preset tech-spec --format markdown --out eval_report.md
 typesafe-eval docs/memo.md --preset quality --format json
 ```
 
+#### JSON Output & Result Schema
+
+When exporting results with `--format json`, each document evaluation result contains:
+
+- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, and `confidence`.
+- `nouls`: Map of noul questions with calibrated probability and override transparency:
+  - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
+  - `overridden_by`: Set to `"preflight_scan"` when deterministic regex pre-flight masking caught exposed credentials or PII, enforcing a failure gate while preserving the raw model response.
+- `choices`: Map of choice questions with selected `choice` and `confidence`.
+- `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
+- `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
+
 ### 5. Dry-Run Mode (Validation without Calling API)
 ```bash
 typesafe-eval docs/*.md --dry-run
