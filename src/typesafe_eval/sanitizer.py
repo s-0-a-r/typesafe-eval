@@ -1,7 +1,8 @@
 """Sanitizer and guard utilities for documents sent to TypeSafe."""
 
 import re
-from typing import Tuple, Dict, Any, Union, Literal, overload
+import fnmatch
+from typing import Tuple, Dict, Any, Union, Literal, Optional, List, overload
 
 PLACEHOLDER_SUBSTRINGS = (
     "your_", "example", "dummy", "xxxx", "replace_me", "insert_",
@@ -34,7 +35,7 @@ def is_credential_placeholder(token: str) -> bool:
     token_lower = token.lower()
     return any(p in token_lower for p in PLACEHOLDER_SUBSTRINGS)
 
-def classify_email(email_str: str) -> str:
+def classify_email(email_str: str, custom_role_patterns: Optional[List[str]] = None) -> str:
     """Classifies email address as 'role' or 'personal'."""
     parts = email_str.split("@", 1)
     if len(parts) != 2:
@@ -46,6 +47,10 @@ def classify_email(email_str: str) -> str:
         return "role"
     if any(local_part.startswith(affix) or local_part.endswith(affix) for affix in ROLE_EMAIL_AFFIXES):
         return "role"
+    if custom_role_patterns:
+        for pattern in custom_role_patterns:
+            if fnmatch.fnmatch(local_part, pattern.lower()):
+                return "role"
     return "personal"
 
 EXAMPLE_REPLACEMENTS = {
@@ -68,19 +73,24 @@ PATTERN_SPECS = [
 SECRET_PATTERNS = [(pattern, replacement) for pattern, replacement, _, _ in PATTERN_SPECS]
 
 @overload
-def mask_sensitive_data(text: str, return_details: Literal[False] = False) -> Tuple[str, int]: ...
+def mask_sensitive_data(
+    text: str, return_details: Literal[False] = False, custom_role_patterns: Optional[List[str]] = None
+) -> Tuple[str, int]: ...
 
 @overload
-def mask_sensitive_data(text: str, return_details: Literal[True]) -> Tuple[str, int, Dict[str, Any]]: ...
+def mask_sensitive_data(
+    text: str, return_details: Literal[True], custom_role_patterns: Optional[List[str]] = None
+) -> Tuple[str, int, Dict[str, Any]]: ...
 
 def mask_sensitive_data(
-    text: str, return_details: bool = False
+    text: str, return_details: bool = False, custom_role_patterns: Optional[List[str]] = None
 ) -> Union[Tuple[str, int], Tuple[str, int, Dict[str, Any]]]:
     """Replaces detected credentials, tokens, and PII with redaction placeholders.
     
     Args:
         text: Original document content.
         return_details: If True, returns detailed breakdown by category and type.
+        custom_role_patterns: Optional list of glob patterns for custom role emails.
 
     Returns:
         (sanitized_text, count_of_redactions) when return_details=False,
@@ -119,7 +129,7 @@ def mask_sensitive_data(
             def repl_email(match: re.Match) -> str:
                 nonlocal total_redactions
                 email_str = match.group(0)
-                email_kind = classify_email(email_str)
+                email_kind = classify_email(email_str, custom_role_patterns=custom_role_patterns)
                 total_redactions += 1
                 details["pii"] += 1
                 if email_kind == "role":

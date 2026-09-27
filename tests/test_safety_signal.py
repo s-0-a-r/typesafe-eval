@@ -267,3 +267,43 @@ def test_custom_preset_pii_preflight_override(tmp_path):
     assert res_role.nouls["pii_gate"].overridden_by is None
 
 
+def test_evaluator_with_preset_custom_role_emails(tmp_path):
+    from typesafe_eval.models import SanitizerConfig
+
+    doc = tmp_path / "contact.txt"
+    doc.write_text("Escalate to incident-commander@company.com or duty-lead@company.com", encoding="utf-8")
+
+    preset = PresetConfig(
+        name="custom_ops_audit",
+        sanitizer=SanitizerConfig(role_emails=["incident-*", "*-lead"]),
+        questions={
+            "check": QuestionConfig(
+                type="noul",
+                label="Check",
+                instructions="Check",
+                preflight="pii",
+                max_threshold=0.3,
+            )
+        },
+    )
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.nouls = {"check": MagicMock(noul=0.01)}
+    mock_resp.scores = {}
+    mock_resp.choices = {}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    res = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+    # Both emails match custom role patterns, so pii_role == 2, pii_personal == 0
+    state = mock_client.system_one.call_args.kwargs["state"]
+    assert state["redactions"]["pii_role"] == 2
+    assert state["redactions"]["pii_personal"] == 0
+    assert res.nouls["check"].overridden_by is None
+    assert res.passed_thresholds
+
+
+
