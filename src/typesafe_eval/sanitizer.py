@@ -35,8 +35,53 @@ def is_credential_placeholder(token: str) -> bool:
     token_lower = token.lower()
     return any(p in token_lower for p in PLACEHOLDER_SUBSTRINGS)
 
+def detect_local_part_shape(local_part: str) -> str:
+    """Classifies the structural pattern of the email local part."""
+    if "." in local_part:
+        return "dotted_name"
+    if "-" in local_part:
+        return "hyphenated"
+    clean = local_part.replace("_", "")
+    if clean.isalnum():
+        return "single_word"
+    return "other"
+
+def is_known_role_word(local_part: str) -> bool:
+    """Checks whether local part matches standard role vocabulary or affixes."""
+    lp = local_part.lower()
+    if lp in ROLE_EMAIL_LOCAL_PARTS:
+        return True
+    if any(lp.startswith(affix) or lp.endswith(affix) for affix in ROLE_EMAIL_AFFIXES):
+        return True
+    return False
+
+def extract_email_features(email_str: str, custom_role_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Extracts objective structural features from an email address."""
+    parts = email_str.split("@", 1)
+    if len(parts) != 2:
+        return {
+            "domain_type": "corporate",
+            "local_part_shape": "other",
+            "known_role_word": False,
+            "matches_custom_role": False,
+        }
+    local_part, domain = parts[0].lower(), parts[1].lower()
+    domain_type = "free_mail" if domain in FREE_OR_PERSONAL_DOMAINS else "corporate"
+    shape = detect_local_part_shape(local_part)
+    known_role = is_known_role_word(local_part)
+    matches_custom = False
+    if custom_role_patterns:
+        matches_custom = any(fnmatch.fnmatch(local_part, p.lower()) for p in custom_role_patterns)
+
+    return {
+        "domain_type": domain_type,
+        "local_part_shape": shape,
+        "known_role_word": known_role,
+        "matches_custom_role": matches_custom,
+    }
+
 def classify_email(email_str: str, custom_role_patterns: Optional[List[str]] = None) -> str:
-    """Classifies email address as 'role' or 'personal'."""
+    """Classifies email address as 'role' or 'personal' (legacy / backward-compatibility)."""
     parts = email_str.split("@", 1)
     if len(parts) != 2:
         return "personal"
@@ -97,6 +142,7 @@ def mask_sensitive_data(
         or (sanitized_text, count_of_redactions, details_dict) when return_details=True.
     """
     total_redactions = 0
+    distinct_emails: Dict[str, Dict[str, Any]] = {}
     details: Dict[str, Any] = {
         "total": 0,
         "credentials": 0,
@@ -104,6 +150,7 @@ def mask_sensitive_data(
         "pii_personal": 0,
         "pii_role": 0,
         "examples": 0,
+        "redacted_emails": [],
         "by_type": {},
     }
     sanitized = text
@@ -129,17 +176,34 @@ def mask_sensitive_data(
             def repl_email(match: re.Match) -> str:
                 nonlocal total_redactions
                 email_str = match.group(0)
-                email_kind = classify_email(email_str, custom_role_patterns=custom_role_patterns)
+                norm_email = email_str.lower()
                 total_redactions += 1
                 details["pii"] += 1
-                if email_kind == "role":
-                    details["pii_role"] += 1
-                    details["by_type"]["email_role"] = details["by_type"].get("email_role", 0) + 1
-                    return "[REDACTED_ROLE_EMAIL]"
+
+                if norm_email not in distinct_emails:
+                    idx = len(distinct_emails) + 1
+                    placeholder = f"[EMAIL_{idx}]"
+                    features = extract_email_features(norm_email, custom_role_patterns=custom_role_patterns)
+                    features["placeholder"] = placeholder
+                    distinct_emails[norm_email] = {
+                        "placeholder": placeholder,
+                        "features": features,
+                    }
                 else:
-                    details["pii_personal"] += 1
+                    placeholder = distinct_emails[norm_email]["placeholder"]
+                    features = distinct_emails[norm_email]["features"]
+
+                if features["domain_type"] == "free_mail":
+                    details["pii_personal"] = details.get("pii_personal", 0) + 1
+                    details["by_type"]["email_free_mail"] = details["by_type"].get("email_free_mail", 0) + 1
+                elif features.get("known_role_word") or features.get("matches_custom_role"):
+                    details["pii_role"] = details.get("pii_role", 0) + 1
+                    details["by_type"]["email_role"] = details["by_type"].get("email_role", 0) + 1
+                else:
+                    details["pii_personal"] = details.get("pii_personal", 0) + 1
                     details["by_type"]["email_personal"] = details["by_type"].get("email_personal", 0) + 1
-                    return "[REDACTED_PERSONAL_EMAIL]"
+
+                return placeholder
 
             sanitized = pattern.sub(repl_email, sanitized)
 
@@ -154,6 +218,7 @@ def mask_sensitive_data(
             sanitized = pattern.sub(repl_generic, sanitized)
 
     details["total"] = total_redactions
+    details["redacted_emails"] = [v["features"] for v in distinct_emails.values()]
 
     if return_details:
         return sanitized, total_redactions, details

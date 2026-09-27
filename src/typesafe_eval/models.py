@@ -39,6 +39,14 @@ class ChoiceResult(BaseModel):
     confidence: float
     probabilities: Dict[str, float]
 
+class EmailEvaluationResult(BaseModel):
+    placeholder: str
+    question_id: Optional[str] = None
+    features: Dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["personal", "role", "undecided"]
+    probability: Optional[float] = None
+    decided_by: Literal["model", "free_mail"]
+
 class DocumentEvalResult(BaseModel):
     filepath: str
     filename: str
@@ -46,6 +54,7 @@ class DocumentEvalResult(BaseModel):
     scores: Dict[str, ScoreResult] = Field(default_factory=dict)
     nouls: Dict[str, NoulResult] = Field(default_factory=dict)
     choices: Dict[str, ChoiceResult] = Field(default_factory=dict)
+    email_evaluations: List[EmailEvaluationResult] = Field(default_factory=list)
     composite_score: Optional[float] = None
     passed_thresholds: bool = True
     violations: List[str] = Field(default_factory=list)

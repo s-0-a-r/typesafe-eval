@@ -134,16 +134,20 @@ def test_context_free_email_classification_regression(tmp_path):
     # Evaluate personal email
     r_pers = evaluator.evaluate_document(str(doc_personal), preset=preset, mask_secrets=True)
     state_pers = mock_client.system_one.call_args.kwargs["state"]
-    assert "[REDACTED_PERSONAL_EMAIL]" in state_pers["document"]
+    assert "[EMAIL_1]" in state_pers["document"]
     assert state_pers["redactions"]["pii_personal"] == 1
     assert state_pers["redactions"]["pii_role"] == 0
+    assert len(r_pers.email_evaluations) == 1
+    assert r_pers.email_evaluations[0].outcome == "personal"
+    assert r_pers.email_evaluations[0].decided_by == "free_mail"
 
     # Evaluate role email
     r_role = evaluator.evaluate_document(str(doc_role), preset=preset, mask_secrets=True)
     state_role = mock_client.system_one.call_args.kwargs["state"]
-    assert "[REDACTED_ROLE_EMAIL]" in state_role["document"]
+    assert "[EMAIL_1]" in state_role["document"]
     assert state_role["redactions"]["pii_personal"] == 0
     assert state_role["redactions"]["pii_role"] == 1
+    assert len(r_role.email_evaluations) == 1
 
 
 def test_example_key_evaluation_regression(tmp_path):
