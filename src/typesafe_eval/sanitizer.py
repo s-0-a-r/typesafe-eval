@@ -184,10 +184,10 @@ def extract_ip_features(ip_str: str) -> Dict[str, Any]:
         "is_private": is_priv,
     }
 
-def extract_url_features(url_str: str) -> Dict[str, Any]:
+def extract_url_features(url_str: str, mask: bool = True) -> Dict[str, Any]:
     """Extracts domain classification features from a URL candidate."""
     try:
-        parsed = urllib.parse.urlparse(url_str)
+        parsed = urllib.parse.urlparse(url_str if "://" in url_str else f"http://{url_str}")
         host = (parsed.hostname or "").lower()
     except Exception:
         host = ""
@@ -208,14 +208,30 @@ def extract_url_features(url_str: str) -> Dict[str, Any]:
     is_internal = any(host.endswith(tld) for tld in INTERNAL_TLDS)
     is_public = (host == "github.com" or host.endswith(".github.com"))
 
-    return {
-        "domain": host,
+    suffix_class = None
+    for tld in INTERNAL_TLDS:
+        if host.endswith(tld):
+            suffix_class = tld
+            break
+    if not suffix_class:
+        for tld in EXAMPLE_TLDS:
+            if host.endswith(tld):
+                suffix_class = tld
+                break
+
+    features: Dict[str, Any] = {
         "is_example_domain": is_example,
         "is_loopback": is_loop,
         "is_documentation": is_doc_ip,
         "is_internal_tld": is_internal,
+        "suffix_class": suffix_class,
+        "matched_suffix": suffix_class,
         "is_public_common": is_public,
     }
+    if not mask:
+        features["domain"] = host
+
+    return features
 
 def extract_secret_features(
     key_name: str,
@@ -504,7 +520,7 @@ def mask_sensitive_data(
             continue
         url_str = m.group(0)
         norm_url = url_str.strip()
-        url_feat = extract_url_features(norm_url)
+        url_feat = extract_url_features(norm_url, mask=mask)
 
         if norm_url not in distinct_urls:
             idx = len(distinct_urls) + 1
@@ -610,6 +626,8 @@ def mask_sensitive_data(
         sanitized = text
         for s, e, repl in sorted_replacements:
             sanitized = sanitized[:s] + repl + sanitized[e:]
+        for v in distinct_urls.values():
+            v["features"].pop("domain", None)
     else:
         sanitized = text
         total_redactions = 0

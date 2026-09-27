@@ -83,6 +83,7 @@ def test_url_features():
     # Example domains RFC 2606
     f_ex1 = extract_url_features("https://example.com/api/docs")
     assert f_ex1["is_example_domain"] is True
+    assert "domain" not in f_ex1
 
     f_ex2 = extract_url_features("https://api.example.org/v1/events")
     assert f_ex2["is_example_domain"] is True
@@ -93,19 +94,31 @@ def test_url_features():
     # Internal TLDs
     f_internal = extract_url_features("http://consul.internal:8500")
     assert f_internal["is_internal_tld"] is True
+    assert f_internal["suffix_class"] == ".internal"
+    assert f_internal["matched_suffix"] == ".internal"
+    assert "domain" not in f_internal
 
     f_corp = extract_url_features("ldap://directory.corp:389")
     assert f_corp["is_internal_tld"] is True
+    assert f_corp["suffix_class"] == ".corp"
+    assert f_corp["matched_suffix"] == ".corp"
 
     f_local_tld = extract_url_features("http://payment-gateway.local/v2/charge")
     assert f_local_tld["is_internal_tld"] is True
+    assert f_local_tld["suffix_class"] == ".local"
 
     f_intra = extract_url_features("https://wiki.intra/engineering/architecture")
     assert f_intra["is_internal_tld"] is True
+    assert f_intra["suffix_class"] == ".intra"
 
     # Public common
     f_gh = extract_url_features("https://github.com/s-0-a-r/typesafe-eval")
     assert f_gh["is_public_common"] is True
+
+    # When mask=False, raw domain is retained in features
+    f_unmasked = extract_url_features("http://consul.internal:8500", mask=False)
+    assert f_unmasked["domain"] == "consul.internal"
+    assert f_unmasked["suffix_class"] == ".internal"
 
 
 def test_secret_safety_constraint():
@@ -242,3 +255,100 @@ def test_all_40_fixtures_masked_and_unmasked(tmp_path):
             else:
                 assert pres_masked, f"Masked {doc_item['path']} {q_id} expected present, was absent"
                 assert pres_unmasked, f"Unmasked {doc_item['path']} {q_id} expected present, was absent"
+
+
+def test_no_raw_values_in_state_outside_text_when_masking_on(tmp_path):
+    """Asserts that with masking on, no raw email, phone, IP, URL host, or secret
+    value from the document appears anywhere outside the document text in the state
+    passed to system_one.
+    """
+    import json
+    from unittest.mock import MagicMock
+
+    raw_email = "alice.smith@engineering.corp"
+    raw_phone = "090-9876-5432"
+    raw_ip = "10.200.4.15"
+    raw_url = "https://grafana.ops.acme.internal/d/x?orgId=1"
+    raw_host = "grafana.ops.acme.internal"
+    raw_secret_ambiguous = "sUpEr_SeCrEt_vAlUe_9876543210"
+    raw_secret_prose = "hunter2_never_reveal"
+
+    content = f"""# Operations Runbook
+
+Contact: {raw_email}
+Emergency: {raw_phone}
+Internal IP: {raw_ip}
+Dashboard: {raw_url}
+API: api_key: {raw_secret_ambiguous}
+Legacy note: the password is {raw_secret_prose}
+"""
+    doc = tmp_path / "runbook.md"
+    doc.write_text(content, encoding="utf-8")
+
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+    preset = load_preset("safety")
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.nouls = {
+        "has_secrets": MagicMock(noul=0.1),
+        "has_pii": MagicMock(noul=0.1),
+        "email_pii_1": MagicMock(noul=0.8),
+        "phone_pii_1": MagicMock(noul=0.8),
+        "ip_pii_1": MagicMock(noul=0.8),
+        "url_pii_1": MagicMock(noul=0.8),
+        "secret_1": MagicMock(noul=0.8),
+    }
+    mock_resp.choices = {}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    call_args = mock_client.system_one.call_args
+    state = call_args.kwargs["state"]
+    questions = call_args.kwargs["questions"]
+
+    # 1. Inside document text: placeholders should replace sensitive data
+    masked_text = state["document"]
+    assert raw_email not in masked_text
+    assert raw_phone not in masked_text
+    assert raw_ip not in masked_text
+    assert raw_url not in masked_text
+    assert raw_host not in masked_text
+    assert raw_secret_ambiguous not in masked_text
+
+    # 2. Outside document text: state (excluding "document") and questions must NOT contain
+    # any raw email, phone, IP, URL host, or secret value.
+    state_outside_text = {k: v for k, v in state.items() if k != "document"}
+    state_serialized = json.dumps(state_outside_text)
+    questions_serialized = json.dumps({k: q.instructions for k, q in questions.items()})
+
+    sensitive_tokens = [
+        raw_email,
+        "alice.smith",
+        raw_phone,
+        "9876-5432",
+        raw_ip,
+        raw_host,
+        "grafana.ops.acme",
+        "ops.acme.internal",
+        raw_secret_ambiguous,
+        raw_secret_prose,
+    ]
+
+    for token in sensitive_tokens:
+        assert token not in state_serialized, f"Sensitive token '{token}' leaked into state outside text: {state_serialized}"
+        assert token not in questions_serialized, f"Sensitive token '{token}' leaked into question instructions: {questions_serialized}"
+
+    # 3. Verify URL feature structure has derived features only (no domain)
+    assert "redacted_urls" in state
+    assert len(state["redacted_urls"]) == 1
+    url_feat = state["redacted_urls"][0]
+    assert "domain" not in url_feat
+    assert url_feat["is_internal_tld"] is True
+    assert url_feat["suffix_class"] == ".internal"
+    assert url_feat["is_example_domain"] is False
