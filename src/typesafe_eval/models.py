@@ -48,6 +48,38 @@ class EmailEvaluationResult(BaseModel):
     probability: Optional[float] = None
     decided_by: Literal["model", "free_mail"]
 
+class PhoneEvaluationResult(BaseModel):
+    placeholder: str
+    question_id: Optional[str] = None
+    features: Dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["personal", "support", "undecided"]
+    probability: Optional[float] = None
+    decided_by: Literal["model", "rule"]
+
+class IPEvaluationResult(BaseModel):
+    placeholder: str
+    question_id: Optional[str] = None
+    features: Dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["sensitive", "safe", "undecided"]
+    probability: Optional[float] = None
+    decided_by: Literal["model", "rule"]
+
+class URLEvaluationResult(BaseModel):
+    placeholder: str
+    question_id: Optional[str] = None
+    features: Dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["sensitive", "safe", "undecided"]
+    probability: Optional[float] = None
+    decided_by: Literal["model", "rule"]
+
+class SecretEvaluationResult(BaseModel):
+    placeholder: str
+    question_id: Optional[str] = None
+    features: Dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["secret", "safe", "undecided"]
+    probability: Optional[float] = None
+    decided_by: Literal["model", "rule"]
+
 class QuestionDiff(BaseModel):
     previous: float
     current: float
@@ -69,6 +101,10 @@ class DocumentEvalResult(BaseModel):
     nouls: Dict[str, NoulResult] = Field(default_factory=dict)
     choices: Dict[str, ChoiceResult] = Field(default_factory=dict)
     email_evaluations: List[EmailEvaluationResult] = Field(default_factory=list)
+    phone_evaluations: List[PhoneEvaluationResult] = Field(default_factory=list)
+    ip_evaluations: List[IPEvaluationResult] = Field(default_factory=list)
+    url_evaluations: List[URLEvaluationResult] = Field(default_factory=list)
+    secret_evaluations: List[SecretEvaluationResult] = Field(default_factory=list)
     composite_score: Optional[float] = None
     passed_thresholds: bool = True
     violations: List[str] = Field(default_factory=list)

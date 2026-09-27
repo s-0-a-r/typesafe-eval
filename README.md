@@ -95,18 +95,29 @@ When exporting results with `--format json`, each document evaluation result con
 - `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
 - `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
 
-### 5. Context-Aware Email PII Evaluation (v0.4.0)
+### 5. Context-Aware PII and Secrets Evaluation (v0.4.0)
 
-`typesafe-eval` utilizes a context-aware evaluation architecture for email privacy:
-1. **Numbered Placeholders**: Replaces distinct email addresses with `[EMAIL_1]`, `[EMAIL_2]`... (lowercased before numbering for deduplication).
-2. **Metadata in State**: Extracts structural features into `state.redacted_emails` (`domain_type`, `local_part_shape`, `known_role_word`, `matches_custom_role`).
-3. **Parallel Per-Email Evaluation**: Evaluates corporate addresses via batched parallel `Noul` questions in a single `system_one` call, letting the model determine personal vs role status from surrounding document context.
-4. **Deterministic Free-mail Gating**: Free-mail providers (`gmail.com`, `yahoo.com`, `icloud.com`, etc.) deterministically fail as personal PII (`decided_by: "free_mail"`) without consuming question tokens.
-5. **Score Isolation**: Dynamic per-email questions act as pass/fail gate checks only and do not alter `composite_score`.
+`typesafe-eval` utilizes a candidate-level context-aware evaluation architecture for PII and secrets:
+1. **Numbered Placeholders**: Replaces detected candidates with numbered placeholders (`[EMAIL_n]`, `[PHONE_n]`, `[IP_n]`, `[URL_n]`, `[SECRET_n]`).
+2. **Metadata in State**: Extracts objective structural features into `state` (e.g., `state.redacted_emails`, `state.redacted_phones`, `state.redacted_ips`, `state.redacted_urls`, `state.redacted_secrets`).
+3. **Strict Safety Constraint**: `state.redacted_secrets` NEVER contains raw secret values, value fragments, or hashes—only non-sensitive metadata (key name, value length, character classes, syntax flags, location).
+4. **Rule-Based Fast Paths**:
+   - **Known Credential Formats** (AWS `AKIA…`, GitHub `ghp_…`, Slack `xox…`, private keys, live API keys): FAIL deterministically by code (`decided_by: "rule"`). Jev is not asked. Known documentation example keys (e.g. `AKIAIOSFODNN7EXAMPLE`) are allowed and PASS by code.
+   - **Template & Example Placeholders**: Values matching placeholder syntax (`${…}`, `<…>`, `xxx`, `changeme`) PASS deterministically by code.
+   - **Documentation & Loopback IPs**: Documentation ranges (RFC 5737: `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; RFC 3849: `2001:db8::/32`) and loopback (`127.0.0.1`, `::1`) PASS by code as non-sensitive.
+   - **Example & Public Domains**: Example domains (RFC 2606: `example.com`, `example.org`, `example.net`, `.test`, `.example`, `localhost`) and public platforms (e.g. `github.com`) PASS by code.
+   - **Free-mail Addresses**: Free-mail providers (`gmail.com`, `yahoo.com`, `icloud.com`, etc.) deterministically fail as personal PII (`decided_by: "free_mail"`).
+5. **Parallel Per-Candidate Evaluation**: Ambiguous candidates (e.g. corporate emails, private IPs, internal TLDs like `.internal`/`.corp`, switchboard vs personal phones, ambiguous `key=val` secrets) are evaluated via parallel `Noul` questions, allowing the model to make contextual determinations based on surrounding document text.
+6. **Decoupled Detection from Masking**:
+   - Detection, feature extraction, and candidate questions **always run**, even when `--no-mask` is passed.
+   - `--no-mask` controls only whether sensitive values are substituted in the document text sent to the API.
+   - With `--no-mask`, deterministic rules still apply (e.g. `support@gmail.com` and exposed credentials still fail by rule).
+
+> [!TIP]
+> **CI Recommendation**: `typesafe-eval` is designed for semantic context evaluation and policy compliance. For deep commit-history and repository-level secret scanning, we recommend pairing `typesafe-eval` with dedicated scanners like [gitleaks](https://github.com/gitleaks/gitleaks) in your CI pipeline.
 
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
-- **Unmasked Mode (`--no-mask`)**: When masking is explicitly disabled via `--no-mask`, numbered email redaction, per-email Noul questions, and deterministic free-mail personal classification are bypassed; raw text is sent directly to the model (e.g. `support@gmail.com` may not be flagged as personal PII).
 
 ### 6. Dry-Run Mode (Validation without Calling API)
 ```bash
