@@ -95,9 +95,9 @@ When exporting results with `--format json`, each document evaluation result con
 - `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
 - `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
 
-### 5. Contextual Email PII Evaluation (v0.4.0)
+### 5. Context-Aware Email PII Evaluation (v0.4.0)
 
-`typesafe-eval` utilizes an LLM-native contextual evaluation architecture for email privacy:
+`typesafe-eval` utilizes a context-aware evaluation architecture for email privacy:
 1. **Numbered Placeholders**: Replaces distinct email addresses with `[EMAIL_1]`, `[EMAIL_2]`... (lowercased before numbering for deduplication).
 2. **Metadata in State**: Extracts structural features into `state.redacted_emails` (`domain_type`, `local_part_shape`, `known_role_word`, `matches_custom_role`).
 3. **Parallel Per-Email Evaluation**: Evaluates corporate addresses via batched parallel `Noul` questions in a single `system_one` call, letting the model determine personal vs role status from surrounding document context.
@@ -106,6 +106,7 @@ When exporting results with `--format json`, each document evaluation result con
 
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
+- **Unmasked Mode (`--no-mask`)**: When masking is explicitly disabled via `--no-mask`, numbered email redaction and per-email Noul questions are bypassed; unmasked text is sent directly to the model without feature extraction.
 
 ### 6. Dry-Run Mode (Validation without Calling API)
 ```bash
