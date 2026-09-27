@@ -150,12 +150,10 @@ class TypeSafeEvaluator:
 
         if mask_secrets and cred_count > 0 and cred_q_id:
             if cred_q_id in nouls:
-                nouls[cred_q_id].raw_probability = nouls[cred_q_id].probability
                 nouls[cred_q_id].overridden_by = "preflight_scan"
             else:
                 nouls[cred_q_id] = NoulResult(
-                    probability=1.0,
-                    raw_probability=None,
+                    probability=None,
                     overridden_by="preflight_scan",
                 )
 
@@ -213,33 +211,33 @@ class TypeSafeEvaluator:
             elif q_cfg.type == "noul" and q_id in nouls:
                 val = nouls[q_id].probability
 
-            if val is not None:
+            # Pre-flight scan override violation check
+            if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
+                passed = False
+                label = q_cfg.label or q_id
+                model_str = f" (model: {val:.2f})" if val is not None else ""
+                violations.append(
+                    f"{label}: {cred_count} credential(s) detected by pre-flight scan{model_str}"
+                )
+            elif val is not None:
                 # Weighted score calculation
                 if q_cfg.weight is not None and q_cfg.weight > 0:
                     weighted_sum += val * q_cfg.weight
                     total_weight += q_cfg.weight
 
-                # Pre-flight scan override violation check
-                if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
+                # Threshold verification
+                if q_cfg.min_threshold is not None and val < q_cfg.min_threshold:
                     passed = False
                     label = q_cfg.label or q_id
                     violations.append(
-                        f"{label}: {cred_count} credential(s) detected by pre-flight scan (model: {val:.2f})"
+                        f"{label}: score {val:.2f} is below required minimum {q_cfg.min_threshold:.2f}"
                     )
-                else:
-                    # Threshold verification
-                    if q_cfg.min_threshold is not None and val < q_cfg.min_threshold:
-                        passed = False
-                        label = q_cfg.label or q_id
-                        violations.append(
-                            f"{label}: score {val:.2f} is below required minimum {q_cfg.min_threshold:.2f}"
-                        )
-                    if q_cfg.max_threshold is not None and val > q_cfg.max_threshold:
-                        passed = False
-                        label = q_cfg.label or q_id
-                        violations.append(
-                            f"{label}: risk {val:.2f} exceeds allowed maximum {q_cfg.max_threshold:.2f}"
-                        )
+                if q_cfg.max_threshold is not None and val > q_cfg.max_threshold:
+                    passed = False
+                    label = q_cfg.label or q_id
+                    violations.append(
+                        f"{label}: risk {val:.2f} exceeds allowed maximum {q_cfg.max_threshold:.2f}"
+                    )
 
         composite = (weighted_sum / total_weight) if total_weight > 0 else None
         return composite, passed, violations
@@ -284,7 +282,6 @@ class TypeSafeEvaluator:
         cred_q_id = _find_preflight_question(preset, "credentials")
         cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
         if cred_count > 0 and cred_q_id and cred_q_id in nouls:
-            nouls[cred_q_id].raw_probability = nouls[cred_q_id].probability
             nouls[cred_q_id].overridden_by = "preflight_scan"
 
         composite, passed, violations = self._evaluate_thresholds_and_composite(
