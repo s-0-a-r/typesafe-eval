@@ -9,6 +9,23 @@ def test_mask_sensitive_data():
     assert "[REDACTED_API_KEY]" in masked
     assert "[REDACTED_EMAIL]" in masked
 
+def test_mask_sensitive_data_details():
+    raw = (
+        "AWS: AKIA1234567890ABCDEF, "
+        "GH: ghp_123456789012345678901234567890123456, "
+        "Bearer: Bearer my_secret_token_1234567890_xyz, "
+        "Email: test@company.com"
+    )
+    masked, count, details = mask_sensitive_data(raw, return_details=True)
+    assert count == 4
+    assert details["total"] == 4
+    assert details["credentials"] == 3
+    assert details["pii"] == 1
+    assert details["by_type"]["aws_key"] == 1
+    assert details["by_type"]["github_token"] == 1
+    assert details["by_type"]["bearer_token"] == 1
+    assert details["by_type"]["email"] == 1
+
 def test_guard_document_length_normal():
     text = "Short document content."
     processed, truncated = guard_document_length(text, max_chars=100)
