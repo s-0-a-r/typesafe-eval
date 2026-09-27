@@ -57,8 +57,11 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
                 row_cells.append(f"{badge}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f} (c: {s_obj.confidence:.2f})[/dim]")
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 prob = res.nouls[q_id].probability
-                badge = format_score_badge(prob)
-                row_cells.append(f"{badge}\n[dim]p(yes)[/dim]")
+                if prob is not None:
+                    badge = format_score_badge(prob)
+                    row_cells.append(f"{badge}\n[dim]p(yes)[/dim]")
+                else:
+                    row_cells.append("[dim red]overridden[/dim red]\n[dim]preflight[/dim]")
             elif q_cfg.type == "choice" and q_id in res.choices:
                 choice = res.choices[q_id].choice
                 conf = res.choices[q_id].confidence
@@ -120,7 +123,10 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
                 cells.append(f"{s.normalized_score * 100:.0f}% ({s.score:.1f}/{s.max_score:.0f}, conf: {s.confidence:.2f})")
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 n = res.nouls[q_id]
-                cells.append(f"{n.probability * 100:.0f}% (p={n.probability:.2f})")
+                if n.probability is not None:
+                    cells.append(f"{n.probability * 100:.0f}% (p={n.probability:.2f})")
+                else:
+                    cells.append(f"overridden ({n.overridden_by or 'preflight'})")
             elif q_cfg.type == "choice" and q_id in res.choices:
                 c = res.choices[q_id]
                 cells.append(f"`{c.choice}` (conf: {c.confidence:.2f})")

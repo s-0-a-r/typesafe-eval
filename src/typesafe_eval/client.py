@@ -15,6 +15,15 @@ from typesafe_eval.models import (
 )
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
+def _find_preflight_question(preset: PresetConfig, target: str) -> Optional[str]:
+    """Finds the question ID mapped to a pre-flight scanner category."""
+    for q_id, q_cfg in preset.questions.items():
+        if q_cfg.preflight == target:
+            return q_id
+    if target == "credentials" and "has_secrets" in preset.questions:
+        return "has_secrets"
+    return None
+
 class TypeSafeEvaluator:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
@@ -47,7 +56,10 @@ class TypeSafeEvaluator:
         redaction_details: Dict[str, Any] = {}
         content = raw_content
         if mask_secrets:
-            content, redaction_count, redaction_details = mask_sensitive_data(content, return_details=True)
+            custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
+            content, redaction_count, redaction_details = mask_sensitive_data(
+                content, return_details=True, custom_role_patterns=custom_roles
+            )
 
         # 2. Length check & truncation guard
         content, was_truncated = guard_document_length(content, max_chars=max_chars)
@@ -90,10 +102,13 @@ class TypeSafeEvaluator:
             "document": content,
             "filename": path.name,
         }
-        if redaction_details and redaction_details.get("total", 0) > 0:
+        if redaction_details and (redaction_details.get("total", 0) > 0 or redaction_details.get("examples", 0) > 0):
             state["redactions"] = {
                 "credentials": redaction_details.get("credentials", 0),
                 "pii": redaction_details.get("pii", 0),
+                "pii_personal": redaction_details.get("pii_personal", 0),
+                "pii_role": redaction_details.get("pii_role", 0),
+                "examples": redaction_details.get("examples", 0),
             }
         response = client.system_one(state=state, questions=sdk_questions)
 
@@ -128,14 +143,32 @@ class TypeSafeEvaluator:
                     probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                 )
 
-        # Deterministic credential enforcement:
-        # If pre-flight masking detected credentials deterministically,
-        # code ensures credential exposure is flagged without relying solely on model inference.
-        if mask_secrets and redaction_details.get("credentials", 0) > 0 and "has_secrets" in preset.questions:
-            if "has_secrets" in nouls:
-                nouls["has_secrets"].probability = max(nouls["has_secrets"].probability, 1.0)
+        # Deterministic pre-flight enforcement for credentials & PII:
+        # If pre-flight masking detected credentials or personal PII, record the override
+        # on the configured target question without overwriting the model's raw probability.
+        cred_q_id = _find_preflight_question(preset, "credentials")
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+
+        if mask_secrets and cred_count > 0 and cred_q_id:
+            if cred_q_id in nouls:
+                nouls[cred_q_id].overridden_by = "preflight_scan"
             else:
-                nouls["has_secrets"] = NoulResult(probability=1.0)
+                nouls[cred_q_id] = NoulResult(
+                    probability=None,
+                    overridden_by="preflight_scan",
+                )
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+
+        if mask_secrets and pii_count > 0 and pii_q_id:
+            if pii_q_id in nouls:
+                nouls[pii_q_id].overridden_by = "preflight_scan"
+            else:
+                nouls[pii_q_id] = NoulResult(
+                    probability=None,
+                    overridden_by="preflight_scan",
+                )
 
         # 7. Compute deterministic composite score and threshold check
         composite_score, passed, violations = self._evaluate_thresholds_and_composite(
@@ -143,6 +176,7 @@ class TypeSafeEvaluator:
             scores=scores,
             nouls=nouls,
             choices=choices,
+            redaction_details=redaction_details,
         )
 
         usage_dict = None
@@ -175,11 +209,13 @@ class TypeSafeEvaluator:
         scores: Dict[str, ScoreResult],
         nouls: Dict[str, NoulResult],
         choices: Dict[str, ChoiceResult],
+        redaction_details: Optional[Dict[str, Any]] = None,
     ):
         total_weight = 0.0
         weighted_sum = 0.0
         passed = True
         violations = []
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
 
         for q_id, q_cfg in preset.questions.items():
             val = None
@@ -188,12 +224,26 @@ class TypeSafeEvaluator:
             elif q_cfg.type == "noul" and q_id in nouls:
                 val = nouls[q_id].probability
 
-            if val is not None:
-                # Weighted score calculation
-                if q_cfg.weight is not None and q_cfg.weight > 0:
-                    weighted_sum += val * q_cfg.weight
-                    total_weight += q_cfg.weight
+            # Weighted score calculation: contributes whenever model probability is present
+            if val is not None and q_cfg.weight is not None and q_cfg.weight > 0:
+                weighted_sum += val * q_cfg.weight
+                total_weight += q_cfg.weight
 
+            # Pre-flight scan override violation check
+            if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
+                passed = False
+                label = q_cfg.label or q_id
+                target_count = (
+                    redaction_details.get("pii_personal", 0)
+                    if q_cfg.preflight == "pii"
+                    else redaction_details.get("credentials", 0)
+                ) if redaction_details else 0
+                item_name = "personal PII item(s)" if q_cfg.preflight == "pii" else "credential(s)"
+                model_str = f" (model: {val:.2f})" if val is not None else ""
+                violations.append(
+                    f"{label}: {target_count} {item_name} detected by pre-flight scan{model_str}"
+                )
+            elif val is not None:
                 # Threshold verification
                 if q_cfg.min_threshold is not None and val < q_cfg.min_threshold:
                     passed = False
@@ -248,8 +298,18 @@ class TypeSafeEvaluator:
                     probabilities={str(default_choice): 0.95, "other": 0.05},
                 )
 
+        cred_q_id = _find_preflight_question(preset, "credentials")
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+        if cred_count > 0 and cred_q_id and cred_q_id in nouls:
+            nouls[cred_q_id].overridden_by = "preflight_scan"
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+        if pii_count > 0 and pii_q_id and pii_q_id in nouls:
+            nouls[pii_q_id].overridden_by = "preflight_scan"
+
         composite, passed, violations = self._evaluate_thresholds_and_composite(
-            preset, scores, nouls, choices
+            preset, scores, nouls, choices, redaction_details=redaction_details
         )
 
         return DocumentEvalResult(
