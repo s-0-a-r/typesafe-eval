@@ -11,6 +11,7 @@ class QuestionConfig(BaseModel):
     weight: Optional[float] = None
     min_threshold: Optional[float] = None
     max_threshold: Optional[float] = None
+    preflight: Optional[str] = None
 
 class PresetConfig(BaseModel):
     name: str
@@ -27,6 +28,8 @@ class ScoreResult(BaseModel):
 
 class NoulResult(BaseModel):
     probability: float
+    raw_probability: Optional[float] = None
+    overridden_by: Optional[str] = None
 
 class ChoiceResult(BaseModel):
     choice: str
