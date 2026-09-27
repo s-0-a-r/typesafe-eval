@@ -105,6 +105,8 @@ class TypeSafeEvaluator:
             state["redactions"] = {
                 "credentials": redaction_details.get("credentials", 0),
                 "pii": redaction_details.get("pii", 0),
+                "pii_personal": redaction_details.get("pii_personal", 0),
+                "pii_role": redaction_details.get("pii_role", 0),
             }
         response = client.system_one(state=state, questions=sdk_questions)
 
