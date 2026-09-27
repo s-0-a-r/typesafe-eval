@@ -96,7 +96,7 @@ def main(
         err_console.print("[bold red]Error:[/bold red] No files or file patterns specified.")
         err_console.print("Usage: typesafe-eval [OPTIONS] <FILE_OR_GLOB>...")
         err_console.print("Example: typesafe-eval docs/*.md --preset quality")
-        sys.exit(1)
+        sys.exit(2)
 
     # 1. Resolve matched files
     resolved_paths: List[Path] = []
@@ -114,7 +114,7 @@ def main(
 
     if not resolved_paths:
         err_console.print(f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}")
-        sys.exit(1)
+        sys.exit(2)
 
     # 2. Load preset configuration
     preset_target = str(config) if config else preset
@@ -122,7 +122,7 @@ def main(
         preset_cfg = load_preset(preset_target)
     except Exception as e:
         err_console.print(f"[bold red]Error loading preset:[/bold red] {e}")
-        sys.exit(1)
+        sys.exit(2)
 
     # 3. Initialize Evaluator
     evaluator = TypeSafeEvaluator(api_key=api_key)
@@ -130,6 +130,7 @@ def main(
     # 4. Evaluate documents
     results = []
     has_violations = False
+    has_errors = False
 
     for path in resolved_paths:
         try:
@@ -144,21 +145,22 @@ def main(
             if not res.passed_thresholds:
                 has_violations = True
         except Exception as e:
-            err_console.print(f"[bold red]Error evaluating {path}:[/bold red] {e}")
-            sys.exit(1)
+            click.echo(f"{path}: {e}", err=True)
+            has_errors = True
 
     # 5. Output handling
-    if output_format == "table":
-        render_table(results, preset_cfg)
-    elif output_format == "json":
-        json_output = render_json(results)
-        click.echo(json_output)
-    elif output_format == "markdown":
-        md_output = render_markdown(results, preset_cfg)
-        click.echo(md_output)
+    if results or output_format == "json":
+        if output_format == "table":
+            render_table(results, preset_cfg)
+        elif output_format == "json":
+            json_output = render_json(results)
+            click.echo(json_output)
+        elif output_format == "markdown":
+            md_output = render_markdown(results, preset_cfg)
+            click.echo(md_output)
 
     # 6. Save to out file if requested
-    if out:
+    if out and (results or output_format == "json"):
         if output_format == "json":
             out.write_text(render_json(results), encoding="utf-8")
         elif output_format == "markdown":
@@ -168,9 +170,13 @@ def main(
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
-    # 7. Threshold failure exit
+    # 7. Exit code resolution (1 takes precedence over 3)
     if fail_on_threshold and has_violations:
         sys.exit(1)
+    elif has_errors:
+        sys.exit(3)
+    else:
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
