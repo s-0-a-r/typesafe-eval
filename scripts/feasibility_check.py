@@ -3,12 +3,15 @@
 
 Per Issue #42:
 - Compares within-pair gap (Δ between before/after or original/degraded) to between-document spread.
-- Checks whether within-pair gap is clearly larger than between-document spread.
-- Evaluates ROC-AUC and false alarm rates for absolute threshold feasibility.
+- Checks whether within-pair gap is clearly larger than between-document spread (computed over distinct documents).
+- Splits by document into a tuning set and a held-out set (by doc_id, never by pair).
+- Chooses the candidate threshold on the tuning set.
+- Evaluates ROC-AUC and published false-alarm rate on the held-out set (better vs worse).
+- Groups results by document type (doc_type separate from degradation variant).
 
 Usage:
     # Run with synthetic degradations on sample docs (dry-run):
-    python scripts/feasibility_check.py --doc fixtures/checklists/design_doc/en.md --dry-run
+    python scripts/feasibility_check.py --doc tests/fixtures/design_doc/en.md --doc tests/fixtures/design_doc/ja.md --dry-run
 
     # Run with a pairs JSON file:
     python scripts/feasibility_check.py --pairs pairs.json [--dry-run] [--runs 3] [--out results.json]
@@ -27,7 +30,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
-from typesafe_eval.models import DocumentEvalResult
 
 SEED = 20260927
 FILLER = (
@@ -93,10 +95,10 @@ def compute_roc_auc(pos_scores: List[float], neg_scores: List[float]) -> float:
     # Wilcoxon-Mann-Whitney statistic
     all_scores = [(s, 1) for s in pos_scores] + [(s, 0) for s in neg_scores]
     all_scores.sort(key=lambda x: x[0])
-    
+
     n_pos = len(pos_scores)
     n_neg = len(neg_scores)
-    
+
     rank_sum_pos = 0.0
     i = 0
     while i < len(all_scores):
@@ -153,7 +155,7 @@ def evaluate_text(
                 )
             else:
                 res = evaluator.evaluate_document(filepath=temp_path, preset=preset)
-            
+
             clarity = res.scores["clarity"].normalized_score if "clarity" in res.scores else 0.0
             scores.append(clarity)
     finally:
@@ -162,11 +164,24 @@ def evaluate_text(
     return statistics.median(scores) if scores else 0.0
 
 
+def infer_doc_type(path_or_name: str, default: str = "generic") -> str:
+    lower = path_or_name.lower()
+    if "design_doc" in lower or "designdoc" in lower:
+        return "design_doc"
+    if "pr_description" in lower or "prdescription" in lower:
+        return "pr_description"
+    if "article" in lower or "zenn" in lower:
+        return "article"
+    return default
+
+
 def run_feasibility(
     pairs_file: Optional[Path] = None,
     doc_paths: Optional[List[Path]] = None,
+    default_doc_type: str = "generic",
     preset_name: str = "quality",
     runs: int = 3,
+    holdout_fraction: float = 0.3,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     preset = load_preset(preset_name)
@@ -188,11 +203,18 @@ def run_feasibility(
                 if "after" in item and Path(item["after"]).is_file()
                 else item.get("after_text", "")
             )
+            doc_id = item.get("doc_id", item.get("id", f"doc_{len(pairs)}"))
+            doc_type = item.get("doc_type", infer_doc_type(str(doc_id), default_doc_type))
+            better = item.get("better", "after")  # default for review pairs is 'after'
+
             pairs.append({
                 "id": item.get("id", f"pair_{len(pairs)}"),
+                "doc_id": doc_id,
+                "doc_type": doc_type,
+                "better": better,
                 "before_text": before_text,
                 "after_text": after_text,
-                "doc_type": item.get("doc_type", "generic"),
+                "degradation": item.get("degradation", None),
             })
 
     # 2. Or generate synthetic degradation pairs from doc_paths
@@ -202,7 +224,8 @@ def run_feasibility(
                 continue
             orig_text = dp.read_text(encoding="utf-8")
             base_id = dp.stem
-            # degradations
+            doc_type = infer_doc_type(str(dp), default_doc_type)
+
             for deg_name, deg_fn in [
                 ("shuffled", make_shuffled),
                 ("no_headings", make_no_headings),
@@ -211,52 +234,138 @@ def run_feasibility(
                 deg_text = deg_fn(orig_text)
                 pairs.append({
                     "id": f"{base_id}_{deg_name}",
-                    "before_text": orig_text,      # original (good)
-                    "after_text": deg_text,        # degraded (bad)
-                    "doc_type": deg_name,
+                    "doc_id": base_id,
+                    "doc_type": doc_type,
+                    "better": "before",  # original is 'before', which is better
+                    "before_text": orig_text,
+                    "after_text": deg_text,
+                    "degradation": deg_name,
                 })
 
     if not pairs:
         raise ValueError("No review pairs or documents provided to feasibility check.")
 
-    pair_results = []
-    original_scores = []
-    degraded_scores = []
-    deltas = []
+    # Distinct documents and train/test split by document ID (never by pair)
+    distinct_doc_ids = sorted(list({p["doc_id"] for p in pairs}))
+    rng = random.Random(SEED)
+    shuffled_doc_ids = list(distinct_doc_ids)
+    rng.shuffle(shuffled_doc_ids)
 
+    if len(distinct_doc_ids) >= 2 and holdout_fraction > 0:
+        n_holdout = max(1, int(round(len(distinct_doc_ids) * holdout_fraction)))
+        n_holdout = min(n_holdout, len(distinct_doc_ids) - 1)
+        holdout_doc_ids = set(shuffled_doc_ids[:n_holdout])
+        tuning_doc_ids = set(shuffled_doc_ids[n_holdout:])
+    else:
+        tuning_doc_ids = set(distinct_doc_ids)
+        holdout_doc_ids = set(distinct_doc_ids)
+
+    # Evaluate pairs
+    evaluated_pairs = []
     for p in pairs:
-        s_orig = evaluate_text(evaluator, preset, p["before_text"], f"{p['id']}_orig", runs, dry_run)
-        s_deg = evaluate_text(evaluator, preset, p["after_text"], f"{p['id']}_deg", runs, dry_run)
-        delta = s_deg - s_orig  # expected to be negative for degradations
+        s_before = evaluate_text(evaluator, preset, p["before_text"], f"{p['id']}_before", runs, dry_run)
+        s_after = evaluate_text(evaluator, preset, p["after_text"], f"{p['id']}_after", runs, dry_run)
+        delta_after_minus_before = s_after - s_before
 
-        original_scores.append(s_orig)
-        degraded_scores.append(s_deg)
-        deltas.append(delta)
+        if p["better"] == "after":
+            better_score = s_after
+            worse_score = s_before
+            degradation_delta = s_before - s_after  # <= 0 if worse is lower
+        else:
+            better_score = s_before
+            worse_score = s_after
+            degradation_delta = s_after - s_before  # <= 0 if worse is lower
 
-        pair_results.append({
+        evaluated_pairs.append({
             "id": p["id"],
+            "doc_id": p["doc_id"],
             "doc_type": p["doc_type"],
-            "original_clarity": s_orig,
-            "degraded_clarity": s_deg,
-            "delta": round(delta, 4),
+            "better": p["better"],
+            "degradation": p.get("degradation"),
+            "is_holdout": p["doc_id"] in holdout_doc_ids,
+            "before_score": s_before,
+            "after_score": s_after,
+            "better_score": better_score,
+            "worse_score": worse_score,
+            "delta": round(delta_after_minus_before, 4),
+            "degradation_delta": round(degradation_delta, 4),
         })
 
-    # Statistics
-    mean_delta, ci95_lower, ci95_upper = compute_ci95(deltas)
-    between_doc_spread = statistics.stdev(original_scores) if len(original_scores) > 1 else 0.001
-    gap_to_spread_ratio = abs(mean_delta) / between_doc_spread if between_doc_spread > 0 else 0.0
+    # Item (2): Compute spread over distinct documents (one mean score per document)
+    doc_better_means = []
+    for d in distinct_doc_ids:
+        scores_for_doc = [p["better_score"] for p in evaluated_pairs if p["doc_id"] == d]
+        if scores_for_doc:
+            doc_better_means.append(statistics.mean(scores_for_doc))
 
-    # Feasibility checks
-    within_pair_clearly_larger = gap_to_spread_ratio >= 1.5
-    auc = compute_roc_auc(original_scores, degraded_scores)
+    if len(doc_better_means) > 1:
+        between_doc_spread = statistics.stdev(doc_better_means)
+    else:
+        between_doc_spread = 0.0
 
-    # False alarm on published (original) docs if threshold is median of degraded
-    threshold_candidate = statistics.median(degraded_scores) if degraded_scores else 0.5
-    false_alarms = sum(1 for s in original_scores if s <= threshold_candidate)
-    false_alarm_rate = round(false_alarms / len(original_scores), 4) if original_scores else 0.0
+    all_deg_deltas = [p["degradation_delta"] for p in evaluated_pairs]
+    mean_delta, ci95_lower, ci95_upper = compute_ci95(all_deg_deltas)
+    gap_to_spread_ratio = (
+        round(abs(mean_delta) / between_doc_spread, 2)
+        if between_doc_spread > 0
+        else None
+    )
+    within_pair_clearly_larger = bool(gap_to_spread_ratio is not None and gap_to_spread_ratio >= 1.5)
 
-    report = {
-        "num_pairs": len(pairs),
+    # Item (3): Split by document into tuning and held-out
+    tuning_pairs = [p for p in evaluated_pairs if p["doc_id"] in tuning_doc_ids]
+    holdout_pairs = [p for p in evaluated_pairs if p["doc_id"] in holdout_doc_ids]
+
+    # Choose threshold on tuning (median of worse/degraded scores)
+    tuning_worse_scores = [p["worse_score"] for p in tuning_pairs]
+    candidate_threshold = statistics.median(tuning_worse_scores) if tuning_worse_scores else 0.5
+
+    # Report AUC and published false-alarm rate on held-out
+    held_out_better = [p["better_score"] for p in holdout_pairs]
+    held_out_worse = [p["worse_score"] for p in holdout_pairs]
+    held_out_auc = compute_roc_auc(held_out_better, held_out_worse)
+
+    false_alarms = sum(1 for s in held_out_better if s <= candidate_threshold)
+    held_out_fa_rate = round(false_alarms / len(held_out_better), 4) if held_out_better else 0.0
+
+    # Group by document type
+    by_doc_type = {}
+    distinct_doc_types = sorted(list({p["doc_type"] for p in evaluated_pairs}))
+    for dt in distinct_doc_types:
+        dt_pairs = [p for p in evaluated_pairs if p["doc_type"] == dt]
+        dt_tuning = [p for p in dt_pairs if p["doc_id"] in tuning_doc_ids]
+        dt_holdout = [p for p in dt_pairs if p["doc_id"] in holdout_doc_ids]
+
+        dt_deltas = [p["degradation_delta"] for p in dt_pairs]
+        dt_mean_d, dt_ci_l, dt_ci_u = compute_ci95(dt_deltas)
+
+        dt_thresh = (
+            statistics.median([p["worse_score"] for p in dt_tuning])
+            if dt_tuning
+            else candidate_threshold
+        )
+        dt_ho_better = [p["better_score"] for p in dt_holdout]
+        dt_ho_worse = [p["worse_score"] for p in dt_holdout]
+        dt_auc = compute_roc_auc(dt_ho_better, dt_ho_worse) if dt_holdout else 0.5
+        dt_fa = sum(1 for s in dt_ho_better if s <= dt_thresh)
+        dt_fa_rate = round(dt_fa / len(dt_ho_better), 4) if dt_ho_better else 0.0
+
+        by_doc_type[dt] = {
+            "num_pairs": len(dt_pairs),
+            "mean_delta": dt_mean_d,
+            "ci95_lower": dt_ci_l,
+            "ci95_upper": dt_ci_u,
+            "candidate_threshold": round(dt_thresh, 4),
+            "held_out_roc_auc": dt_auc,
+            "held_out_false_alarm_rate": dt_fa_rate,
+            "feasible": (dt_auc >= 0.75 and dt_fa_rate <= 0.10),
+        }
+
+    return {
+        "num_pairs": len(evaluated_pairs),
+        "num_distinct_docs": len(distinct_doc_ids),
+        "tuning_docs": sorted(list(tuning_doc_ids)),
+        "holdout_docs": sorted(list(holdout_doc_ids)),
         "preset": preset_name,
         "runs": runs,
         "dry_run": dry_run,
@@ -266,23 +375,25 @@ def run_feasibility(
             "ci95_upper": ci95_upper,
         },
         "between_doc_spread": round(between_doc_spread, 4),
-        "gap_to_spread_ratio": round(gap_to_spread_ratio, 2),
+        "gap_to_spread_ratio": gap_to_spread_ratio,
         "within_pair_clearly_larger": within_pair_clearly_larger,
-        "roc_auc": auc,
-        "candidate_threshold": round(threshold_candidate, 4),
-        "published_false_alarm_rate": false_alarm_rate,
-        "absolute_gate_feasible": (auc >= 0.75 and false_alarm_rate <= 0.10 and within_pair_clearly_larger),
-        "pairs": pair_results,
+        "tuning_candidate_threshold": round(candidate_threshold, 4),
+        "held_out_roc_auc": held_out_auc,
+        "held_out_published_false_alarm_rate": held_out_fa_rate,
+        "absolute_gate_feasible": (held_out_auc >= 0.75 and held_out_fa_rate <= 0.10 and within_pair_clearly_larger),
+        "by_doc_type": by_doc_type,
+        "pairs": evaluated_pairs,
     }
-    return report
 
 
 def main():
     parser = argparse.ArgumentParser(description="Feasibility check for quality regression detection (#42)")
     parser.add_argument("--pairs", type=Path, help="JSON file with pairs to evaluate")
     parser.add_argument("--doc", action="append", type=Path, help="Document(s) to generate degradations for")
+    parser.add_argument("--doc-type", default="generic", help="Default doc_type for documents (default: generic)")
     parser.add_argument("--preset", default="quality", help="Preset name (default: quality)")
     parser.add_argument("--runs", type=int, default=3, help="Number of runs per doc (default: 3)")
+    parser.add_argument("--holdout-fraction", type=float, default=0.3, help="Fraction of documents in holdout set")
     parser.add_argument("--dry-run", action="store_true", help="Use mock evaluation without API calls")
     parser.add_argument("--out", type=Path, help="Path to save JSON output")
 
@@ -290,7 +401,6 @@ def main():
 
     doc_paths = args.doc or []
     if not args.pairs and not doc_paths:
-        # Default fallback to design_doc fixtures if present
         default_doc = Path("tests/fixtures/design_doc/en.md")
         if default_doc.is_file():
             doc_paths = [default_doc]
@@ -300,25 +410,40 @@ def main():
     report = run_feasibility(
         pairs_file=args.pairs,
         doc_paths=doc_paths,
+        default_doc_type=args.doc_type,
         preset_name=args.preset,
         runs=args.runs,
+        holdout_fraction=args.holdout_fraction,
         dry_run=args.dry_run,
     )
 
     print("=== Feasibility Check Summary (Issue #42) ===")
-    print(f"Evaluated Pairs: {report['num_pairs']}")
+    print(f"Evaluated Pairs: {report['num_pairs']} (across {report['num_distinct_docs']} distinct documents)")
+    print(f"Tuning Docs: {len(report['tuning_docs'])}, Held-out Docs: {len(report['holdout_docs'])}")
     print(f"Mean Δ (within-pair): {report['within_pair_gap']['mean_delta']} "
           f"[95% CI: {report['within_pair_gap']['ci95_lower']}, {report['within_pair_gap']['ci95_upper']}]")
     print(f"Between-document spread (σ): {report['between_doc_spread']}")
-    print(f"Gap / Spread Ratio: {report['gap_to_spread_ratio']} "
+    ratio_str = f"{report['gap_to_spread_ratio']}" if report['gap_to_spread_ratio'] is not None else "N/A"
+    print(f"Gap / Spread Ratio: {ratio_str} "
           f"({'Clearly larger (≥1.5)' if report['within_pair_clearly_larger'] else 'Not clearly larger (<1.5)'})")
-    print(f"ROC-AUC: {report['roc_auc']} (Threshold: ≥ 0.75)")
-    print(f"Published False Alarm Rate: {report['published_false_alarm_rate'] * 100:.1f}% (Threshold: ≤ 10%)")
+    print(f"Tuning Candidate Threshold: {report['tuning_candidate_threshold']}")
+    print(f"Held-out ROC-AUC (better vs worse): {report['held_out_roc_auc']} (Target: ≥ 0.75)")
+    print(f"Held-out Published False Alarm Rate: {report['held_out_published_false_alarm_rate'] * 100:.1f}% (Target: ≤ 10%)")
     print(f"Absolute Gate Feasible: {'YES' if report['absolute_gate_feasible'] else 'NO (Spotting regressions only)'}")
+
+    if report["by_doc_type"]:
+        print("\n--- By Document Type ---")
+        for dt, dt_stats in report["by_doc_type"].items():
+            print(f"• {dt} ({dt_stats['num_pairs']} pairs): "
+                  f"Mean Δ: {dt_stats['mean_delta']} [95% CI: {dt_stats['ci95_lower']}, {dt_stats['ci95_upper']}] | "
+                  f"Threshold: {dt_stats['candidate_threshold']} | "
+                  f"Held-out AUC: {dt_stats['held_out_roc_auc']} | "
+                  f"False Alarm: {dt_stats['held_out_false_alarm_rate'] * 100:.1f}% | "
+                  f"Feasible: {'YES' if dt_stats['feasible'] else 'NO'}")
 
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"Detailed results saved to {args.out}")
+        print(f"\nDetailed results saved to {args.out}")
 
 
 if __name__ == "__main__":

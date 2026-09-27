@@ -548,7 +548,7 @@ class TypeSafeEvaluator:
         passed = True
         violations = []
         warnings = []
-        is_warning_only = bool(preset.thresholds_as_warnings or preset.name == "quality")
+        is_warning_only = bool(preset.thresholds_as_warnings)
 
         for q_id, q_cfg in preset.questions.items():
             val = None
