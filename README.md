@@ -23,7 +23,7 @@ Fast, typed, multi-dimensional document evaluation CLI powered by the **TypeSafe
   - Automatic pre-flight regex masking for API keys, bearer tokens, and emails.
   - Context length guard with safe head-tail truncation to prevent context overflows.
 - **Multiple Output Formats**: Rich interactive terminal tables, JSON (for pipelines/APIs), and Markdown reports (for GitHub PRs/issues).
-- **CI/CD Ready**: Automatic non-zero exit codes when documents fail minimum quality or maximum risk thresholds.
+- **CI/CD Ready**: Distinct exit codes (`0` pass, `1` violation, `2` usage/config error, `3` runtime error) with precedence of violations over runtime errors.
 
 ---
 
@@ -117,6 +117,22 @@ typesafe-eval docs/*.md --dry-run
 ```bash
 typesafe-eval --list-presets
 ```
+
+### 8. Exit Codes & CI Integration
+
+`typesafe-eval` returns distinct exit codes to allow CI pipelines and automated agents to distinguish quality/safety violations from system or configuration failures:
+
+| Code | Meaning |
+| :---: | :--- |
+| `0` | All evaluated documents passed (also returned when threshold violations exist but `--no-fail-on-threshold` is set, and no runtime errors occurred). |
+| `1` | At least one threshold violation occurred across evaluated documents (with `--fail-on-threshold`, which is enabled by default). |
+| `2` | Usage or configuration error: no files specified, no files matched pattern, preset/config loading failure, or invalid CLI options. |
+| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, or file read error during evaluation. |
+
+#### Precedence Rule (1 over 3)
+When evaluating multiple files, evaluation continues across all remaining files even if an individual file encounters a runtime error. Errored files are reported on `stderr` (`<file>: <error>`), while successfully evaluated files are included in the normal output (table, JSON, or Markdown).
+
+If **any** evaluated file has a threshold violation, the CLI exits with **code 1**, even if other files encountered runtime errors. A detected violation is certain and is not masked by subsequent runtime errors. Code 3 is returned only when runtime errors occur and **no** threshold violations were detected. Code 2 is determined before evaluation starts, so it never overlaps.
 
 ---
 
