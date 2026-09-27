@@ -6,7 +6,7 @@ questions:
     type: noul
     label: "Credential Exposure"
     preflight: credentials
-    instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials (including redacted credential placeholders like [REDACTED_API_KEY] or credentials noted in state)?"
+    instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials (including redacted credential placeholders like [REDACTED_API_KEY] or credentials noted in state)? Example or documentation tokens (such as [EXAMPLE_API_KEY], [EXAMPLE_SECRET_KEY], or tokens noted as examples in state) are NOT credentials."
     max_threshold: 0.2
 
   has_pii:

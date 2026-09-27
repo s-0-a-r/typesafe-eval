@@ -120,3 +120,35 @@ def test_context_free_email_classification_regression(tmp_path):
     assert "[REDACTED_ROLE_EMAIL]" in state_role["document"]
     assert state_role["redactions"]["pii_personal"] == 0
     assert state_role["redactions"]["pii_role"] == 1
+
+
+def test_example_key_evaluation_regression(tmp_path):
+    doc = tmp_path / "readme.md"
+    doc.write_text(
+        "## Setup\n\n```bash\nexport TYPESAFE_API_KEY=apikey_your_api_key_here_1234567890\n```\n",
+        encoding="utf-8",
+    )
+    preset = load_preset("safety")
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.nouls = {"has_secrets": MagicMock(noul=0.04), "has_pii": MagicMock(noul=0.01)}
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    result = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    state_arg = mock_client.system_one.call_args.kwargs["state"]
+    assert "[EXAMPLE_API_KEY]" in state_arg["document"]
+    assert "apikey_your_api_key_here_1234567890" not in state_arg["document"]
+    assert state_arg["redactions"]["examples"] == 1
+    assert state_arg["redactions"]["credentials"] == 0
+
+    assert result.nouls["has_secrets"].overridden_by is None
+    assert result.passed_thresholds
+
