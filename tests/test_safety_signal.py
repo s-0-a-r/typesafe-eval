@@ -176,3 +176,94 @@ def test_example_key_evaluation_regression(tmp_path):
     assert result.nouls["has_secrets"].overridden_by is None
     assert result.passed_thresholds
 
+
+def test_overridden_question_composite_contribution(tmp_path):
+    # Issue #24: Overridden questions must contribute their model probability to the composite score
+    doc = tmp_path / "secret.txt"
+    doc.write_text("API token: apikey_1234567890abcdef123456", encoding="utf-8")
+
+    preset = PresetConfig(
+        name="custom_weighted",
+        questions={
+            "leak": QuestionConfig(
+                type="noul",
+                label="Leak",
+                instructions="Check for secrets",
+                preflight="credentials",
+                weight=0.5,
+                max_threshold=0.2,
+            ),
+            "clarity": QuestionConfig(
+                type="score",
+                label="Clarity",
+                instructions="Clarity",
+                weight=0.5,
+                min_threshold=0.6,
+            ),
+        },
+    )
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    # Leak model probability: 0.10, Clarity normalized score: 0.80 (score 1.6 / 2.0)
+    mock_resp.nouls = {"leak": MagicMock(noul=0.10)}
+    mock_resp.scores = {"clarity": MagicMock(score=1.6, confidence=0.9, probabilities={})}
+    mock_resp.choices = {}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    result = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+    # The preflight override fails the gate
+    assert not result.passed_thresholds
+    assert result.nouls["leak"].overridden_by == "preflight_scan"
+    assert result.nouls["leak"].probability == 0.10
+    # Composite must include leak (0.10 * 0.5 + 0.80 * 0.5 = 0.45)
+    assert result.composite_score is not None
+    assert abs(result.composite_score - 0.45) < 1e-4
+
+
+def test_custom_preset_pii_preflight_override(tmp_path):
+    # Issue #25: preflight: pii triggers override on personal emails, but not on role emails
+    doc_personal = tmp_path / "personal.txt"
+    doc_personal.write_text("Contact user at hanako.suzuki@gmail.com", encoding="utf-8")
+
+    doc_role = tmp_path / "role.txt"
+    doc_role.write_text("Contact team at support@company.com", encoding="utf-8")
+
+    preset = PresetConfig(
+        name="custom_pii_guard",
+        questions={
+            "pii_gate": QuestionConfig(
+                type="noul",
+                label="PII Check",
+                instructions="Check for PII",
+                preflight="pii",
+                max_threshold=0.3,
+            )
+        },
+    )
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.nouls = {"pii_gate": MagicMock(noul=0.05)}
+    mock_resp.scores = {}
+    mock_resp.choices = {}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    # Personal email: triggers preflight override
+    res_pers = evaluator.evaluate_document(str(doc_personal), preset=preset, mask_secrets=True)
+    assert not res_pers.passed_thresholds
+    assert res_pers.nouls["pii_gate"].overridden_by == "preflight_scan"
+    assert any("personal PII item(s) detected by pre-flight scan" in v for v in res_pers.violations)
+
+    # Role email: does NOT trigger preflight override
+    res_role = evaluator.evaluate_document(str(doc_role), preset=preset, mask_secrets=True)
+    assert res_role.passed_thresholds
+    assert res_role.nouls["pii_gate"].overridden_by is None
+
+

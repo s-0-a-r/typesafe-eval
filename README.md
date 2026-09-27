@@ -89,7 +89,7 @@ When exporting results with `--format json`, each document evaluation result con
 - `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, and `confidence`.
 - `nouls`: Map of noul questions with calibrated probability and override transparency:
   - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
-  - `overridden_by`: Set to `"preflight_scan"` when deterministic regex pre-flight masking caught exposed credentials or PII, enforcing a failure gate while preserving the raw model response.
+  - `overridden_by`: Set to `"preflight_scan"` when deterministic regex pre-flight masking caught exposed credentials (for questions bound to `preflight: credentials`) or personal PII (for `preflight: pii`, ignoring generic role emails like `support@company.com`). Overridden questions continue to contribute their model probability to `composite_score` when present, while independently failing the evaluation gate.
 - `choices`: Map of choice questions with selected `choice` and `confidence`.
 - `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
 - `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
