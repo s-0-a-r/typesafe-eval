@@ -147,20 +147,21 @@ class CriterionEvaluationResult(BaseModel):
     name: str
     expected: Any
     actual: Any
-    passed: bool
+    passed: Optional[bool] = None
     message: str
 
 
 class ValidationReport(BaseModel):
     preset_name: str
     runs: int
-    all_passed: bool
+    all_passed: Optional[bool] = None
     summary: Dict[str, Any]
     presence_results: List[DocumentPresenceResult] = Field(default_factory=list)
     pair_results: List[PairScoreResult] = Field(default_factory=list)
     question_stats: Dict[str, QuestionValidationStats] = Field(default_factory=dict)
     criteria_results: List[CriterionEvaluationResult] = Field(default_factory=list)
     choice_distributions: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    mock: bool = False
 
 
 # --- Execution Engine ---
@@ -504,7 +505,7 @@ def run_validation(
                         name="min_detected (rate)",
                         expected=f"{exp_det*100:.0f}%",
                         actual=f"{act_det_rate*100:.1f}% ({total_detected}/{total_absent})",
-                        passed=passed,
+                        passed=None if dry_run else passed,
                         message=f"Detected {total_detected}/{total_absent} absent items",
                     )
                 )
@@ -515,7 +516,7 @@ def run_validation(
                         name="min_detected (count)",
                         expected=int(exp_det),
                         actual=f"{total_detected}/{total_absent}",
-                        passed=passed,
+                        passed=None if dry_run else passed,
                         message=f"Detected {total_detected} absent items (required >= {int(exp_det)})",
                     )
                 )
@@ -531,7 +532,7 @@ def run_validation(
                     name="max_false_alarms",
                     expected=int(exp_fa),
                     actual=f"{total_false_alarms}/{total_present}",
-                    passed=passed,
+                    passed=None if dry_run else passed,
                     message=f"False alarms {total_false_alarms} (allowed <= {int(exp_fa)})",
                 )
             )
@@ -548,7 +549,7 @@ def run_validation(
                     name="max_neutral_delta",
                     expected=f"<= {crit_cfg.max_neutral_delta:.3f}",
                     actual=f"{max_act_neutral:.3f}",
-                    passed=passed,
+                    passed=None if dry_run else passed,
                     message=f"Max neutral delta is {max_act_neutral:.3f}",
                 )
             )
@@ -566,7 +567,7 @@ def run_validation(
                     name="min_degradation_drop",
                     expected=f"<= -{min_drop:.3f}",
                     actual=f"max delta {max_delta:.3f}",
-                    passed=passed,
+                    passed=None if dry_run else passed,
                     message=f"Down pairs drop check",
                 )
             )
@@ -582,7 +583,7 @@ def run_validation(
                     name="max_spread",
                     expected=f"<= {crit_cfg.max_spread:.3f}",
                     actual=f"{max_spread_all:.3f}",
-                    passed=passed,
+                    passed=None if dry_run else passed,
                     message=f"Max run-to-run spread is {max_spread_all:.3f}",
                 )
             )
@@ -598,19 +599,20 @@ def run_validation(
         "total_present_expected": total_present,
         "total_false_alarms": total_false_alarms,
         "false_alarm_rate": (total_false_alarms / total_present) if total_present > 0 else 0.0,
-        "criteria_passed": all_criteria_passed,
+        "criteria_passed": None if dry_run else all_criteria_passed,
     }
 
     report = ValidationReport(
         preset_name=preset_cfg.name,
         runs=runs,
-        all_passed=all_criteria_passed,
+        all_passed=None if dry_run else all_criteria_passed,
         summary=summary,
         presence_results=presence_results,
         pair_results=pair_results,
         question_stats=question_stats,
         criteria_results=criteria_results,
         choice_distributions=choice_distributions,
+        mock=dry_run,
     )
 
     return report, has_runtime_error
@@ -621,11 +623,20 @@ def run_validation(
 def render_validation_table(report: ValidationReport) -> None:
     """Renders validation report as rich tables to console."""
     console.print()
-    verdict_badge = "[bold green]✔ PASS[/bold green]" if report.all_passed else "[bold red]✘ FAIL[/bold red]"
+    if report.mock:
+        verdict_badge = "[bold yellow]N/A (MOCK)[/bold yellow]"
+        title = "[bold magenta]TypeSafe Validation Report (MOCK)[/bold magenta]"
+    elif report.all_passed:
+        verdict_badge = "[bold green]✔ PASS[/bold green]"
+        title = "[bold magenta]TypeSafe Validation Report[/bold magenta]"
+    else:
+        verdict_badge = "[bold red]✘ FAIL[/bold red]"
+        title = "[bold magenta]TypeSafe Validation Report[/bold magenta]"
+
     console.print(
         Panel(
             f"Preset: [bold cyan]{report.preset_name}[/bold cyan] | Runs: [bold]{report.runs}[/bold] | Verdict: {verdict_badge}",
-            title="[bold magenta]TypeSafe Validation Report[/bold magenta]",
+            title=title,
             border_style="magenta",
         )
     )
@@ -677,7 +688,12 @@ def render_validation_table(report: ValidationReport) -> None:
 
         for p in report.pair_results:
             pair_name = f"{Path(p.before_path).name} → {Path(p.after_path).name}"
-            status = "[bold green]PASS[/bold green]" if p.passed else "[bold red]FAIL[/bold red]"
+            if report.mock:
+                status = "[bold yellow]N/A (MOCK)[/bold yellow]"
+            elif p.passed:
+                status = "[bold green]PASS[/bold green]"
+            else:
+                status = "[bold red]FAIL[/bold red]"
             ci_str = f"[{p.ci_95_lower:.2f}, {p.ci_95_upper:.2f}]"
             table_pairs.add_row(
                 pair_name,
@@ -703,7 +719,12 @@ def render_validation_table(report: ValidationReport) -> None:
         table_crit.add_column("Status", justify="center")
 
         for c in report.criteria_results:
-            status = "[bold green]✔ PASS[/bold green]" if c.passed else "[bold red]✘ FAIL[/bold red]"
+            if c.passed is None:
+                status = "[bold yellow]N/A (MOCK)[/bold yellow]"
+            elif c.passed:
+                status = "[bold green]✔ PASS[/bold green]"
+            else:
+                status = "[bold red]✘ FAIL[/bold red]"
             table_crit.add_row(c.name, str(c.expected), str(c.actual), status)
 
         console.print(table_crit)
@@ -725,6 +746,10 @@ def render_validation_table(report: ValidationReport) -> None:
         )
         console.print()
 
+    if report.mock:
+        console.print("[dim]Mode: MOCK (dry-run, no API calls made)[/dim]")
+        console.print()
+
 
 def render_validation_json(report: ValidationReport) -> str:
     """Renders validation report as structured JSON."""
@@ -733,12 +758,22 @@ def render_validation_json(report: ValidationReport) -> str:
 
 def render_validation_markdown(report: ValidationReport) -> str:
     """Renders validation report as Markdown."""
+    title = "# TypeSafe Validation Report (MOCK)" if report.mock else "# TypeSafe Validation Report"
+    if report.mock:
+        verdict_str = "N/A (MOCK)"
+    elif report.all_passed:
+        verdict_str = "PASS"
+    else:
+        verdict_str = "FAIL"
+
     lines = [
-        f"# TypeSafe Validation Report",
-        f"",
-        f"**Preset:** `{report.preset_name}` | **Runs:** {report.runs} | **Verdict:** {'PASS' if report.all_passed else 'FAIL'}",
-        f"",
+        title,
+        "",
+        f"**Preset:** `{report.preset_name}` | **Runs:** {report.runs} | **Verdict:** {verdict_str}",
     ]
+    if report.mock:
+        lines.append("**Mode:** MOCK (dry-run, no API calls made)  ")
+    lines.append("")
 
     presence_stats = [s for s in report.question_stats.values() if s.type == "noul"]
     if presence_stats:
@@ -761,7 +796,7 @@ def render_validation_markdown(report: ValidationReport) -> str:
         lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
         for p in report.pair_results:
             pair_name = f"`{Path(p.before_path).name}` → `{Path(p.after_path).name}`"
-            status = "PASS" if p.passed else "FAIL"
+            status = "N/A (MOCK)" if report.mock else ("PASS" if p.passed else "FAIL")
             ci_str = f"[{p.ci_95_lower:.2f}, {p.ci_95_upper:.2f}]"
             lines.append(f"| {pair_name} | `{p.question_id}` | `{p.expected}` | {p.mean_delta:+.3f} | {ci_str} | **{status}** |")
         lines.append("")
@@ -772,7 +807,7 @@ def render_validation_markdown(report: ValidationReport) -> str:
         lines.append("| Criterion | Required | Actual | Status |")
         lines.append("| :--- | :---: | :---: | :---: |")
         for c in report.criteria_results:
-            status = "PASS" if c.passed else "FAIL"
+            status = "N/A (MOCK)" if c.passed is None else ("PASS" if c.passed else "FAIL")
             lines.append(f"| {c.name} | {c.expected} | {c.actual} | **{status}** |")
         lines.append("")
 

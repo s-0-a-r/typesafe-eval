@@ -112,6 +112,19 @@ def test_cli_no_mask_flag(tmp_path):
     assert result_no_mask.exit_code == 0
     assert "masked" not in result_no_mask.output
 
+def test_safety_preset_dry_run_exits_0_and_shows_mock(tmp_path):
+    doc = tmp_path / "secret_doc.md"
+    doc.write_text("API token: apikey_1234567890abcdef123456 in production runbook.", encoding="utf-8")
+
+    runner = CliRunner()
+    # Safety preset in dry-run mode must exit 0, display MOCK, and have verdict N/A (Issue #45)
+    result = runner.invoke(main, [str(doc), "--preset", "safety", "--dry-run"])
+    assert result.exit_code == 0
+    assert "MOCK" in result.output
+    assert "N/A" in result.output
+    assert "FAIL" not in result.output
+    assert "PASS" not in result.output
+
 def test_context_free_email_classification_regression(tmp_path):
     doc_personal = tmp_path / "personal.txt"
     doc_personal.write_text("Please forward the contract draft to taro.yamada1987@gmail.com for review.", encoding="utf-8")

@@ -126,3 +126,4 @@ class DocumentEvalResult(BaseModel):
     redactions_count: int = 0
     redaction_details: Optional[Dict[str, Any]] = None
     baseline_diff: Optional[BaselineDiff] = None
+    mock: bool = False
