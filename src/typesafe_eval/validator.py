@@ -250,6 +250,7 @@ def run_validation(
     runs_override: Optional[int] = None,
     dry_run: bool = False,
     preset_cfg: Optional[PresetConfig] = None,
+    mask_secrets: bool = True,
 ) -> Tuple[ValidationReport, bool]:
     """Runs validation over documents and pairs across N runs."""
     runs = runs_override if runs_override is not None else labels_cfg.runs
@@ -274,6 +275,7 @@ def run_validation(
                 res = evaluator.evaluate_document(
                     filepath=str(doc_path),
                     preset=preset_cfg,
+                    mask_secrets=mask_secrets,
                     dry_run=dry_run,
                 )
                 # Track non-gating choice distributions across evaluated documents
@@ -397,11 +399,13 @@ def run_validation(
                 res_b = evaluator.evaluate_document(
                     filepath=str(before_path),
                     preset=preset_cfg,
+                    mask_secrets=mask_secrets,
                     dry_run=dry_run,
                 )
                 res_a = evaluator.evaluate_document(
                     filepath=str(after_path),
                     preset=preset_cfg,
+                    mask_secrets=mask_secrets,
                     dry_run=dry_run,
                 )
                 for res_item in (res_b, res_a):

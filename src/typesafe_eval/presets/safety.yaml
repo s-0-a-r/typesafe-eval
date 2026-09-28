@@ -18,11 +18,12 @@ questions:
   confidentiality_risk:
     type: score
     label: "Confidentiality Risk"
-    instructions: "What is the degree of confidentiality risk if this document were shared publicly?"
+    instructions: "Evaluate the confidentiality risk if this document were publicly disclosed. Does it expose actual confidential, proprietary, or sensitive business information?"
     criteria:
-      - "Public or non-sensitive information; safe to share externally"
-      - "Internal business context; should remain internal but causes minimal direct harm if exposed"
-      - "Critical proprietary IP, security vulnerability details, or high-damage secrets"
+      - "Public information, documentation examples, public contacts, or general communications with no confidentiality risk"
+      - "Routine internal operational context or standard workflow mentions with minimal direct harm if exposed"
+      - "Confidential business information (such as unreleased metrics, customer lists with terms, internal incidents, or non-public design notes) causing concrete harm"
+      - "Critical proprietary IP, unreleased financial statements, zero-day security vulnerabilities, or severe trade secrets causing catastrophic damage"
     max_threshold: 0.5
 
   policy_compliance:

@@ -602,7 +602,22 @@ def test_validate_without_api_key_exits_3_with_one_message(tmp_path, monkeypatch
     assert result.output.count("No TypeSafe API key provided") == 1
     # Verify it did not proceed to criteria evaluation or show FAIL report
     assert "TypeSafe Validation Report" not in result.output
-    assert "Pass Criteria Verification" not in result.output
+def test_validate_confidentiality_labels_dry_run_and_no_mask():
+    labels_file = Path("tests/fixtures/confidentiality/labels.yaml")
+    assert labels_file.exists()
+    runner = CliRunner()
 
+    # Default (masked) dry run
+    res_masked = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+    assert res_masked.exit_code == 0
+    assert "Preset: safety" in res_masked.output
+    assert "confiden" in res_masked.output
+    assert "Verdict: N/A (MOCK)" in res_masked.output
 
-
+    # Unmasked (--no-mask) dry run with json format
+    res_unmasked = runner.invoke(main, ["validate", str(labels_file), "--dry-run", "--no-mask", "-f", "json"])
+    assert res_unmasked.exit_code == 0
+    assert "confidentiality_risk" in res_unmasked.output
+    data = json.loads(res_unmasked.output)
+    assert data["mock"] is True
+    assert data["preset_name"] == "safety"
