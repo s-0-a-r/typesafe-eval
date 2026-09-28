@@ -120,3 +120,68 @@ def test_baseline_warns_on_truncation_mismatch(tmp_path):
     assert updated.baseline_diff.truncation_mismatch is True
     assert warning is not None
     assert "Truncation status differs" in warning
+
+
+def test_chunk_missing_preset_noul_raises_runtime_error(tmp_path, monkeypatch):
+    """Review item 1: If no chunk returns a preset Noul, raise RuntimeError naming the question."""
+    doc = tmp_path / "long_doc.md"
+    doc.write_text("\n\n".join([f"## Section {i}\nSome body text for section {i}." for i in range(15)]), encoding="utf-8")
+
+    class MockAns:
+        def __init__(self, val):
+            self.noul = val
+
+    class MockResp:
+        def __init__(self, questions):
+            # Omit 'rollback' from response
+            self.nouls = {q: MockAns(0.95) for q in questions if q != "rollback"}
+            self.scores = {}
+            self.choices = {}
+            self.usage = None
+            self.model = "mock-jev"
+
+    class MockClient:
+        def system_one(self, state, questions):
+            return MockResp(questions)
+
+    evaluator = TypeSafeEvaluator(api_key="mock_key")
+    monkeypatch.setattr(evaluator, "_get_client", lambda: MockClient())
+
+    preset = load_preset("design-doc")
+    with pytest.raises(RuntimeError) as exc_info:
+        evaluator.evaluate_document(str(doc), preset=preset, max_chars=300)
+
+    assert "rollback" in str(exc_info.value)
+    assert "Missing evaluation result for question(s)" in str(exc_info.value)
+
+
+def test_cli_chunk_missing_noul_exits_3(tmp_path, monkeypatch):
+    """Review item 1: Missing Noul across chunks reports runtime error on stderr and exits 3."""
+    doc = tmp_path / "long_doc.md"
+    doc.write_text("\n\n".join([f"## Section {i}\nSome body text for section {i}." for i in range(15)]), encoding="utf-8")
+
+    class MockAns:
+        def __init__(self, val):
+            self.noul = val
+
+    class MockResp:
+        def __init__(self, questions):
+            self.nouls = {q: MockAns(0.95) for q in questions if q != "rollback"}
+            self.scores = {}
+            self.choices = {}
+            self.usage = None
+            self.model = "mock-jev"
+
+    class MockClient:
+        def system_one(self, state, questions):
+            return MockResp(questions)
+
+    from typesafe_eval import client as client_module
+    monkeypatch.setattr(client_module.TypeSafeEvaluator, "_get_client", lambda self: MockClient())
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(doc), "--preset", "design-doc", "--max-chars", "300", "--api-key", "test_key"])
+    assert result.exit_code == 3
+    assert "rollback" in (result.stderr or result.output)
+    assert "Missing evaluation result" in (result.stderr or result.output)
+

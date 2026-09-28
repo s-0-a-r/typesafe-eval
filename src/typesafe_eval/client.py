@@ -366,9 +366,18 @@ class TypeSafeEvaluator:
                             if q_id in resp_chk.nouls:
                                 candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
 
+                missing_noul_questions = []
                 for q_id in sdk_preset_noul_questions:
                     probs = preset_noul_probs.get(q_id, [])
-                    nouls[q_id] = NoulResult(probability=max(probs) if probs else 0.0)
+                    if probs:
+                        nouls[q_id] = NoulResult(probability=max(probs))
+                    else:
+                        nouls[q_id] = NoulResult(probability=None)
+                        missing_noul_questions.append(q_id)
+
+                if missing_noul_questions:
+                    q_names = ", ".join(f"'{q}'" for q in missing_noul_questions)
+                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names} across all chunks")
 
         email_violations: List[str] = []
         phone_violations: List[str] = []
