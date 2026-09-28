@@ -137,8 +137,9 @@ def evaluate_text(
     doc_name: str,
     runs: int,
     dry_run: bool,
+    question_id: Optional[str] = None,
 ) -> float:
-    """Evaluates text across runs and returns median clarity score."""
+    """Evaluates text across runs and returns median score for target question."""
     with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False) as tf:
         tf.write(text)
         temp_path = tf.name
@@ -156,8 +157,19 @@ def evaluate_text(
             else:
                 res = evaluator.evaluate_document(filepath=temp_path, preset=preset)
 
-            clarity = res.scores["clarity"].normalized_score if "clarity" in res.scores else 0.0
-            scores.append(clarity)
+            if question_id and question_id in res.scores:
+                val = res.scores[question_id].normalized_score
+            elif "clarity" in res.scores:
+                val = res.scores["clarity"].normalized_score
+            elif res.composite_score is not None:
+                val = res.composite_score
+            elif res.scores:
+                first_k = list(res.scores.keys())[0]
+                val = res.scores[first_k].normalized_score
+            else:
+                val = 0.0
+
+            scores.append(val)
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
@@ -180,6 +192,7 @@ def run_feasibility(
     doc_paths: Optional[List[Path]] = None,
     default_doc_type: str = "generic",
     preset_name: str = "quality",
+    question_id: Optional[str] = None,
     runs: int = 3,
     holdout_fraction: float = 0.3,
     dry_run: bool = False,
@@ -263,8 +276,12 @@ def run_feasibility(
     # Evaluate pairs
     evaluated_pairs = []
     for p in pairs:
-        s_before = evaluate_text(evaluator, preset, p["before_text"], f"{p['id']}_before", runs, dry_run)
-        s_after = evaluate_text(evaluator, preset, p["after_text"], f"{p['id']}_after", runs, dry_run)
+        s_before = evaluate_text(
+            evaluator, preset, p["before_text"], f"{p['id']}_before", runs, dry_run, question_id
+        )
+        s_after = evaluate_text(
+            evaluator, preset, p["after_text"], f"{p['id']}_after", runs, dry_run, question_id
+        )
         delta_after_minus_before = s_after - s_before
 
         if p["better"] == "after":
@@ -392,6 +409,7 @@ def main():
     parser.add_argument("--doc", action="append", type=Path, help="Document(s) to generate degradations for")
     parser.add_argument("--doc-type", default="generic", help="Default doc_type for documents (default: generic)")
     parser.add_argument("--preset", default="quality", help="Preset name (default: quality)")
+    parser.add_argument("--question", type=str, default=None, help="Question ID to evaluate (e.g. clarity, technical_depth)")
     parser.add_argument("--runs", type=int, default=3, help="Number of runs per doc (default: 3)")
     parser.add_argument("--holdout-fraction", type=float, default=0.3, help="Fraction of documents in holdout set")
     parser.add_argument("--dry-run", action="store_true", help="Use mock evaluation without API calls")
@@ -412,6 +430,7 @@ def main():
         doc_paths=doc_paths,
         default_doc_type=args.doc_type,
         preset_name=args.preset,
+        question_id=args.question,
         runs=args.runs,
         holdout_fraction=args.holdout_fraction,
         dry_run=args.dry_run,
@@ -430,6 +449,10 @@ def main():
     print(f"Held-out ROC-AUC (better vs worse): {report['held_out_roc_auc']} (Target: ≥ 0.75)")
     print(f"Held-out Published False Alarm Rate: {report['held_out_published_false_alarm_rate'] * 100:.1f}% (Target: ≤ 10%)")
     print(f"Absolute Gate Feasible: {'YES' if report['absolute_gate_feasible'] else 'NO (Spotting regressions only)'}")
+
+    if len(report['holdout_docs']) < 5:
+        print(f"\n[Warning] Held-out set has fewer than 5 documents ({len(report['holdout_docs'])} found). "
+              f"ROC-AUC is not statistically reliable at this sample size.")
 
     if report["by_doc_type"]:
         print("\n--- By Document Type ---")
