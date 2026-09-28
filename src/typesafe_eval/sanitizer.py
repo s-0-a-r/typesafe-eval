@@ -672,3 +672,69 @@ def guard_document_length(
     tail = text[len(text) - half:] if half > 0 else ""
     processed = text[:half] + truncated_msg + tail
     return processed, True
+
+
+def chunk_text(
+    text: str,
+    max_chars: int = 25000,
+    overlap: int = 2000,
+) -> List[str]:
+    """Splits text into overlapping chunks, each within max_chars.
+
+    Prefers paragraph breaks (\\n\\n) or line breaks (\\n) for chunk boundaries
+    to preserve context.
+
+    Args:
+        text: Original document content.
+        max_chars: Maximum character limit per chunk (default 25,000).
+        overlap: Character overlap between consecutive chunks (default 2,000).
+
+    Returns:
+        List of chunk strings covering the entire text.
+    """
+    if max_chars <= 0:
+        raise ValueError("max_chars must be positive")
+    if len(text) <= max_chars:
+        return [text]
+
+    effective_overlap = min(max(overlap, 0), max_chars // 2)
+    chunks: List[str] = []
+    start = 0
+    total_len = len(text)
+
+    while start < total_len:
+        if total_len - start <= max_chars:
+            chunks.append(text[start:])
+            break
+
+        target_end = start + max_chars
+        # Look for clean break within the overlap window before target_end
+        search_window_start = max(start + effective_overlap, target_end - 2000)
+        split_pos = -1
+
+        p_break = text.rfind("\n\n", search_window_start, target_end)
+        if p_break != -1:
+            split_pos = p_break + 2
+        else:
+            l_break = text.rfind("\n", search_window_start, target_end)
+            if l_break != -1:
+                split_pos = l_break + 1
+            else:
+                split_pos = target_end
+
+        chunks.append(text[start:split_pos])
+
+        # Next chunk starts roughly at split_pos - effective_overlap
+        next_target = max(start + 1, split_pos - effective_overlap)
+        p_next = text.find("\n\n", next_target, min(next_target + 500, split_pos))
+        if p_next != -1:
+            start = p_next + 2
+        else:
+            l_next = text.find("\n", next_target, min(next_target + 500, split_pos))
+            if l_next != -1:
+                start = l_next + 1
+            else:
+                start = next_target
+
+    return chunks
+

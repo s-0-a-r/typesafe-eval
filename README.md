@@ -21,7 +21,7 @@ Fast, typed, multi-dimensional document evaluation CLI powered by the **TypeSafe
 - **Deterministic Composite Scoring**: Code owns the workflow. Composite scores and pass/fail gate checks are synthesized in Python, not hallucinated by generative models.
 - **Data Protection & Guardrails**:
   - Automatic pre-flight regex masking for API keys, bearer tokens, and emails.
-  - Context length guard with safe head-tail truncation to prevent context overflows.
+  - Context length guard and overlapping chunking for long documents to preserve presence detection without token overflow.
 - **Multiple Output Formats**: Rich interactive terminal tables, JSON (for pipelines/APIs), and Markdown reports (for GitHub PRs/issues).
 - **CI/CD Ready**: Distinct exit codes (`0` pass, `1` violation, `2` usage/config error, `3` runtime error) with precedence of violations over runtime errors.
 
@@ -211,6 +211,19 @@ Because run-to-run noise is up to about 0.055, values near a threshold (such as 
 - **Table and Markdown Reports**: Near-threshold question values are marked with `~` (e.g. `51% ~`). Documents with near-threshold candidates display an explanatory line using placeholders: `~ near threshold: [EMAIL_1] personal (p=0.60), [URL_2] safe (p=0.46)`.
 - **Constant Margin**: The margin (`0.1`) is a constant (`NEAR_THRESHOLD_MARGIN = 0.1`). It is not a CLI option in v0.4.0.
 - **No Exit Code Change**: `near_threshold` is purely informational. A passing score near threshold still passes (exit code 0), and a failing score still fails (exit code 1).
+
+### 12. Long Document Chunking for Presence Questions (v0.4.0)
+
+When documents exceed `max_chars` (default: 25,000 characters, ~6,000–8,000 tokens), dropping the middle via truncation causes presence questions (such as checking whether a design doc contains a rollback plan) to suffer significant false degradation.
+
+- **Overlapping Chunks for Noul**: For `Noul` presence questions, documents over `max_chars` are split into overlapping chunks (each within the character budget with 2,000-character overlap). Each chunk is evaluated, and the question takes the maximum probability across all chunks ("present if it is anywhere").
+  > [!NOTE]
+  > "Max over chunks" assumes a presence-style Noul ("is X anywhere in the document"). A custom Noul about the whole document (e.g. "Is the whole document written in English?") would be distorted when chunked, so custom configurations should use a `Score` or keep documents under `max_chars` for such questions.
+- **API Calls Display**: The number of API calls per document is explicitly tracked and displayed in terminal tables (`(N calls)`), Markdown reports (`*(N calls)*`), and JSON exports (`api_calls: N`).
+- **Baseline Truncation Warning**: `--baseline` warns when `was_truncated` differs between the baseline and current evaluation.
+
+#### Known Limitation: Scores and Choices Are Not Chunked
+- **Scores and Choices**: `Score` and `Choice` questions evaluate overall document quality or categorical choices where taking a `max` across slices would distort the metric. Therefore, Scores and Choices are **not** chunked; they retain head/tail truncation and keep `was_truncated: true`.
 
 ---
 

@@ -21,7 +21,7 @@ from typesafe_eval.models import (
     NEAR_THRESHOLD_MARGIN,
     CANDIDATE_DECISION_THRESHOLD,
 )
-from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
+from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length, chunk_text
 
 def _is_candidate_near_threshold(decided_by: str, prob: Optional[float]) -> bool:
     """Returns True if candidate outcome was model-decided and within margin of decision threshold."""
@@ -71,8 +71,31 @@ class TypeSafeEvaluator:
             raw_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
         )
 
-        # 2. Length check & truncation guard
-        content, was_truncated = guard_document_length(content, max_chars=max_chars)
+        # 2. Length check & chunking determination
+        is_long = len(content) > max_chars
+        has_nouls = any(q.type == "noul" for q in preset.questions.values())
+        has_scores_or_choices = any(q.type in ("score", "choice") for q in preset.questions.values())
+
+        if is_long:
+            if has_scores_or_choices and has_nouls:
+                chunks = chunk_text(content, max_chars=max_chars, overlap=2000)
+                content_truncated, _ = guard_document_length(content, max_chars=max_chars)
+                api_calls = 1 + len(chunks)
+                was_truncated = True
+            elif has_nouls:
+                chunks = chunk_text(content, max_chars=max_chars, overlap=2000)
+                content_truncated = content
+                api_calls = len(chunks)
+                was_truncated = False
+            else:
+                chunks = []
+                content_truncated, was_truncated = guard_document_length(content, max_chars=max_chars)
+                api_calls = 1
+        else:
+            chunks = [content]
+            content_truncated = content
+            api_calls = 1
+            was_truncated = False
 
         # 3. Dry run bypass
         if dry_run:
@@ -80,20 +103,22 @@ class TypeSafeEvaluator:
                 filepath=filepath,
                 preset=preset,
                 was_truncated=was_truncated,
+                api_calls=api_calls,
                 redaction_count=redaction_count,
                 redaction_details=redaction_details,
             )
 
         # 4. Build SDK questions
-        sdk_questions: Dict[str, Any] = {}
+        sdk_score_choice_questions: Dict[str, Any] = {}
+        sdk_preset_noul_questions: Dict[str, Any] = {}
         for q_id, q_cfg in preset.questions.items():
             if q_cfg.type == "score":
-                sdk_questions[q_id] = Score(
+                sdk_score_choice_questions[q_id] = Score(
                     instructions=q_cfg.instructions,
                     criteria=q_cfg.criteria if q_cfg.criteria else ["Low", "Medium", "High"],
                 )
             elif q_cfg.type == "noul":
-                sdk_questions[q_id] = Noul(
+                sdk_preset_noul_questions[q_id] = Noul(
                     instructions=q_cfg.instructions,
                 )
             elif q_cfg.type == "choice":
@@ -101,36 +126,46 @@ class TypeSafeEvaluator:
                 criteria = q_cfg.criteria
                 if isinstance(criteria, list):
                     criteria = {item: None for item in criteria}
-                sdk_questions[q_id] = Choice(
+                sdk_score_choice_questions[q_id] = Choice(
                     instructions=q_cfg.instructions,
                     criteria=criteria,
                 )
 
         # Dynamic per-candidate Noul questions
+        candidate_specs: List[Tuple[str, str, Noul]] = []
+
         redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
         for feature in redacted_emails:
             if feature.get("domain_type") == "corporate":
                 placeholder = feature["placeholder"]
                 num_suffix = placeholder.strip("[]").replace("EMAIL_", "")
                 q_id = f"email_pii_{num_suffix}"
-                sdk_questions[q_id] = Noul(
-                    instructions=(
-                        f"Is {placeholder} an address of an individual person (not a shared role, team, or system mailbox)? "
-                        f"Use the surrounding text and state.redacted_emails."
-                    )
-                )
+                candidate_specs.append((
+                    placeholder,
+                    q_id,
+                    Noul(
+                        instructions=(
+                            f"Is {placeholder} an address of an individual person (not a shared role, team, or system mailbox)? "
+                            f"Use the surrounding text and state.redacted_emails."
+                        )
+                    ),
+                ))
 
         redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
         for feature in redacted_phones:
             placeholder = feature["placeholder"]
             num_suffix = placeholder.strip("[]").replace("PHONE_", "")
             q_id = f"phone_pii_{num_suffix}"
-            sdk_questions[q_id] = Noul(
-                instructions=(
-                    f"Is {placeholder} a private or personal phone number of an individual (not a shared corporate switchboard, toll-free number, or customer support line)? "
-                    f"Use the surrounding text and state.redacted_phones."
-                )
-            )
+            candidate_specs.append((
+                placeholder,
+                q_id,
+                Noul(
+                    instructions=(
+                        f"Is {placeholder} a private or personal phone number of an individual (not a shared corporate switchboard, toll-free number, or customer support line)? "
+                        f"Use the surrounding text and state.redacted_phones."
+                    )
+                ),
+            ))
 
         redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
         for feature in redacted_ips:
@@ -138,12 +173,16 @@ class TypeSafeEvaluator:
                 placeholder = feature["placeholder"]
                 num_suffix = placeholder.strip("[]").replace("IP_", "")
                 q_id = f"ip_pii_{num_suffix}"
-                sdk_questions[q_id] = Noul(
-                    instructions=(
-                        f"Is {placeholder} an internal, production, or sensitive IP address (not a documentation or public dummy IP)? "
-                        f"Use the surrounding text and state.redacted_ips."
-                    )
-                )
+                candidate_specs.append((
+                    placeholder,
+                    q_id,
+                    Noul(
+                        instructions=(
+                            f"Is {placeholder} an internal, production, or sensitive IP address (not a documentation or public dummy IP)? "
+                            f"Use the surrounding text and state.redacted_ips."
+                        )
+                    ),
+                ))
 
         redacted_urls = redaction_details.get("redacted_urls", []) if redaction_details else []
         for feature in redacted_urls:
@@ -156,12 +195,16 @@ class TypeSafeEvaluator:
                 placeholder = feature["placeholder"]
                 num_suffix = placeholder.strip("[]").replace("URL_", "")
                 q_id = f"url_pii_{num_suffix}"
-                sdk_questions[q_id] = Noul(
-                    instructions=(
-                        f"Is {placeholder} an internal, non-public, or sensitive endpoint or infrastructure URL (not a public internet service or example URL)? "
-                        f"Use the surrounding text and state.redacted_urls."
-                    )
-                )
+                candidate_specs.append((
+                    placeholder,
+                    q_id,
+                    Noul(
+                        instructions=(
+                            f"Is {placeholder} an internal, non-public, or sensitive endpoint or infrastructure URL (not a public internet service or example URL)? "
+                            f"Use the surrounding text and state.redacted_urls."
+                        )
+                    ),
+                ))
 
         redacted_secrets = redaction_details.get("redacted_secrets", []) if redaction_details else []
         for feature in redacted_secrets:
@@ -169,71 +212,172 @@ class TypeSafeEvaluator:
                 placeholder = feature["placeholder"]
                 num_suffix = placeholder.strip("[]").replace("SECRET_", "")
                 q_id = f"secret_{num_suffix}"
-                sdk_questions[q_id] = Noul(
-                    instructions=(
-                        f"Is the value represented by {placeholder} an actual secret, credential, or password (not an example, placeholder, or template)? "
-                        f"Use the surrounding text and state.redacted_secrets."
-                    )
-                )
+                candidate_specs.append((
+                    placeholder,
+                    q_id,
+                    Noul(
+                        instructions=(
+                            f"Is the value represented by {placeholder} an actual secret, credential, or password (not an example, placeholder, or template)? "
+                            f"Use the surrounding text and state.redacted_secrets."
+                        )
+                    ),
+                ))
 
         # 5. Call TypeSafe System One (Jev)
         client = self._get_client()
-        state: Dict[str, Any] = {
-            "document": content,
-            "filename": path.name,
-        }
-        if redaction_details and (redaction_details.get("total", 0) > 0 or redaction_details.get("examples", 0) > 0):
-            state["redactions"] = {
-                "credentials": redaction_details.get("credentials", 0),
-                "pii": redaction_details.get("pii_personal", 0),
-                "pii_personal": redaction_details.get("pii_personal", 0),
-                "pii_role": redaction_details.get("pii_role", 0),
-                "examples": redaction_details.get("examples", 0),
-            }
-        if redacted_emails:
-            state["redacted_emails"] = redacted_emails
-        if redacted_phones:
-            state["redacted_phones"] = redacted_phones
-        if redacted_ips:
-            state["redacted_ips"] = redacted_ips
-        if redacted_urls:
-            state["redacted_urls"] = redacted_urls
-        if redacted_secrets:
-            # STRICT SAFETY: contains only metadata, never the raw secret value or hash
-            state["redacted_secrets"] = redacted_secrets
+        total_input_tokens = 0
+        total_output_tokens = 0
+        model_name = "type-safe-one"
 
-        response = client.system_one(state=state, questions=sdk_questions)
-
-        # 6. Parse answers
         scores: Dict[str, ScoreResult] = {}
         nouls: Dict[str, NoulResult] = {}
         choices: Dict[str, ChoiceResult] = {}
+        candidate_prob_map: Dict[str, List[float]] = {}
+        preset_noul_probs: Dict[str, List[float]] = {q_id: [] for q_id in sdk_preset_noul_questions}
 
-        for q_id, q_cfg in preset.questions.items():
-            if q_cfg.type == "score" and q_id in response.scores:
-                ans = response.scores[q_id]
-                num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
-                max_score = float(max(num_levels - 1, 1))
-                norm_score = min(max(ans.score / max_score, 0.0), 1.0)
-                scores[q_id] = ScoreResult(
-                    score=ans.score,
-                    max_score=max_score,
-                    normalized_score=norm_score,
-                    confidence=ans.confidence,
-                    probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                )
-            elif q_cfg.type == "noul" and q_id in response.nouls:
-                ans = response.nouls[q_id]
-                nouls[q_id] = NoulResult(
-                    probability=ans.noul,
-                )
-            elif q_cfg.type == "choice" and q_id in response.choices:
-                ans = response.choices[q_id]
-                choices[q_id] = ChoiceResult(
-                    choice=ans.choice,
-                    confidence=ans.confidence,
-                    probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                )
+        def _make_state(doc_text: str, is_full: bool = True) -> Dict[str, Any]:
+            st: Dict[str, Any] = {
+                "document": doc_text,
+                "filename": path.name,
+            }
+            if is_full:
+                if redaction_details and (redaction_details.get("total", 0) > 0 or redaction_details.get("examples", 0) > 0):
+                    st["redactions"] = {
+                        "credentials": redaction_details.get("credentials", 0),
+                        "pii": redaction_details.get("pii_personal", 0),
+                        "pii_personal": redaction_details.get("pii_personal", 0),
+                        "pii_role": redaction_details.get("pii_role", 0),
+                        "examples": redaction_details.get("examples", 0),
+                    }
+                if redacted_emails:
+                    st["redacted_emails"] = redacted_emails
+                if redacted_phones:
+                    st["redacted_phones"] = redacted_phones
+                if redacted_ips:
+                    st["redacted_ips"] = redacted_ips
+                if redacted_urls:
+                    st["redacted_urls"] = redacted_urls
+                if redacted_secrets:
+                    st["redacted_secrets"] = redacted_secrets
+            else:
+                chunk_em = [f for f in redacted_emails if f["placeholder"] in doc_text]
+                chunk_ph = [f for f in redacted_phones if f["placeholder"] in doc_text]
+                chunk_ip = [f for f in redacted_ips if f["placeholder"] in doc_text]
+                chunk_ur = [f for f in redacted_urls if f["placeholder"] in doc_text]
+                chunk_sec = [f for f in redacted_secrets if f["placeholder"] in doc_text]
+                if chunk_em:
+                    st["redacted_emails"] = chunk_em
+                if chunk_ph:
+                    st["redacted_phones"] = chunk_ph
+                if chunk_ip:
+                    st["redacted_ips"] = chunk_ip
+                if chunk_ur:
+                    st["redacted_urls"] = chunk_ur
+                if chunk_sec:
+                    st["redacted_secrets"] = chunk_sec
+            return st
+
+        if not is_long:
+            all_questions = {**sdk_score_choice_questions, **sdk_preset_noul_questions}
+            for _, q_id, q_obj in candidate_specs:
+                all_questions[q_id] = q_obj
+            st = _make_state(content, is_full=True)
+            response = client.system_one(state=st, questions=all_questions)
+            if response.usage:
+                total_input_tokens += response.usage.input_tokens
+                total_output_tokens += response.usage.output_tokens
+            if response.model:
+                model_name = response.model
+
+            for q_id, q_cfg in preset.questions.items():
+                if q_cfg.type == "score" and q_id in response.scores:
+                    ans = response.scores[q_id]
+                    num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
+                    max_score = float(max(num_levels - 1, 1))
+                    norm_score = min(max(ans.score / max_score, 0.0), 1.0)
+                    scores[q_id] = ScoreResult(
+                        score=ans.score,
+                        max_score=max_score,
+                        normalized_score=norm_score,
+                        confidence=ans.confidence,
+                        probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                    )
+                elif q_cfg.type == "noul" and q_id in response.nouls:
+                    nouls[q_id] = NoulResult(
+                        probability=response.nouls[q_id].noul,
+                    )
+                elif q_cfg.type == "choice" and q_id in response.choices:
+                    ans = response.choices[q_id]
+                    choices[q_id] = ChoiceResult(
+                        choice=ans.choice,
+                        confidence=ans.confidence,
+                        probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                    )
+            for _, q_id, _ in candidate_specs:
+                if q_id in response.nouls:
+                    candidate_prob_map[q_id] = [response.nouls[q_id].noul]
+        else:
+            if has_scores_or_choices:
+                st_trunc = _make_state(content_truncated, is_full=True)
+                resp_sc = client.system_one(state=st_trunc, questions=sdk_score_choice_questions)
+                if resp_sc.usage:
+                    total_input_tokens += resp_sc.usage.input_tokens
+                    total_output_tokens += resp_sc.usage.output_tokens
+                if resp_sc.model:
+                    model_name = resp_sc.model
+                for q_id, q_cfg in preset.questions.items():
+                    if q_cfg.type == "score" and q_id in resp_sc.scores:
+                        ans = resp_sc.scores[q_id]
+                        num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
+                        max_score = float(max(num_levels - 1, 1))
+                        norm_score = min(max(ans.score / max_score, 0.0), 1.0)
+                        scores[q_id] = ScoreResult(
+                            score=ans.score,
+                            max_score=max_score,
+                            normalized_score=norm_score,
+                            confidence=ans.confidence,
+                            probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                        )
+                    elif q_cfg.type == "choice" and q_id in resp_sc.choices:
+                        ans = resp_sc.choices[q_id]
+                        choices[q_id] = ChoiceResult(
+                            choice=ans.choice,
+                            confidence=ans.confidence,
+                            probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                        )
+            if chunks:
+                for chunk_text_part in chunks:
+                    chunk_st = _make_state(chunk_text_part, is_full=False)
+                    chunk_questions = dict(sdk_preset_noul_questions)
+                    for placeholder, q_id, q_obj in candidate_specs:
+                        if placeholder in chunk_text_part:
+                            chunk_questions[q_id] = q_obj
+                    if chunk_questions:
+                        resp_chk = client.system_one(state=chunk_st, questions=chunk_questions)
+                        if resp_chk.usage:
+                            total_input_tokens += resp_chk.usage.input_tokens
+                            total_output_tokens += resp_chk.usage.output_tokens
+                        if resp_chk.model:
+                            model_name = resp_chk.model
+                        for q_id in sdk_preset_noul_questions:
+                            if q_id in resp_chk.nouls:
+                                preset_noul_probs[q_id].append(resp_chk.nouls[q_id].noul)
+                        for _, q_id, _ in candidate_specs:
+                            if q_id in resp_chk.nouls:
+                                candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
+
+                missing_noul_questions = []
+                for q_id in sdk_preset_noul_questions:
+                    probs = preset_noul_probs.get(q_id, [])
+                    if probs:
+                        nouls[q_id] = NoulResult(probability=max(probs))
+                    else:
+                        nouls[q_id] = NoulResult(probability=None)
+                        missing_noul_questions.append(q_id)
+
+                if missing_noul_questions:
+                    q_names = ", ".join(f"'{q}'" for q in missing_noul_questions)
+                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names} across all chunks")
 
         email_violations: List[str] = []
         phone_violations: List[str] = []
@@ -263,9 +407,7 @@ class TypeSafeEvaluator:
                     f"PII Exposure: {placeholder} is an individual address (free-mail)"
                 )
             else:
-                prob = None
-                if q_id in response.nouls:
-                    prob = response.nouls[q_id].noul
+                prob = max(candidate_prob_map[q_id]) if candidate_prob_map.get(q_id) else None
                 outcome: Literal["personal", "role", "undecided"] = "undecided"
                 if prob is not None:
                     outcome = "personal" if prob >= CANDIDATE_DECISION_THRESHOLD else "role"
@@ -293,7 +435,7 @@ class TypeSafeEvaluator:
             placeholder = feature["placeholder"]
             num_suffix = placeholder.strip("[]").replace("PHONE_", "")
             q_id = f"phone_pii_{num_suffix}"
-            prob = response.nouls[q_id].noul if q_id in response.nouls else None
+            prob = max(candidate_prob_map[q_id]) if candidate_prob_map.get(q_id) else None
             outcome: Literal["personal", "support", "undecided"] = "undecided"
             decided_by: Literal["model", "rule"] = "model"
             if feature.get("is_support_prefix"):
@@ -341,7 +483,7 @@ class TypeSafeEvaluator:
             else:
                 num_suffix = placeholder.strip("[]").replace("IP_", "")
                 q_id = f"ip_pii_{num_suffix}"
-                prob = response.nouls[q_id].noul if q_id in response.nouls else None
+                prob = max(candidate_prob_map[q_id]) if candidate_prob_map.get(q_id) else None
                 outcome_ip: Literal["sensitive", "safe", "undecided"] = "undecided"
                 if prob is not None:
                     outcome_ip = "sensitive" if prob >= CANDIDATE_DECISION_THRESHOLD else "safe"
@@ -390,7 +532,7 @@ class TypeSafeEvaluator:
             else:
                 num_suffix = placeholder.strip("[]").replace("URL_", "")
                 q_id = f"url_pii_{num_suffix}"
-                prob = response.nouls[q_id].noul if q_id in response.nouls else None
+                prob = max(candidate_prob_map[q_id]) if candidate_prob_map.get(q_id) else None
                 outcome_url: Literal["sensitive", "safe", "undecided"] = "undecided"
                 if prob is not None:
                     outcome_url = "sensitive" if prob >= CANDIDATE_DECISION_THRESHOLD else "safe"
@@ -448,7 +590,7 @@ class TypeSafeEvaluator:
             else:
                 num_suffix = placeholder.strip("[]").replace("SECRET_", "")
                 q_id = f"secret_{num_suffix}"
-                prob = response.nouls[q_id].noul if q_id in response.nouls else None
+                prob = max(candidate_prob_map[q_id]) if candidate_prob_map.get(q_id) else None
                 outcome_sec: Literal["secret", "safe", "undecided"] = "undecided"
                 if prob is not None:
                     outcome_sec = "secret" if prob >= CANDIDATE_DECISION_THRESHOLD else "safe"
@@ -519,10 +661,10 @@ class TypeSafeEvaluator:
                 passed = False
 
         usage_dict = None
-        if response.usage:
+        if total_input_tokens > 0 or total_output_tokens > 0:
             usage_dict = {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
             }
 
         return DocumentEvalResult(
@@ -542,8 +684,9 @@ class TypeSafeEvaluator:
             violations=violations,
             warnings=warnings,
             usage=usage_dict,
-            model=response.model or "type-safe-one",
+            model=model_name,
             was_truncated=was_truncated,
+            api_calls=api_calls,
             redactions_count=redaction_count,
             redaction_details=redaction_details,
         )
@@ -635,7 +778,8 @@ class TypeSafeEvaluator:
         filepath: str,
         preset: PresetConfig,
         was_truncated: bool,
-        redaction_count: int,
+        api_calls: int = 1,
+        redaction_count: int = 0,
         redaction_details: Optional[Dict[str, Any]] = None,
     ) -> DocumentEvalResult:
         """Returns mock evaluation result for dry-run or testing."""
@@ -964,9 +1108,10 @@ class TypeSafeEvaluator:
             passed_thresholds=True,
             violations=[],
             warnings=[],
-            usage={"input_tokens": 120, "output_tokens": 30},
+            usage={"input_tokens": 120 * api_calls, "output_tokens": 30 * api_calls},
             model="mock-jev",
             was_truncated=was_truncated,
+            api_calls=api_calls,
             redactions_count=redaction_count,
             redaction_details=redaction_details,
             mock=True,

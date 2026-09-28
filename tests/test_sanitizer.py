@@ -157,3 +157,40 @@ def test_custom_role_email_glob_patterns():
     assert "john@company.com" not in masked
     assert "[EMAIL_1]" in masked
     assert "[EMAIL_2]" in masked
+
+
+def test_chunk_text_within_limit():
+    from typesafe_eval.sanitizer import chunk_text
+    text = "Short document content."
+    chunks = chunk_text(text, max_chars=100)
+    assert chunks == [text]
+
+
+def test_chunk_text_splits_with_overlap():
+    from typesafe_eval.sanitizer import chunk_text
+    paragraphs = [f"Paragraph {i}: " + ("x" * 100) for i in range(20)]
+    text = "\n\n".join(paragraphs)
+    chunks = chunk_text(text, max_chars=500, overlap=100)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c) <= 500
+    # Verify every paragraph is present in at least one chunk
+    for p in paragraphs:
+        assert any(p in c for c in chunks)
+
+
+def test_chunk_text_no_newlines():
+    from typesafe_eval.sanitizer import chunk_text
+    text = "a" * 1500
+    chunks = chunk_text(text, max_chars=500, overlap=100)
+    assert len(chunks) >= 3
+    for c in chunks:
+        assert len(c) <= 500
+
+
+def test_chunk_text_invalid_max_chars():
+    from typesafe_eval.sanitizer import chunk_text
+    import pytest
+    with pytest.raises(ValueError):
+        chunk_text("some text", max_chars=0)
+
