@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
+from typesafe_eval.validator import compute_ci_95
 
 SEED = 20260927
 FILLER = (
@@ -117,17 +118,9 @@ def compute_roc_auc(pos_scores: List[float], neg_scores: List[float]) -> float:
 
 
 def compute_ci95(values: List[float]) -> Tuple[float, float, float]:
-    """Returns (mean, lower_95_ci, upper_95_ci)."""
-    if not values:
-        return 0.0, 0.0, 0.0
-    n = len(values)
-    mean_val = statistics.mean(values)
-    if n < 2:
-        return mean_val, mean_val, mean_val
-    std_val = statistics.stdev(values)
-    se = std_val / math.sqrt(n)
-    margin = 1.96 * se
-    return round(mean_val, 4), round(mean_val - margin, 4), round(mean_val + margin, 4)
+    """Returns (mean, lower_95_ci, upper_95_ci) using Student's t distribution."""
+    m, lo, hi = compute_ci_95(values)
+    return round(m, 4), round(lo, 4), round(hi, 4)
 
 
 def evaluate_text(
@@ -147,7 +140,7 @@ def evaluate_text(
     scores = []
     try:
         for _ in range(runs):
-            if dry_run:
+            if dry_run and hasattr(evaluator, "_build_mock_result"):
                 res = evaluator._build_mock_result(
                     filepath=temp_path,
                     preset=preset,
@@ -189,9 +182,11 @@ def run_feasibility(
     runs: int = 3,
     holdout_fraction: float = 0.3,
     dry_run: bool = False,
+    evaluator: Optional[TypeSafeEvaluator] = None,
 ) -> Dict[str, Any]:
     preset = load_preset(preset_name)
-    evaluator = TypeSafeEvaluator()
+    if evaluator is None:
+        evaluator = TypeSafeEvaluator()
 
     score_questions = [qid for qid, qcfg in preset.questions.items() if qcfg.type == "score"]
     if question_id is not None:
@@ -214,19 +209,35 @@ def run_feasibility(
     pairs: List[Dict[str, Any]] = []
 
     # 1. Load explicit pairs if provided
+    has_explicit_splits = False
     if pairs_file and pairs_file.is_file():
         raw_data = json.loads(pairs_file.read_text(encoding="utf-8"))
+        base_dir = pairs_file.parent
+        has_explicit_splits = bool(raw_data) and all(item.get("split") in ("tuning", "heldout") for item in raw_data)
+
         for item in raw_data:
-            before_text = (
-                Path(item["before"]).read_text(encoding="utf-8")
-                if "before" in item and Path(item["before"]).is_file()
-                else item.get("before_text", "")
-            )
-            after_text = (
-                Path(item["after"]).read_text(encoding="utf-8")
-                if "after" in item and Path(item["after"]).is_file()
-                else item.get("after_text", "")
-            )
+            if "before" in item:
+                bp = Path(item["before"])
+                if not bp.is_absolute():
+                    bp = base_dir / bp
+                if not bp.is_file():
+                    sys.stderr.write(f"Error: Missing before file: {bp}\n")
+                    sys.exit(2)
+                before_text = bp.read_text(encoding="utf-8")
+            else:
+                before_text = item.get("before_text", "")
+
+            if "after" in item:
+                ap = Path(item["after"])
+                if not ap.is_absolute():
+                    ap = base_dir / ap
+                if not ap.is_file():
+                    sys.stderr.write(f"Error: Missing after file: {ap}\n")
+                    sys.exit(2)
+                after_text = ap.read_text(encoding="utf-8")
+            else:
+                after_text = item.get("after_text", "")
+
             doc_id = item.get("doc_id", item.get("id", f"doc_{len(pairs)}"))
             doc_type = item.get("doc_type", infer_doc_type(str(doc_id), default_doc_type))
             better = item.get("better", "after")  # default for review pairs is 'after'
@@ -239,6 +250,7 @@ def run_feasibility(
                 "before_text": before_text,
                 "after_text": after_text,
                 "degradation": item.get("degradation", None),
+                "split": item.get("split", None),
             })
 
     # 2. Or generate synthetic degradation pairs from doc_paths
@@ -271,18 +283,22 @@ def run_feasibility(
 
     # Distinct documents and train/test split by document ID (never by pair)
     distinct_doc_ids = sorted(list({p["doc_id"] for p in pairs}))
-    rng = random.Random(SEED)
-    shuffled_doc_ids = list(distinct_doc_ids)
-    rng.shuffle(shuffled_doc_ids)
-
-    if len(distinct_doc_ids) >= 2 and holdout_fraction > 0:
-        n_holdout = max(1, int(round(len(distinct_doc_ids) * holdout_fraction)))
-        n_holdout = min(n_holdout, len(distinct_doc_ids) - 1)
-        holdout_doc_ids = set(shuffled_doc_ids[:n_holdout])
-        tuning_doc_ids = set(shuffled_doc_ids[n_holdout:])
+    if has_explicit_splits:
+        tuning_doc_ids = {p["doc_id"] for p in pairs if p.get("split") == "tuning"}
+        holdout_doc_ids = {p["doc_id"] for p in pairs if p.get("split") == "heldout"}
     else:
-        tuning_doc_ids = set(distinct_doc_ids)
-        holdout_doc_ids = set(distinct_doc_ids)
+        rng = random.Random(SEED)
+        shuffled_doc_ids = list(distinct_doc_ids)
+        rng.shuffle(shuffled_doc_ids)
+
+        if len(distinct_doc_ids) >= 2 and holdout_fraction > 0:
+            n_holdout = max(1, int(round(len(distinct_doc_ids) * holdout_fraction)))
+            n_holdout = min(n_holdout, len(distinct_doc_ids) - 1)
+            holdout_doc_ids = set(shuffled_doc_ids[:n_holdout])
+            tuning_doc_ids = set(shuffled_doc_ids[n_holdout:])
+        else:
+            tuning_doc_ids = set(distinct_doc_ids)
+            holdout_doc_ids = set(distinct_doc_ids)
 
     # Evaluate pairs
     evaluated_pairs = []

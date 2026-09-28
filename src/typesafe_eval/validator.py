@@ -7,6 +7,7 @@ import math
 import re
 import sys
 import json
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union, Literal
 
@@ -38,18 +39,40 @@ def get_t_crit_95(df: int) -> float:
         8: 2.306,
         9: 2.262,
         10: 2.228,
+        11: 2.201,
+        12: 2.179,
+        13: 2.160,
+        14: 2.145,
         15: 2.131,
+        16: 2.120,
+        17: 2.110,
+        18: 2.101,
+        19: 2.093,
         20: 2.086,
+        21: 2.080,
+        22: 2.074,
+        23: 2.069,
+        24: 2.064,
+        25: 2.060,
+        26: 2.056,
+        27: 2.052,
+        28: 2.048,
+        29: 2.045,
         30: 2.042,
+        40: 2.021,
+        50: 2.009,
         60: 2.000,
+        80: 1.990,
+        100: 1.984,
         120: 1.980,
     }
     if df <= 0:
         return 1.960
     if df in t_table:
         return t_table[df]
-    for k in sorted(t_table.keys()):
-        if df <= k:
+    # Fall back to next smaller key (conservative: higher t critical value)
+    for k in sorted(t_table.keys(), reverse=True):
+        if df >= k:
             return t_table[k]
     return 1.960
 
@@ -81,6 +104,9 @@ class ValidationPairExpectation(BaseModel):
     before: str
     after: str
     expect: Dict[str, Literal["down", "neutral"]]
+    kind: Optional[str] = None
+    doc_id: Optional[str] = None
+    runs: Optional[int] = None
 
 
 class QuestionCriteria(BaseModel):
@@ -93,6 +119,12 @@ class QuestionCriteria(BaseModel):
 
 class ValidationCriteria(QuestionCriteria):
     questions: Optional[Dict[str, QuestionCriteria]] = None
+    group_by: Literal["kind", "pair"] = "pair"
+    degradation_ci_upper_max: Optional[float] = None
+    neutral_ci_abs_max: Optional[float] = None
+    min_group_size: int = 6
+    pair_guard_neutral_abs_max: Optional[float] = None
+    report_only_kinds: List[str] = Field(default_factory=list)
 
 
 class ValidationLabelsConfig(BaseModel):
@@ -120,6 +152,8 @@ class PairScoreResult(BaseModel):
     after_path: str
     question_id: str
     expected: Literal["down", "neutral"]
+    kind: Optional[str] = None
+    doc_id: Optional[str] = None
     before_scores: List[float]
     after_scores: List[float]
     deltas: List[float]
@@ -127,6 +161,23 @@ class PairScoreResult(BaseModel):
     ci_95_lower: float
     ci_95_upper: float
     passed: bool
+    incomplete: bool = False
+    incomplete_runs: int = 0
+    was_truncated_before: bool = False
+    was_truncated_after: bool = False
+    was_truncated: bool = False
+
+
+class PairGroupResult(BaseModel):
+    kind: str
+    expected: Literal["down", "neutral"]
+    n: int
+    mean_delta: float
+    ci_95_lower: float
+    ci_95_upper: float
+    passed: Optional[bool] = None
+    worst_pair_path: str
+    worst_pair_delta: float
 
 
 class QuestionValidationStats(BaseModel):
@@ -158,6 +209,9 @@ class ValidationReport(BaseModel):
     summary: Dict[str, Any]
     presence_results: List[DocumentPresenceResult] = Field(default_factory=list)
     pair_results: List[PairScoreResult] = Field(default_factory=list)
+    pair_group_results: List[PairGroupResult] = Field(default_factory=list)
+    incomplete_pairs_count: int = 0
+    truncated_pairs_count: int = 0
     question_stats: Dict[str, QuestionValidationStats] = Field(default_factory=dict)
     criteria_results: List[CriterionEvaluationResult] = Field(default_factory=list)
     choice_distributions: Dict[str, Dict[str, int]] = Field(default_factory=dict)
@@ -265,83 +319,143 @@ def run_validation(
     choice_distributions: Dict[str, Dict[str, int]] = {}
     has_runtime_error = False
 
-    # 1. Evaluate document presence expectations
-    for doc_item in labels_cfg.documents:
+    # Cache for unchanged file evaluations within this validate run
+    # Key: (resolved_path, file_sha256, questions_hash, mask_secrets, run_index)
+    eval_cache: Dict[Tuple[str, str, str, bool, int], DocumentEvalResult] = {}
+
+    def _compute_questions_hash(preset: PresetConfig) -> str:
+        dump = {}
+        for q_id, q_cfg in sorted(preset.questions.items()):
+            dump[q_id] = {
+                "type": q_cfg.type,
+                "instructions": q_cfg.instructions,
+                "criteria": q_cfg.criteria,
+                "label": q_cfg.label,
+                "weight": q_cfg.weight,
+                "min_threshold": q_cfg.min_threshold,
+                "max_threshold": q_cfg.max_threshold,
+                "preflight": q_cfg.preflight,
+            }
+        return hashlib.sha256(json.dumps(dump, sort_keys=True).encode("utf-8")).hexdigest()
+
+    questions_hash = _compute_questions_hash(preset_cfg)
+
+    def _eval_cached(fpath: Path, r_idx: int) -> DocumentEvalResult:
+        resolved = fpath.resolve()
+        raw_bytes = resolved.read_bytes()
+        f_hash = hashlib.sha256(raw_bytes).hexdigest()
+        cache_key = (str(resolved), f_hash, questions_hash, bool(mask_secrets), r_idx)
+        if cache_key not in eval_cache:
+            eval_cache[cache_key] = evaluator.evaluate_document(
+                filepath=str(resolved),
+                preset=preset_cfg,
+                mask_secrets=mask_secrets,
+                dry_run=dry_run,
+            )
+        return eval_cache[cache_key]
+
+    def _extract_q_val(res: DocumentEvalResult, q_id: str) -> Optional[float]:
+        if q_id in res.scores:
+            return res.scores[q_id].normalized_score
+        elif q_id in res.nouls and res.nouls[q_id].probability is not None:
+            return res.nouls[q_id].probability
+        return None
+
+    # Determine max runs across file-level and per-pair overrides
+    pair_runs_list = [p.runs if p.runs is not None else runs for p in labels_cfg.pairs]
+    max_runs = max([runs] + pair_runs_list) if (labels_cfg.documents or labels_cfg.pairs) else runs
+
+    # Run-major evaluation: doc_idx -> run_idx -> DocumentEvalResult
+    doc_eval_runs: Dict[int, Dict[int, DocumentEvalResult]] = {i: {} for i in range(len(labels_cfg.documents))}
+    # pair_idx -> run_idx -> (res_b, res_a)
+    pair_eval_runs: Dict[int, Dict[int, Tuple[DocumentEvalResult, DocumentEvalResult]]] = {
+        i: {} for i in range(len(labels_cfg.pairs))
+    }
+
+    for r in range(max_runs):
+        # 1. Presence documents for run r
+        if r < runs:
+            for d_idx, doc_item in enumerate(labels_cfg.documents):
+                doc_path = resolve_file_path(base_dir, doc_item.path)
+                try:
+                    res = _eval_cached(doc_path, r)
+                    doc_eval_runs[d_idx][r] = res
+                    for ch_qid, ch_obj in res.choices.items():
+                        q_dist = choice_distributions.setdefault(ch_qid, {})
+                        q_dist[ch_obj.choice] = q_dist.get(ch_obj.choice, 0) + 1
+                except Exception as e:
+                    click.echo(f"{doc_path} (run {r+1}/{runs}): {e}", err=True)
+                    has_runtime_error = True
+
+        # 2. Pairs for run r
+        for p_idx, pair_item in enumerate(labels_cfg.pairs):
+            p_runs = pair_runs_list[p_idx]
+            if r < p_runs:
+                before_path = resolve_file_path(base_dir, pair_item.before)
+                after_path = resolve_file_path(base_dir, pair_item.after)
+                try:
+                    res_b = _eval_cached(before_path, r)
+                    res_a = _eval_cached(after_path, r)
+                    pair_eval_runs[p_idx][r] = (res_b, res_a)
+                    for res_item in (res_b, res_a):
+                        for ch_qid, ch_obj in res_item.choices.items():
+                            q_dist = choice_distributions.setdefault(ch_qid, {})
+                            q_dist[ch_obj.choice] = q_dist.get(ch_obj.choice, 0) + 1
+                except Exception as e:
+                    click.echo(f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{p_runs}): {e}", err=True)
+                    has_runtime_error = True
+
+    # Process presence document results
+    for d_idx, doc_item in enumerate(labels_cfg.documents):
         doc_path = resolve_file_path(base_dir, doc_item.path)
         probs_by_question: Dict[str, List[float]] = {q: [] for q in doc_item.expect}
 
         for r in range(runs):
-            try:
-                res = evaluator.evaluate_document(
-                    filepath=str(doc_path),
-                    preset=preset_cfg,
-                    mask_secrets=mask_secrets,
-                    dry_run=dry_run,
-                )
-                # Track non-gating choice distributions across evaluated documents
-                for ch_qid, ch_obj in res.choices.items():
-                    if ch_qid not in choice_distributions:
-                        choice_distributions[ch_qid] = {}
-                    choice_distributions[ch_qid][ch_obj.choice] = (
-                        choice_distributions[ch_qid].get(ch_obj.choice, 0) + 1
+            if r not in doc_eval_runs[d_idx]:
+                continue
+            res = doc_eval_runs[d_idx][r]
+            for q_id in doc_item.expect:
+                if q_id in res.nouls:
+                    noul_obj = res.nouls[q_id]
+                    q_cfg = preset_cfg.questions.get(q_id)
+                    is_max_threshold = bool(q_cfg and q_cfg.max_threshold is not None)
+                    threshold = (
+                        q_cfg.max_threshold
+                        if is_max_threshold
+                        else (q_cfg.min_threshold if q_cfg and q_cfg.min_threshold is not None else 0.5)
                     )
 
-                for q_id in doc_item.expect:
-                    if q_id in res.nouls:
-                        noul_obj = res.nouls[q_id]
-                        q_cfg = preset_cfg.questions.get(q_id)
-                        is_max_threshold = bool(q_cfg and q_cfg.max_threshold is not None)
-                        threshold = (
-                            q_cfg.max_threshold
-                            if is_max_threshold
-                            else (q_cfg.min_threshold if q_cfg and q_cfg.min_threshold is not None else 0.5)
+                    has_cand_violation = False
+                    if q_id == "has_pii":
+                        has_cand_violation = (
+                            any(e.outcome == "personal" for e in res.email_evaluations)
+                            or any(p.outcome == "personal" for p in res.phone_evaluations)
+                            or any(i.outcome == "sensitive" for i in res.ip_evaluations)
+                            or any(u.outcome == "sensitive" for u in res.url_evaluations)
                         )
+                    elif q_id == "has_secrets":
+                        has_cand_violation = any(s.outcome == "secret" for s in res.secret_evaluations)
 
-                        # Check candidate violations for category
-                        has_cand_violation = False
-                        if q_id == "has_pii":
-                            has_cand_violation = (
-                                any(e.outcome == "personal" for e in res.email_evaluations)
-                                or any(p.outcome == "personal" for p in res.phone_evaluations)
-                                or any(i.outcome == "sensitive" for i in res.ip_evaluations)
-                                or any(u.outcome == "sensitive" for u in res.url_evaluations)
-                            )
-                        elif q_id == "has_secrets":
-                            has_cand_violation = any(s.outcome == "secret" for s in res.secret_evaluations)
-
-                        # Determine presence
-                        is_preflight = noul_obj.overridden_by is not None
-                        doc_present = False
-                        if noul_obj.probability is not None:
-                            doc_present = (
-                                noul_obj.probability > threshold
-                                if is_max_threshold
-                                else noul_obj.probability >= threshold
-                            )
-
-                        if has_cand_violation or is_preflight:
-                            # Present via candidate or preflight: count as 1.0 (or prob if higher)
-                            p_val = max(noul_obj.probability, 1.0) if noul_obj.probability is not None else 1.0
-                            probs_by_question[q_id].append(p_val)
-                        elif noul_obj.probability is not None:
-                            probs_by_question[q_id].append(noul_obj.probability)
-                        else:
-                            click.echo(
-                                f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' probability is None without preflight decision",
-                                err=True,
-                            )
-                            has_runtime_error = True
-                    elif q_id in res.scores:
-                        probs_by_question[q_id].append(res.scores[q_id].normalized_score)
+                    is_preflight = noul_obj.overridden_by is not None
+                    if has_cand_violation or is_preflight:
+                        p_val = max(noul_obj.probability, 1.0) if noul_obj.probability is not None else 1.0
+                        probs_by_question[q_id].append(p_val)
+                    elif noul_obj.probability is not None:
+                        probs_by_question[q_id].append(noul_obj.probability)
                     else:
                         click.echo(
-                            f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' was not returned by evaluator",
+                            f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' probability is None without preflight decision",
                             err=True,
                         )
                         has_runtime_error = True
-            except Exception as e:
-                click.echo(f"{doc_path} (run {r+1}/{runs}): {e}", err=True)
-                has_runtime_error = True
+                elif q_id in res.scores:
+                    probs_by_question[q_id].append(res.scores[q_id].normalized_score)
+                else:
+                    click.echo(
+                        f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' was not returned by evaluator",
+                        err=True,
+                    )
+                    has_runtime_error = True
 
         for q_id, expected in doc_item.expect.items():
             probs = probs_by_question[q_id]
@@ -363,13 +477,11 @@ def run_validation(
             spread = max(probs) - min(probs) if probs else 0.0
 
             if expected == "absent":
-                # Detected if absent in EVERY run
                 if all(is_absent(p) for p in probs):
                     verdict = "detected"
                 else:
                     verdict = "missed"
             else:
-                # False alarm if absent in ANY run
                 if any(is_absent(p) for p in probs):
                     verdict = "false_alarm"
                 else:
@@ -386,72 +498,55 @@ def run_validation(
                 )
             )
 
-    # 2. Evaluate score pairs
-    for pair_item in labels_cfg.pairs:
-        before_path = resolve_file_path(base_dir, pair_item.before)
-        after_path = resolve_file_path(base_dir, pair_item.after)
+    crit_cfg = labels_cfg.criteria
 
-        before_scores_by_q: Dict[str, List[float]] = {q: [] for q in pair_item.expect}
-        after_scores_by_q: Dict[str, List[float]] = {q: [] for q in pair_item.expect}
-
-        for r in range(runs):
-            try:
-                res_b = evaluator.evaluate_document(
-                    filepath=str(before_path),
-                    preset=preset_cfg,
-                    mask_secrets=mask_secrets,
-                    dry_run=dry_run,
-                )
-                res_a = evaluator.evaluate_document(
-                    filepath=str(after_path),
-                    preset=preset_cfg,
-                    mask_secrets=mask_secrets,
-                    dry_run=dry_run,
-                )
-                for res_item in (res_b, res_a):
-                    for ch_qid, ch_obj in res_item.choices.items():
-                        if ch_qid not in choice_distributions:
-                            choice_distributions[ch_qid] = {}
-                        choice_distributions[ch_qid][ch_obj.choice] = (
-                            choice_distributions[ch_qid].get(ch_obj.choice, 0) + 1
-                        )
-                for q_id in pair_item.expect:
-                    if q_id in res_b.scores:
-                        before_scores_by_q[q_id].append(res_b.scores[q_id].normalized_score)
-                    elif q_id in res_b.nouls and res_b.nouls[q_id].probability is not None:
-                        before_scores_by_q[q_id].append(res_b.nouls[q_id].probability)
-                    else:
-                        click.echo(f"{before_path} (run {r+1}/{runs}): Question '{q_id}' not returned in pair", err=True)
-                        has_runtime_error = True
-
-                    if q_id in res_a.scores:
-                        after_scores_by_q[q_id].append(res_a.scores[q_id].normalized_score)
-                    elif q_id in res_a.nouls and res_a.nouls[q_id].probability is not None:
-                        after_scores_by_q[q_id].append(res_a.nouls[q_id].probability)
-                    else:
-                        click.echo(f"{after_path} (run {r+1}/{runs}): Question '{q_id}' not returned in pair", err=True)
-                        has_runtime_error = True
-            except Exception as e:
-                click.echo(f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{runs}): {e}", err=True)
-                has_runtime_error = True
-
+    # Process pairs: pairing only runs where both sides evaluated the question
+    for p_idx, pair_item in enumerate(labels_cfg.pairs):
+        p_runs = pair_runs_list[p_idx]
         for q_id, expected in pair_item.expect.items():
-            b_list = before_scores_by_q[q_id]
-            a_list = after_scores_by_q[q_id]
-            if not b_list or not a_list:
-                continue
+            valid_runs: List[Tuple[float, float]] = []
+            has_trunc_b = False
+            has_trunc_a = False
 
-            deltas = [a - b for a, b in zip(a_list, b_list)]
+            for r in range(p_runs):
+                if r in pair_eval_runs[p_idx]:
+                    res_b, res_a = pair_eval_runs[p_idx][r]
+                    if res_b.was_truncated:
+                        has_trunc_b = True
+                    if res_a.was_truncated:
+                        has_trunc_a = True
+
+                    val_b = _extract_q_val(res_b, q_id)
+                    val_a = _extract_q_val(res_a, q_id)
+
+                    if val_b is not None and val_a is not None:
+                        valid_runs.append((val_b, val_a))
+                    else:
+                        click.echo(
+                            f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{p_runs}): Question '{q_id}' not returned in pair",
+                            err=True,
+                        )
+                        has_runtime_error = True
+
+            incomplete = len(valid_runs) < p_runs
+            incomplete_runs = p_runs - len(valid_runs)
+            was_truncated = has_trunc_b or has_trunc_a
+
+            b_list = [b for b, a in valid_runs]
+            a_list = [a for b, a in valid_runs]
+            deltas = [a - b for b, a in valid_runs]
             mean_d, ci_low, ci_high = compute_ci_95(deltas)
 
-            passed = True
+            # Determine each pair's own passed status via the pair guard
             if expected == "down":
-                passed = mean_d < 0.0
-            elif expected == "neutral":
-                max_neutral = 0.05
-                if labels_cfg.criteria and labels_cfg.criteria.max_neutral_delta is not None:
-                    max_neutral = labels_cfg.criteria.max_neutral_delta
-                passed = abs(mean_d) <= max_neutral
+                pair_passed = mean_d < 0.0
+            else:
+                guard_neutral = (
+                    crit_cfg.pair_guard_neutral_abs_max
+                    if crit_cfg and crit_cfg.pair_guard_neutral_abs_max is not None
+                    else (crit_cfg.max_neutral_delta if crit_cfg and crit_cfg.max_neutral_delta is not None else 0.05)
+                )
+                pair_passed = abs(mean_d) <= guard_neutral
 
             pair_results.append(
                 PairScoreResult(
@@ -459,17 +554,27 @@ def run_validation(
                     after_path=str(pair_item.after),
                     question_id=q_id,
                     expected=expected,
+                    kind=pair_item.kind,
+                    doc_id=pair_item.doc_id,
                     before_scores=b_list,
                     after_scores=a_list,
                     deltas=deltas,
                     mean_delta=mean_d,
                     ci_95_lower=ci_low,
                     ci_95_upper=ci_high,
-                    passed=passed,
+                    passed=pair_passed,
+                    incomplete=incomplete,
+                    incomplete_runs=incomplete_runs,
+                    was_truncated_before=has_trunc_b,
+                    was_truncated_after=has_trunc_a,
+                    was_truncated=was_truncated,
                 )
             )
 
-    # 3. Aggregate per-question statistics
+    incomplete_pairs_count = sum(1 for p in pair_results if p.incomplete)
+    truncated_pairs_count = sum(1 for p in pair_results if p.was_truncated)
+
+    # 3. Aggregate per-question statistics (across all active pairs for each question)
     question_stats: Dict[str, QuestionValidationStats] = {}
 
     for pr in presence_results:
@@ -489,16 +594,125 @@ def run_validation(
                 stat.false_alarm_count += 1
         stat.max_spread = max(stat.max_spread, pr.spread)
 
-    for ps in pair_results:
-        q_id = ps.question_id
+    # Question stats for score questions: compute aggregate across all active pair mean deltas
+    score_q_ids = {p.question_id for p in pair_results}
+    for q_id in sorted(score_q_ids):
+        q_active_pairs = [p for p in pair_results if p.question_id == q_id and not p.incomplete and not p.was_truncated]
         if q_id not in question_stats:
             question_stats[q_id] = QuestionValidationStats(question_id=q_id, type="score")
         stat = question_stats[q_id]
-        stat.pairs_count += 1
-        stat.mean_delta = ps.mean_delta
-        stat.ci_95 = (ps.ci_95_lower, ps.ci_95_upper)
+        stat.pairs_count = len(q_active_pairs)
+        if q_active_pairs:
+            pair_means = [p.mean_delta for p in q_active_pairs]
+            m_val, lo_val, hi_val = compute_ci_95(pair_means)
+            stat.mean_delta = m_val
+            stat.ci_95 = (lo_val, hi_val)
+        else:
+            stat.mean_delta = None
+            stat.ci_95 = None
 
-    # 4. Evaluate Pass Criteria
+    # 4. Grouping & Pair Group Results
+    pair_group_results: List[PairGroupResult] = []
+    group_by = crit_cfg.group_by if crit_cfg else "pair"
+    report_only = set(crit_cfg.report_only_kinds) if crit_cfg else set()
+    min_grp_size = crit_cfg.min_group_size if crit_cfg else 6
+
+    if group_by == "kind":
+        groups_dict: Dict[str, List[PairScoreResult]] = {}
+        for p in pair_results:
+            k = p.kind or "default"
+            groups_dict.setdefault(k, []).append(p)
+
+        for grp_kind, grp_pairs in groups_dict.items():
+            exp = grp_pairs[0].expected
+            active_pairs = [p for p in grp_pairs if not p.incomplete and not p.was_truncated]
+            n = len(active_pairs)
+
+            candidate_worst = active_pairs if active_pairs else grp_pairs
+            if exp == "down":
+                worst_p = max(candidate_worst, key=lambda p: p.mean_delta)
+            else:
+                worst_p = max(candidate_worst, key=lambda p: abs(p.mean_delta))
+            worst_path = f"{Path(worst_p.before_path).name} → {Path(worst_p.after_path).name}"
+            worst_delta = worst_p.mean_delta
+
+            if n == 0:
+                grp_mean, ci_lo, ci_hi = 0.0, 0.0, 0.0
+                grp_passed = None
+            else:
+                pair_means = [p.mean_delta for p in active_pairs]
+                grp_mean, ci_lo, ci_hi = compute_ci_95(pair_means)
+
+                if n < min_grp_size or grp_kind in report_only:
+                    grp_passed = None
+                else:
+                    if exp == "down":
+                        if crit_cfg and crit_cfg.degradation_ci_upper_max is not None:
+                            grp_passed = ci_hi <= crit_cfg.degradation_ci_upper_max
+                        elif crit_cfg and crit_cfg.min_degradation_drop is not None:
+                            grp_passed = grp_mean <= -crit_cfg.min_degradation_drop
+                        else:
+                            grp_passed = grp_mean < 0.0
+                    else:
+                        if crit_cfg and crit_cfg.neutral_ci_abs_max is not None:
+                            grp_passed = max(abs(ci_lo), abs(ci_hi)) <= crit_cfg.neutral_ci_abs_max
+                        elif crit_cfg and crit_cfg.max_neutral_delta is not None:
+                            grp_passed = abs(grp_mean) <= crit_cfg.max_neutral_delta
+                        else:
+                            grp_passed = abs(grp_mean) <= 0.05
+
+            pair_group_results.append(
+                PairGroupResult(
+                    kind=grp_kind,
+                    expected=exp,
+                    n=n,
+                    mean_delta=grp_mean,
+                    ci_95_lower=ci_lo,
+                    ci_95_upper=ci_hi,
+                    passed=grp_passed,
+                    worst_pair_path=worst_path,
+                    worst_pair_delta=worst_delta,
+                )
+            )
+    else:
+        # group_by == "pair": each pair is treated as a group of n=1 evaluated on its own run CI
+        for p in pair_results:
+            exp = p.expected
+            pair_name = f"{Path(p.before_path).name} → {Path(p.after_path).name}"
+            k = p.kind or pair_name
+            if p.incomplete or p.was_truncated or (p.kind and p.kind in report_only):
+                grp_passed = None
+            else:
+                if exp == "down":
+                    if crit_cfg and crit_cfg.degradation_ci_upper_max is not None:
+                        grp_passed = p.ci_95_upper <= crit_cfg.degradation_ci_upper_max
+                    elif crit_cfg and crit_cfg.min_degradation_drop is not None:
+                        grp_passed = p.mean_delta <= -crit_cfg.min_degradation_drop
+                    else:
+                        grp_passed = p.mean_delta < 0.0
+                else:
+                    if crit_cfg and crit_cfg.neutral_ci_abs_max is not None:
+                        grp_passed = max(abs(p.ci_95_lower), abs(p.ci_95_upper)) <= crit_cfg.neutral_ci_abs_max
+                    elif crit_cfg and crit_cfg.max_neutral_delta is not None:
+                        grp_passed = abs(p.mean_delta) <= crit_cfg.max_neutral_delta
+                    else:
+                        grp_passed = abs(p.mean_delta) <= 0.05
+
+            pair_group_results.append(
+                PairGroupResult(
+                    kind=k,
+                    expected=exp,
+                    n=1,
+                    mean_delta=p.mean_delta,
+                    ci_95_lower=p.ci_95_lower,
+                    ci_95_upper=p.ci_95_upper,
+                    passed=grp_passed,
+                    worst_pair_path=pair_name,
+                    worst_pair_delta=p.mean_delta,
+                )
+            )
+
+    # 5. Evaluate Pass Criteria
     criteria_results: List[CriterionEvaluationResult] = []
     all_criteria_passed = True
 
@@ -507,7 +721,6 @@ def run_validation(
     total_present = sum(s.total_present_expected for s in question_stats.values())
     total_false_alarms = sum(s.false_alarm_count for s in question_stats.values())
 
-    crit_cfg = labels_cfg.criteria
     if crit_cfg:
         # min_detected
         if crit_cfg.min_detected is not None:
@@ -554,36 +767,130 @@ def run_validation(
             if not passed:
                 all_criteria_passed = False
 
-        # max_neutral_delta
+        # max_neutral_delta (applies to active gating neutral pairs; zero pairs must not pass)
         if crit_cfg.max_neutral_delta is not None:
-            neutral_pairs = [p for p in pair_results if p.expected == "neutral"]
-            max_act_neutral = max((abs(p.mean_delta) for p in neutral_pairs), default=0.0)
-            passed = max_act_neutral <= crit_cfg.max_neutral_delta
+            active_neutrals = [
+                p for p in pair_results
+                if p.expected == "neutral" and not p.incomplete and not p.was_truncated and (not p.kind or p.kind not in report_only)
+            ]
+            if len(active_neutrals) == 0:
+                passed = False
+                act_str = "no active neutral pairs"
+            else:
+                max_act_neutral = max(abs(p.mean_delta) for p in active_neutrals)
+                passed = max_act_neutral <= crit_cfg.max_neutral_delta
+                act_str = f"{max_act_neutral:.3f}"
             criteria_results.append(
                 CriterionEvaluationResult(
                     name="max_neutral_delta",
                     expected=f"<= {crit_cfg.max_neutral_delta:.3f}",
-                    actual=f"{max_act_neutral:.3f}",
+                    actual=act_str,
                     passed=None if dry_run else passed,
-                    message=f"Max neutral delta is {max_act_neutral:.3f}",
+                    message=f"Max neutral delta check ({act_str})",
                 )
             )
             if not passed:
                 all_criteria_passed = False
 
-        # min_degradation_drop
+        # min_degradation_drop (applies to active gating down pairs; zero pairs must not pass)
         if crit_cfg.min_degradation_drop is not None:
-            down_pairs = [p for p in pair_results if p.expected == "down"]
+            active_downs = [
+                p for p in pair_results
+                if p.expected == "down" and not p.incomplete and not p.was_truncated and (not p.kind or p.kind not in report_only)
+            ]
             min_drop = crit_cfg.min_degradation_drop
-            passed = all(p.mean_delta <= -min_drop for p in down_pairs)
-            max_delta = max((p.mean_delta for p in down_pairs), default=0.0)
+            if len(active_downs) == 0:
+                passed = False
+                act_str = "no active down pairs"
+            else:
+                passed = all(p.mean_delta <= -min_drop for p in active_downs)
+                max_delta = max((p.mean_delta for p in active_downs), default=0.0)
+                act_str = f"max delta {max_delta:.3f}"
             criteria_results.append(
                 CriterionEvaluationResult(
                     name="min_degradation_drop",
                     expected=f"<= -{min_drop:.3f}",
-                    actual=f"max delta {max_delta:.3f}",
+                    actual=act_str,
                     passed=None if dry_run else passed,
-                    message=f"Down pairs drop check",
+                    message="Down pairs drop check",
+                )
+            )
+            if not passed:
+                all_criteria_passed = False
+
+        # degradation_ci_upper_max
+        if crit_cfg.degradation_ci_upper_max is not None:
+            gating_down_groups = [g for g in pair_group_results if g.expected == "down" and g.passed is not None]
+            down_groups = [g for g in pair_group_results if g.expected == "down"]
+            if len(down_groups) == 0:
+                passed = False
+                act_str = "no down groups"
+            elif len(gating_down_groups) == 0:
+                passed = True
+                act_str = "no gating groups (all report-only or small)"
+            else:
+                passed = all(g.passed for g in gating_down_groups)
+                max_ci_upper = max(g.ci_95_upper for g in gating_down_groups)
+                act_str = f"max CI upper {max_ci_upper:+.3f}"
+            criteria_results.append(
+                CriterionEvaluationResult(
+                    name="degradation_ci_upper_max",
+                    expected=f"<= {crit_cfg.degradation_ci_upper_max:+.3f}",
+                    actual=act_str,
+                    passed=None if dry_run else passed,
+                    message="Degradation 95% CI upper bound check across down groups",
+                )
+            )
+            if not passed:
+                all_criteria_passed = False
+
+        # neutral_ci_abs_max
+        if crit_cfg.neutral_ci_abs_max is not None:
+            gating_neutral_groups = [g for g in pair_group_results if g.expected == "neutral" and g.passed is not None]
+            neutral_groups = [g for g in pair_group_results if g.expected == "neutral"]
+            if len(neutral_groups) == 0:
+                passed = False
+                act_str = "no neutral groups"
+            elif len(gating_neutral_groups) == 0:
+                passed = True
+                act_str = "no gating groups (all report-only or small)"
+            else:
+                passed = all(g.passed for g in gating_neutral_groups)
+                max_ci_abs = max(max(abs(g.ci_95_lower), abs(g.ci_95_upper)) for g in gating_neutral_groups)
+                act_str = f"max CI abs {max_ci_abs:.3f}"
+            criteria_results.append(
+                CriterionEvaluationResult(
+                    name="neutral_ci_abs_max",
+                    expected=f"<= {crit_cfg.neutral_ci_abs_max:.3f}",
+                    actual=act_str,
+                    passed=None if dry_run else passed,
+                    message="Neutral 95% CI bounds check across neutral groups",
+                )
+            )
+            if not passed:
+                all_criteria_passed = False
+
+        # pair_guard_neutral_abs_max
+        if crit_cfg.pair_guard_neutral_abs_max is not None:
+            active_gating_pairs = [
+                p for p in pair_results
+                if not p.incomplete and not p.was_truncated and (not p.kind or p.kind not in report_only)
+            ]
+            violating_pairs = []
+            for p in active_gating_pairs:
+                if p.expected == "neutral" and abs(p.mean_delta) > crit_cfg.pair_guard_neutral_abs_max:
+                    violating_pairs.append(f"{Path(p.after_path).name} ({p.mean_delta:+.3f})")
+                elif p.expected == "down" and p.mean_delta >= 0.0:
+                    violating_pairs.append(f"{Path(p.after_path).name} ({p.mean_delta:+.3f})")
+            passed = len(violating_pairs) == 0 and len(active_gating_pairs) > 0
+            act_str = f"{len(violating_pairs)} violations" if violating_pairs else "all passed"
+            criteria_results.append(
+                CriterionEvaluationResult(
+                    name="pair_guard_neutral_abs_max",
+                    expected=f"neutral <= {crit_cfg.pair_guard_neutral_abs_max:.3f}, down < 0",
+                    actual=act_str,
+                    passed=None if dry_run else passed,
+                    message=f"Pair guard check ({', '.join(violating_pairs[:3])})" if violating_pairs else "All pairs satisfied pair guard",
                 )
             )
             if not passed:
@@ -605,9 +912,16 @@ def run_validation(
             if not passed:
                 all_criteria_passed = False
 
+        # If group_by is kind and any gating group explicitly failed, fail overall criteria
+        if group_by == "kind":
+            if any(g.passed is False for g in pair_group_results):
+                all_criteria_passed = False
+
     summary = {
         "documents_evaluated": len(labels_cfg.documents),
         "pairs_evaluated": len(labels_cfg.pairs),
+        "incomplete_pairs": incomplete_pairs_count,
+        "truncated_pairs": truncated_pairs_count,
         "total_absent_expected": total_absent,
         "total_detected": total_detected,
         "detected_rate": (total_detected / total_absent) if total_absent > 0 else 1.0,
@@ -624,6 +938,9 @@ def run_validation(
         summary=summary,
         presence_results=presence_results,
         pair_results=pair_results,
+        pair_group_results=pair_group_results,
+        incomplete_pairs_count=incomplete_pairs_count,
+        truncated_pairs_count=truncated_pairs_count,
         question_stats=question_stats,
         criteria_results=criteria_results,
         choice_distributions=choice_distributions,
@@ -687,7 +1004,45 @@ def render_validation_table(report: ValidationReport) -> None:
         console.print(table)
         console.print()
 
-    # 2. Score pairs table
+    # 2. Pair Groups table (if present)
+    if report.pair_group_results:
+        table_groups = Table(
+            title="[bold cyan]Pair Groups (Direction & CI)[/bold cyan]",
+            header_style="bold cyan",
+            border_style="dim",
+        )
+        table_groups.add_column("Group (Kind)", style="bold")
+        table_groups.add_column("Expected", justify="center")
+        table_groups.add_column("n", justify="center")
+        table_groups.add_column("Mean Δ", justify="center")
+        table_groups.add_column("95% CI", justify="center")
+        table_groups.add_column("Status", justify="center")
+        table_groups.add_column("Worst Pair", justify="left")
+
+        for g in report.pair_group_results:
+            if report.mock:
+                status = "[bold yellow]N/A (MOCK)[/bold yellow]"
+            elif g.passed is None:
+                status = "[bold yellow]N/A[/bold yellow]"
+            elif g.passed:
+                status = "[bold green]PASS[/bold green]"
+            else:
+                status = "[bold red]FAIL[/bold red]"
+            ci_str = f"[{g.ci_95_lower:+.3f}, {g.ci_95_upper:+.3f}]"
+            worst_str = f"{g.worst_pair_path} ({g.worst_pair_delta:+.3f})"
+            table_groups.add_row(
+                g.kind,
+                g.expected,
+                str(g.n),
+                f"{g.mean_delta:+.3f}",
+                ci_str,
+                status,
+                worst_str,
+            )
+        console.print(table_groups)
+        console.print()
+
+    # 3. Score pairs table
     if report.pair_results:
         table_pairs = Table(
             title="[bold cyan]Score Pairs (Direction & CI)[/bold cyan]",
@@ -705,6 +1060,10 @@ def render_validation_table(report: ValidationReport) -> None:
             pair_name = f"{Path(p.before_path).name} → {Path(p.after_path).name}"
             if report.mock:
                 status = "[bold yellow]N/A (MOCK)[/bold yellow]"
+            elif p.incomplete:
+                status = f"[bold yellow]INCOMPLETE ({p.incomplete_runs} lost)[/bold yellow]"
+            elif p.was_truncated:
+                status = "[bold yellow]TRUNCATED[/bold yellow]"
             elif p.passed:
                 status = "[bold green]PASS[/bold green]"
             else:
@@ -719,9 +1078,14 @@ def render_validation_table(report: ValidationReport) -> None:
                 status,
             )
         console.print(table_pairs)
+        if report.incomplete_pairs_count > 0 or report.truncated_pairs_count > 0:
+            console.print(
+                f"[yellow]Excluded from gating: {report.incomplete_pairs_count} incomplete pair(s), "
+                f"{report.truncated_pairs_count} truncated pair(s)[/yellow]"
+            )
         console.print()
 
-    # 3. Criteria checks
+    # 4. Criteria checks
     if report.criteria_results:
         table_crit = Table(
             title="[bold cyan]Pass Criteria Verification[/bold cyan]",
@@ -745,7 +1109,7 @@ def render_validation_table(report: ValidationReport) -> None:
         console.print(table_crit)
         console.print()
 
-    # 4. Choice Distributions (Non-gating, e.g. readiness, tone)
+    # 5. Choice Distributions (Non-gating, e.g. readiness, tone)
     if report.choice_distributions:
         dist_texts = []
         for q_id, counts in sorted(report.choice_distributions.items()):
@@ -804,6 +1168,27 @@ def render_validation_markdown(report: ValidationReport) -> str:
             )
         lines.append("")
 
+    if report.pair_group_results:
+        lines.append("## Pair Groups (Direction & CI)")
+        lines.append("")
+        lines.append("| Group (Kind) | Expected | n | Mean Δ | 95% CI | Status | Worst Pair |")
+        lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :--- |")
+        for g in report.pair_group_results:
+            if report.mock:
+                status = "N/A (MOCK)"
+            elif g.passed is None:
+                status = "N/A"
+            elif g.passed:
+                status = "PASS"
+            else:
+                status = "FAIL"
+            ci_str = f"[{g.ci_95_lower:+.3f}, {g.ci_95_upper:+.3f}]"
+            worst_str = f"`{g.worst_pair_path}` ({g.worst_pair_delta:+.3f})"
+            lines.append(
+                f"| `{g.kind}` | `{g.expected}` | {g.n} | {g.mean_delta:+.3f} | {ci_str} | **{status}** | {worst_str} |"
+            )
+        lines.append("")
+
     if report.pair_results:
         lines.append("## Score Pairs (Direction & CI)")
         lines.append("")
@@ -811,9 +1196,24 @@ def render_validation_markdown(report: ValidationReport) -> str:
         lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
         for p in report.pair_results:
             pair_name = f"`{Path(p.before_path).name}` → `{Path(p.after_path).name}`"
-            status = "N/A (MOCK)" if report.mock else ("PASS" if p.passed else "FAIL")
+            if report.mock:
+                status = "N/A (MOCK)"
+            elif p.incomplete:
+                status = f"INCOMPLETE ({p.incomplete_runs} lost)"
+            elif p.was_truncated:
+                status = "TRUNCATED"
+            elif p.passed:
+                status = "PASS"
+            else:
+                status = "FAIL"
             ci_str = f"[{p.ci_95_lower:.2f}, {p.ci_95_upper:.2f}]"
             lines.append(f"| {pair_name} | `{p.question_id}` | `{p.expected}` | {p.mean_delta:+.3f} | {ci_str} | **{status}** |")
+        if report.incomplete_pairs_count > 0 or report.truncated_pairs_count > 0:
+            lines.append("")
+            lines.append(
+                f"**Excluded from gating:** {report.incomplete_pairs_count} incomplete pair(s), "
+                f"{report.truncated_pairs_count} truncated pair(s)  "
+            )
         lines.append("")
 
     if report.criteria_results:

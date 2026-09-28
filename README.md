@@ -242,6 +242,12 @@ criteria:
   max_false_alarms: 0       # maximum allowed false alarms across present expectations
   max_neutral_delta: 0.05   # maximum allowed mean delta for neutral pairs
   min_degradation_drop: 0.1 # minimum required drop for degraded pairs
+  group_by: kind            # optional: "kind" or "pair" (default: "pair")
+  degradation_ci_upper_max: -0.1 # optional: upper 95% CI bound must be <= this value for down groups
+  neutral_ci_abs_max: 0.05       # optional: max(|lower|, |upper|) <= this value for neutral groups
+  min_group_size: 6              # optional: groups with fewer pairs report numbers with passed: null and do not gate (default: 6)
+  pair_guard_neutral_abs_max: 0.10 # optional: every neutral pair's |mean delta| <= this, every down pair's mean delta < 0
+  report_only_kinds: [exploratory] # optional: list of kinds that are reported but do not gate
 documents:
   - path: fixtures/design_doc/en.md
     expect: {goal: present, rollback: present, migration: present}
@@ -251,9 +257,15 @@ pairs:
   - before: fixtures/quality/a.md
     after: fixtures/quality/a_shuffled.md
     expect: {clarity: down}
+    kind: shuffle           # optional: pair group kind
+    doc_id: doc_a           # optional: document identifier
+    runs: 3                 # optional: per-pair run override
   - before: fixtures/quality/a.md
     after: fixtures/quality/a_paraphrased.md
     expect: {clarity: neutral}
+    kind: paraphrase
+    doc_id: doc_a
+    runs: 10
 ```
 
 ### 11. Exit Codes & CI Integration
