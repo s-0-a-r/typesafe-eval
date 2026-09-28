@@ -18,6 +18,7 @@ class SanitizerConfig(BaseModel):
     role_emails: List[str] = Field(default_factory=list)
 
 NEAR_THRESHOLD_MARGIN: float = 0.1
+CANDIDATE_DECISION_THRESHOLD: float = 0.5
 
 class PresetConfig(BaseModel):
     name: str
@@ -52,6 +53,7 @@ class EmailEvaluationResult(BaseModel):
     outcome: Literal["personal", "role", "undecided"]
     probability: Optional[float] = None
     decided_by: Literal["model", "free_mail"]
+    near_threshold: bool = False
 
 class PhoneEvaluationResult(BaseModel):
     placeholder: str
@@ -60,6 +62,7 @@ class PhoneEvaluationResult(BaseModel):
     outcome: Literal["personal", "support", "undecided"]
     probability: Optional[float] = None
     decided_by: Literal["model", "rule"]
+    near_threshold: bool = False
 
 class IPEvaluationResult(BaseModel):
     placeholder: str
@@ -68,6 +71,7 @@ class IPEvaluationResult(BaseModel):
     outcome: Literal["sensitive", "safe", "undecided"]
     probability: Optional[float] = None
     decided_by: Literal["model", "rule"]
+    near_threshold: bool = False
 
 class URLEvaluationResult(BaseModel):
     placeholder: str
@@ -76,6 +80,7 @@ class URLEvaluationResult(BaseModel):
     outcome: Literal["sensitive", "safe", "undecided"]
     probability: Optional[float] = None
     decided_by: Literal["model", "rule"]
+    near_threshold: bool = False
 
 class SecretEvaluationResult(BaseModel):
     placeholder: str
@@ -84,6 +89,7 @@ class SecretEvaluationResult(BaseModel):
     outcome: Literal["secret", "safe", "undecided"]
     probability: Optional[float] = None
     decided_by: Literal["model", "rule"]
+    near_threshold: bool = False
 
 class QuestionDiff(BaseModel):
     previous: float

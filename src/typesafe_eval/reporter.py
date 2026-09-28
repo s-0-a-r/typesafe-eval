@@ -114,6 +114,25 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
     if has_near_threshold:
         console.print(f"[dim]~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)[/dim]")
 
+    for r in results:
+        near_cands = []
+        all_cands = (
+            r.email_evaluations
+            + r.phone_evaluations
+            + r.ip_evaluations
+            + r.url_evaluations
+            + r.secret_evaluations
+        )
+        for c in all_cands:
+            if c.near_threshold and c.probability is not None:
+                near_cands.append(f"{c.placeholder} {c.outcome} (p={c.probability:.2f})")
+        if near_cands:
+            cand_str = ", ".join(near_cands)
+            if len(results) > 1:
+                console.print(f"[dim]{r.filename}: ~ near threshold: {cand_str}[/dim]")
+            else:
+                console.print(f"[dim]~ near threshold: {cand_str}[/dim]")
+
     # Print baseline truncation warnings if any
     for r in results:
         if r.baseline_diff and r.baseline_diff.truncation_mismatch:
@@ -218,6 +237,26 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
     if has_near_threshold:
         lines.append(f"*~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)*")
         lines.append("")
+
+    for r in results:
+        near_cands = []
+        all_cands = (
+            r.email_evaluations
+            + r.phone_evaluations
+            + r.ip_evaluations
+            + r.url_evaluations
+            + r.secret_evaluations
+        )
+        for c in all_cands:
+            if c.near_threshold and c.probability is not None:
+                near_cands.append(f"{c.placeholder} {c.outcome} (p={c.probability:.2f})")
+        if near_cands:
+            cand_str = ", ".join(near_cands)
+            if len(results) > 1:
+                lines.append(f"{r.filename}: ~ near threshold: {cand_str}")
+            else:
+                lines.append(f"~ near threshold: {cand_str}")
+            lines.append("")
 
     # Baseline diff table if baseline was compared
     compared_docs = [r for r in results if r.baseline_diff and r.baseline_diff.status == "compared"]
