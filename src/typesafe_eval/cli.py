@@ -388,8 +388,10 @@ def validate_command(
             out.write_text(render_validation_markdown(report), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
-    # Exit code resolution (1 over 3 precedence)
-    if not report.all_passed:
+    # Exit code resolution (1 over 3 precedence; dry-run exits 0)
+    if dry_run:
+        sys.exit(0)
+    elif not report.all_passed:
         sys.exit(1)
     elif has_runtime_error:
         sys.exit(3)

@@ -105,3 +105,59 @@ def test_evaluator_direct_dry_run():
     assert res.violations == []
     assert res.warnings == []
     assert res.composite_score is not None
+
+
+def test_validate_dry_run_pii_secrets_json():
+    """AC: validate --dry-run sets mock=true, all_passed=null, criteria passed=null, exits 0."""
+    labels_path = "tests/fixtures/pii_secrets/labels.yaml"
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", labels_path, "--dry-run", "-f", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["mock"] is True
+    assert data["all_passed"] is None
+    assert data["summary"]["criteria_passed"] is None
+    assert len(data["criteria_results"]) > 0
+    for crit in data["criteria_results"]:
+        assert crit["passed"] is None
+    # Stats are still computed
+    assert data["summary"]["total_absent_expected"] == 23
+    assert data["summary"]["total_detected"] == 23
+
+
+def test_validate_dry_run_pii_secrets_table_and_markdown():
+    """AC: validate --dry-run shows MOCK in header, Verdict: N/A (MOCK), exits 0."""
+    labels_path = "tests/fixtures/pii_secrets/labels.yaml"
+    runner = CliRunner()
+
+    # Table format
+    res_table = runner.invoke(main, ["validate", labels_path, "--dry-run", "-f", "table"])
+    assert res_table.exit_code == 0
+    assert "TypeSafe Validation Report (MOCK)" in res_table.output
+    assert "Verdict: N/A (MOCK)" in res_table.output
+    assert "Mode: MOCK (dry-run, no API calls made)" in res_table.output
+    assert "✔ PASS" not in res_table.output
+    assert "✘ FAIL" not in res_table.output
+
+    # Markdown format
+    res_md = runner.invoke(main, ["validate", labels_path, "--dry-run", "-f", "markdown"])
+    assert res_md.exit_code == 0
+    assert "# TypeSafe Validation Report (MOCK)" in res_md.output
+    assert "**Verdict:** N/A (MOCK)" in res_md.output
+    assert "**Mode:** MOCK (dry-run, no API calls made)" in res_md.output
+    assert "**N/A (MOCK)**" in res_md.output
+    assert "**PASS**" not in res_md.output
+    assert "**FAIL**" not in res_md.output
+
+
+def test_validate_dry_run_usage_errors_exit_2():
+    """AC: Usage errors under validate --dry-run still exit 2."""
+    runner = CliRunner()
+
+    # Missing file
+    res = runner.invoke(main, ["validate", "non_existent_labels_xyz.yaml", "--dry-run"])
+    assert res.exit_code == 2
+
+    # No argument
+    res_noargs = runner.invoke(main, ["validate", "--dry-run"])
+    assert res_noargs.exit_code == 2
