@@ -293,6 +293,12 @@ def eval_command(
     help="Write starter labels.yaml to this file path.",
 )
 @click.option(
+    "--mask-secrets/--no-mask-secrets",
+    "--mask/--no-mask",
+    default=True,
+    help="Automatically redact detected API keys, credentials, and PII before API call. Default: enabled.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Run validation with mock evaluator results.",
@@ -313,6 +319,7 @@ def validate_command(
     ablate_labels_out: Optional[Path],
     dry_run: bool,
     api_key: Optional[str],
+    mask_secrets: bool = True,
 ):
     """Run validation across fixed test documents using a labels.yaml specification or generate ablation variants."""
     # Handle --ablate helper mode
@@ -380,6 +387,7 @@ def validate_command(
             runs_override=runs,
             dry_run=dry_run,
             preset_cfg=preset_cfg,
+            mask_secrets=mask_secrets,
         )
     except Exception as e:
         err_console.print(f"[bold red]Validation setup error:[/bold red] {e}")
