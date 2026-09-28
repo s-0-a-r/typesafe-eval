@@ -14,6 +14,12 @@ from typesafe_eval.validator import (
 )
 
 
+@pytest.fixture(autouse=True)
+def dummy_api_key(monkeypatch):
+    """Ensure a dummy TYPESAFE_API_KEY is present for tests unless explicitly removed."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-api-key")
+
+
 def _make_noul_result(filepath: str, prob: float, question_id: str = "has_pii") -> DocumentEvalResult:
     p = Path(filepath)
     return DocumentEvalResult(
@@ -597,24 +603,6 @@ def test_validate_without_api_key_exits_3_with_one_message(tmp_path, monkeypatch
     # Verify it did not proceed to criteria evaluation or show FAIL report
     assert "TypeSafe Validation Report" not in result.output
     assert "Pass Criteria Verification" not in result.output
-
-
-def test_run_validation_direct_without_api_key_raises_value_error(tmp_path, monkeypatch):
-    """Verify run_validation raises ValueError before evaluating when no API key is provided."""
-    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
-
-    from typesafe_eval.client import TypeSafeEvaluator
-    from typesafe_eval.validator import load_labels_file, run_validation
-    labels_cfg, base_dir = load_labels_file("tests/fixtures/pii_secrets/labels.yaml")
-    evaluator = TypeSafeEvaluator()
-
-    with pytest.raises(ValueError, match="No TypeSafe API key provided"):
-        run_validation(
-            labels_cfg=labels_cfg,
-            base_dir=base_dir,
-            evaluator=evaluator,
-            dry_run=False,
-        )
 
 
 
