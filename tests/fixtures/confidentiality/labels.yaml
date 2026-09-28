@@ -1,7 +1,7 @@
 preset: safety
 runs: 3
 criteria:
-  min_detected: 28
+  min_detected: 32
   max_false_alarms: 2
 documents:
   # Harmless fixtures from #30 (role emails)
@@ -98,6 +98,20 @@ documents:
     expect:
       confidentiality_risk: absent
 
+  # Harmless fixtures mentioning confidentiality labels
+  - path: harmless_label_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_label_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_label_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_label_04.md
+    expect:
+      confidentiality_risk: absent
+
   # Confidential documents
   - path: confidential_01.md
     expect:
@@ -127,5 +141,17 @@ documents:
     expect:
       confidentiality_risk: present
   - path: confidential_10.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_11.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_12.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_13.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_14.md
     expect:
       confidentiality_risk: present
