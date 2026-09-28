@@ -50,6 +50,8 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
         doc_display = res.filename
         if res.was_truncated:
             doc_display += " [dim](truncated)[/dim]"
+        if res.api_calls > 1:
+            doc_display += f" [dim cyan]({res.api_calls} calls)[/dim cyan]"
         if res.redactions_count > 0:
             doc_display += f" [dim red]({res.redactions_count} masked)[/dim red]"
         row_cells.append(doc_display)
@@ -202,7 +204,12 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
     has_baseline = any(r.baseline_diff is not None for r in results)
 
     for res in results:
-        cells = [res.filename]
+        doc_cell = res.filename
+        if res.was_truncated:
+            doc_cell += " *(truncated)*"
+        if res.api_calls > 1:
+            doc_cell += f" *({res.api_calls} calls)*"
+        cells = [doc_cell]
         b_diff = res.baseline_diff
 
         for q_id, q_cfg in preset.questions.items():

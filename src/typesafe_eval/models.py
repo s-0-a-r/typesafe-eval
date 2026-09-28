@@ -123,6 +123,7 @@ class DocumentEvalResult(BaseModel):
     usage: Optional[Dict[str, int]] = None
     model: Optional[str] = None
     was_truncated: bool = False
+    api_calls: int = 1
     redactions_count: int = 0
     redaction_details: Optional[Dict[str, Any]] = None
     baseline_diff: Optional[BaselineDiff] = None
