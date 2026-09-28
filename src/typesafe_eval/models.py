@@ -17,6 +17,8 @@ class QuestionConfig(BaseModel):
 class SanitizerConfig(BaseModel):
     role_emails: List[str] = Field(default_factory=list)
 
+NEAR_THRESHOLD_MARGIN: float = 0.1
+
 class PresetConfig(BaseModel):
     name: str
     title: Optional[str] = None
@@ -31,10 +33,12 @@ class ScoreResult(BaseModel):
     normalized_score: float = 0.0
     confidence: float
     probabilities: Dict[Union[str, int], float]
+    near_threshold: bool = False
 
 class NoulResult(BaseModel):
     probability: Optional[float] = None
     overridden_by: Optional[str] = None
+    near_threshold: bool = False
 
 class ChoiceResult(BaseModel):
     choice: str

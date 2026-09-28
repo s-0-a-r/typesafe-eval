@@ -7,7 +7,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
-from typesafe_eval.models import DocumentEvalResult, PresetConfig
+from typesafe_eval.models import DocumentEvalResult, PresetConfig, NEAR_THRESHOLD_MARGIN
 
 console = Console()
 
@@ -60,7 +60,8 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
             if q_cfg.type == "score" and q_id in res.scores:
                 s_obj = res.scores[q_id]
                 badge = format_score_badge(s_obj.normalized_score)
-                cell_text = f"{badge}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f}[/dim]"
+                near_marker = " [yellow]~[/yellow]" if s_obj.near_threshold else ""
+                cell_text = f"{badge}{near_marker}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f}[/dim]"
                 if diff_info:
                     delta_color = "red" if diff_info.regressed else ("green" if diff_info.delta > 0 else "dim")
                     cell_text += f"\n[{delta_color}]prev: {diff_info.previous*100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
@@ -69,7 +70,8 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
                 prob = res.nouls[q_id].probability
                 if prob is not None:
                     badge = format_score_badge(prob)
-                    cell_text = f"{badge}\n[dim]p(yes)[/dim]"
+                    near_marker = " [yellow]~[/yellow]" if res.nouls[q_id].near_threshold else ""
+                    cell_text = f"{badge}{near_marker}\n[dim]p(yes)[/dim]"
                     if diff_info:
                         delta_color = "red" if diff_info.regressed else ("green" if diff_info.delta > 0 else "dim")
                         cell_text += f"\n[{delta_color}]prev: {diff_info.previous*100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
@@ -103,6 +105,14 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
 
     console.print()
     console.print(table)
+
+    has_near_threshold = any(
+        s.near_threshold for r in results for s in r.scores.values()
+    ) or any(
+        n.near_threshold for r in results for n in r.nouls.values()
+    )
+    if has_near_threshold:
+        console.print(f"[dim]~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)[/dim]")
 
     # Print baseline truncation warnings if any
     for r in results:
@@ -169,14 +179,16 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
 
             if q_cfg.type == "score" and q_id in res.scores:
                 s = res.scores[q_id]
-                val_str = f"{s.normalized_score * 100:.0f}%"
+                near_marker = " ~" if s.near_threshold else ""
+                val_str = f"{s.normalized_score * 100:.0f}%{near_marker}"
                 if diff_info:
                     val_str += f"<br>(prev: {diff_info.previous*100:.0f}%, Δ: {diff_info.delta:+.2f})"
                 cells.append(val_str)
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 n = res.nouls[q_id]
                 if n.probability is not None:
-                    val_str = f"{n.probability * 100:.0f}%"
+                    near_marker = " ~" if n.near_threshold else ""
+                    val_str = f"{n.probability * 100:.0f}%{near_marker}"
                     if diff_info:
                         val_str += f"<br>(prev: {diff_info.previous*100:.0f}%, Δ: {diff_info.delta:+.2f})"
                     cells.append(val_str)
@@ -197,6 +209,15 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
         lines.append("| " + " | ".join(cells) + " |")
 
     lines.append("")
+
+    has_near_threshold = any(
+        s.near_threshold for r in results for s in r.scores.values()
+    ) or any(
+        n.near_threshold for r in results for n in r.nouls.values()
+    )
+    if has_near_threshold:
+        lines.append(f"*~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)*")
+        lines.append("")
 
     # Baseline diff table if baseline was compared
     compared_docs = [r for r in results if r.baseline_diff and r.baseline_diff.status == "compared"]

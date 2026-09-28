@@ -86,10 +86,11 @@ typesafe-eval docs/memo.md --preset quality --format json
 
 When exporting results with `--format json`, each document evaluation result contains:
 
-- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, and `confidence`.
-- `nouls`: Map of noul questions with calibrated probability and override transparency:
+- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, and `near_threshold`.
+- `nouls`: Map of noul questions with calibrated probability, override transparency, and `near_threshold`:
   - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
   - `overridden_by`: Set to `"preflight_scan"` when deterministic regex pre-flight masking caught exposed credentials (for questions bound to `preflight: credentials`) or personal PII (for `preflight: pii`, ignoring generic role emails like `support@company.com`). Overridden questions continue to contribute their model probability to `composite_score` when present, while independently failing the evaluation gate.
+  - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
 - `choices`: Map of choice questions with selected `choice` and `confidence`.
 - `email_evaluations`: List of evaluated email addresses with placeholder, question ID, structural features, outcome (`personal` or `role`), and decision source (`model` or `free_mail`).
 - `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
@@ -200,6 +201,15 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
   - Overall 99th percentile is `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
+
+### 11. Near-Threshold Indication (`near_threshold`)
+
+Because run-to-run noise is up to about 0.055, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+
+- **JSON Output**: Any question whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
+- **Table and Markdown Reports**: Near-threshold values are marked with `~` (e.g. `51% ~`).
+- **Constant Margin**: The margin (`0.1`) is a constant (`NEAR_THRESHOLD_MARGIN = 0.1`). It is not a CLI option in v0.4.0.
+- **No Exit Code Change**: `near_threshold` is purely informational. A passing score near threshold still passes (exit code 0), and a failing score still fails (exit code 1).
 
 ---
 

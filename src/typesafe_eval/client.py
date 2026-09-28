@@ -18,6 +18,7 @@ from typesafe_eval.models import (
     IPEvaluationResult,
     URLEvaluationResult,
     SecretEvaluationResult,
+    NEAR_THRESHOLD_MARGIN,
 )
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
@@ -561,6 +562,19 @@ class TypeSafeEvaluator:
             if val is not None and q_cfg.weight is not None and q_cfg.weight > 0:
                 weighted_sum += val * q_cfg.weight
                 total_weight += q_cfg.weight
+
+            # Near-threshold detection (Issue #44)
+            is_near = False
+            if val is not None:
+                if q_cfg.min_threshold is not None and abs(val - q_cfg.min_threshold) <= NEAR_THRESHOLD_MARGIN + 1e-9:
+                    is_near = True
+                if q_cfg.max_threshold is not None and abs(val - q_cfg.max_threshold) <= NEAR_THRESHOLD_MARGIN + 1e-9:
+                    is_near = True
+
+            if q_cfg.type == "score" and q_id in scores:
+                scores[q_id].near_threshold = is_near
+            elif q_cfg.type == "noul" and q_id in nouls:
+                nouls[q_id].near_threshold = is_near
 
             # Pre-flight scan override violation check
             if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
