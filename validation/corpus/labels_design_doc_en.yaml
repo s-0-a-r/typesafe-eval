@@ -1,0 +1,82 @@
+# Labeled by Claude Code on 2026-09-28 from reading the final versions (HTML comments ignored), before any evaluation.
+# Rule: present only with a dedicated section or an explicit statement; absent when clearly missing (an empty template heading counts as missing); arguable items are left out.
+# 31 absent / 25 present labels. min_detected = ceil(0.9 x absent), provisional, from #41's EN/JA ratio.
+# 2026-09-28: replaced kep-2907 and pep-0698 with go-draft-fuzzing and swift-se-0510 (at most 2 per project); new labels written before any evaluation.
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 28
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/kep-3140/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: present
+    rollback: present
+    migration: present
+    open_questions: absent
+- path: design_doc/en/kep-3325/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: absent
+    rollback: present
+    migration: present
+    open_questions: absent
+    owner_timeline: absent
+- path: design_doc/en/pep-0655/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: absent
+    rollback: absent
+    metrics: absent
+    open_questions: absent
+- path: design_doc/en/pep-0709/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    migration: absent
+    impact: present
+    open_questions: absent
+- path: design_doc/en/rfc-3027/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    metrics: absent
+    open_questions: present
+- path: design_doc/en/rfc-3323/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: present
+- path: design_doc/en/go-draft-fuzzing/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    risks: absent
+    rollback: absent
+    metrics: present
+    open_questions: present
+    owner_timeline: absent
+- path: design_doc/en/swift-se-0510/after.md
+  expect:
+    goal: present
+    alternatives: present
+    risks: absent
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: absent

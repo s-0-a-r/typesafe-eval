@@ -1,0 +1,69 @@
+{
+  "heldout": {
+    "bases": [
+      "kazu-2020-entra-id-multi-tenant-basics",
+      "mizchi-vlmkit-creative-markup-eval",
+      "pep-0655",
+      "pep-0709",
+      "pr-electron-electron-49103",
+      "pr-kubernetes-kubernetes-134660",
+      "pr-kubernetes-kubernetes-134947",
+      "pr-kufu-smarthr-ui-5622",
+      "pr-kufu-smarthr-ui-5749",
+      "pr-pixiv-charcoal-300",
+      "riya-amemiya-63abf44e3082c9",
+      "swift-se-0510",
+      "termoshtt-async-timeout",
+      "uhyo-useeffect-taught-by-extremist",
+      "yutaro1985-aws-iam-best-practice-202512"
+    ],
+    "skipped": [
+      {
+        "source_doc": "pep-0655",
+        "kind": "padded",
+        "chars": 67258,
+        "reason": "variant over 25000 chars; both sides would not be compared whole"
+      },
+      {
+        "source_doc": "pep-0709",
+        "kind": "padded",
+        "chars": 32197,
+        "reason": "variant over 25000 chars; both sides would not be compared whole"
+      }
+    ]
+  },
+  "tuning": {
+    "bases": [
+      "akaza-numeric-counter-redesign",
+      "akifumisato-react-team-vision",
+      "ccpocket-fcm-push-notification-plan",
+      "kep-3140",
+      "pr-grafana-grafana-112058",
+      "pr-misskey-dev-misskey-14375",
+      "pr-python-cpython-140234",
+      "pr-sakura-editor-sakura-2611",
+      "rfc-3323",
+      "yutotnh-1577b6dc5ab7d9"
+    ],
+    "skipped": [
+      {
+        "source_doc": "kep-3140",
+        "kind": "padded",
+        "chars": 48053,
+        "reason": "variant over 25000 chars; both sides would not be compared whole"
+      },
+      {
+        "source_doc": "rfc-3323",
+        "kind": "padded",
+        "chars": 39162,
+        "reason": "variant over 25000 chars; both sides would not be compared whole"
+      },
+      {
+        "source_doc": "yutotnh-1577b6dc5ab7d9",
+        "kind": "padded",
+        "chars": 56709,
+        "reason": "variant over 25000 chars; both sides would not be compared whole"
+      }
+    ]
+  }
+}
