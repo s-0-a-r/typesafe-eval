@@ -1,0 +1,25 @@
+# Text that is not committed. Rebuild it with fetch_pr_bodies.py and fetch_articles.py, then build_pairs.py.
+# PR descriptions: the repository license covers code, not the PR text.
+pr_description/
+variants/pr-*/
+# Articles whose repository has no license that clearly covers the text, and their synthetic variants.
+article/ja/uhyo-useeffect-taught-by-extremist/
+variants/uhyo-useeffect-taught-by-extremist/
+article/ja/akifumisato-react-team-vision/
+variants/akifumisato-react-team-vision/
+article/ja/yutaro1985-aws-iam-best-practice-202512/
+variants/yutaro1985-aws-iam-best-practice-202512/
+article/ja/yo-goto-nu-typed-shell/
+variants/yo-goto-nu-typed-shell/
+article/ja/termoshtt-async-timeout/
+variants/termoshtt-async-timeout/
+article/ja/riya-amemiya-63abf44e3082c9/
+variants/riya-amemiya-63abf44e3082c9/
+article/ja/hkawase-19a06e12b68d12/
+variants/hkawase-19a06e12b68d12/
+article/ja/yuya0408-yolo-vs-vlm-background/
+variants/yuya0408-yolo-vs-vlm-background/
+article/ja/kazu-2020-entra-id-multi-tenant-basics/
+variants/kazu-2020-entra-id-multi-tenant-basics/
+article/ja/mamezou-tech-0925_gfxbench_3/
+variants/mamezou-tech-0925_gfxbench_3/

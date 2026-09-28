@@ -1,0 +1,46 @@
+# Labeled by Claude Code on 2026-09-28 from reading the final versions (HTML comments ignored), before any evaluation.
+# Rule: present only with a dedicated section or an explicit statement; absent when clearly missing (an empty template heading counts as missing); arguable items are left out.
+# has_test_plan: 6 absent / 6 present. present = a test plan / verification section with content.
+# 2026-09-28: replaced kep-2907 and pep-0698 with go-draft-fuzzing and swift-se-0510 (at most 2 per project); new labels written before any evaluation.
+preset: tech-spec
+runs: 2
+criteria:
+  min_detected: 6
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/kep-3140/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/en/kep-3325/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/en/pep-0655/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/en/pep-0709/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/en/rfc-3027/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/en/rfc-3323/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/ja/gyuma-go-rewrite-design/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/ja/lecs-terraform-input/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/ja/mizchi-vlmkit-creative-markup-eval/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/en/swift-se-0510/after.md
+  expect:
+    has_test_plan: absent

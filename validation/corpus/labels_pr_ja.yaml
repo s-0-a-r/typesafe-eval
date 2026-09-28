@@ -1,0 +1,58 @@
+# Labeled by Claude Code on 2026-09-28 from reading the final PR bodies (HTML comments ignored), before any evaluation.
+# Rule: present only with an explicit statement or section; absent only when clearly missing; arguable items are left out.
+# 8 absent / 24 present labels. min_detected = ceil(0.8 x absent), provisional, from #41's EN/JA ratio.
+# 2026-09-28: replaced voicevox-1484 and voicevox-1228 with sakura-editor-2611 and 2682 (at most 2 per project); new labels written before any evaluation.
+preset: pr-description
+runs: 2
+criteria:
+  min_detected: 7
+  max_false_alarms: 0
+documents:
+- path: pr_description/ja/pr-kufu-smarthr-ui-5622/after.md
+  expect:
+    summary: present
+    testing: absent
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/ja/pr-kufu-smarthr-ui-5749/after.md
+  expect:
+    summary: present
+    testing: present
+    breaking_changes: absent
+    related_issues: absent
+- path: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  expect:
+    summary: present
+    testing: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/ja/pr-pixiv-charcoal-300/after.md
+  expect:
+    summary: present
+    breaking_changes: present
+    related_issues: absent
+- path: pr_description/ja/pr-voicevox-voicevox-1374/after.md
+  expect:
+    summary: present
+    impact: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/ja/pr-voicevox-voicevox_engine-1261/after.md
+  expect:
+    summary: present
+    testing: absent
+    impact: present
+    breaking_changes: present
+    related_issues: present
+- path: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  expect:
+    summary: present
+    testing: present
+    impact: present
+    related_issues: present
+- path: pr_description/ja/pr-sakura-editor-sakura-2682/after.md
+  expect:
+    testing: present
+    impact: present
+    breaking_changes: present
+    related_issues: present

@@ -1,0 +1,52 @@
+# Labeled by Claude Code on 2026-09-28 from reading the final versions (HTML comments ignored), before any evaluation.
+# Rule: present only with a dedicated section or an explicit statement; absent when clearly missing (an empty template heading counts as missing); arguable items are left out.
+# 17 absent / 16 present labels. min_detected = ceil(0.8 x absent), provisional, from #41's EN/JA ratio.
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 14
+  max_false_alarms: 0
+documents:
+- path: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: absent
+    risks: present
+    rollback: absent
+    metrics: present
+    migration: present
+    open_questions: absent
+    owner_timeline: absent
+- path: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+- path: design_doc/ja/gyuma-go-rewrite-design/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: absent
+    rollback: absent
+    metrics: absent
+    migration: present
+    open_questions: present
+- path: design_doc/ja/lecs-terraform-input/after.md
+  expect:
+    goal: present
+    alternatives: absent
+    risks: absent
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: absent
+    owner_timeline: absent
+- path: design_doc/ja/mizchi-vlmkit-creative-markup-eval/after.md
+  expect:
+    goal: present
+    non_goals: present
+    risks: present
+    metrics: present
+    open_questions: present
