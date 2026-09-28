@@ -5,25 +5,60 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Fast, typed, multi-dimensional document evaluation CLI powered by the **TypeSafe System One API** (model: `jev-1.13.0`).
+Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by the **TypeSafe System One API** (model: `jev-1.13.0`).
 
 ---
 
-## ✨ Features
+## ✨ What typesafe-eval Adds
 
-- **Typed System One Judgments**: Uses TypeSafe primitives (`Score`, `Noul`, `Choice`) to evaluate documents with calibrated probabilities and confidence scores.
-- **Batched Single-Call Evaluation**: Packs all dimension questions for a document into a single API call. Splitting them re-sends the document once per question, so token cost grows roughly with the number of questions (~3.8× lower token cost and ~4× lower latency for 4-question built-in presets; around 10–12× with 13 questions, as shown in [TypeSafe's parallel questions benchmark](https://docs.typesafe.ai/cookbooks/parallel_questions)).
-- **Built-in & Custom Presets**:
-  - `quality`: Clarity, completeness, actionability, and tone.
-  - `safety`: PII, exposed credentials, confidentiality risk, policy compliance.
-  - `tech-spec`: Technical depth, failure mode coverage, test planning, implementation readiness.
-  - Custom YAML: Define your own criteria with custom weights and thresholds.
-- **Deterministic Composite Scoring**: Code owns the workflow. Composite scores and pass/fail gate checks are synthesized in Python, not hallucinated by generative models.
-- **Data Protection & Guardrails**:
-  - Automatic pre-flight regex masking for API keys, bearer tokens, and emails.
-  - Context length guard and overlapping chunking for long documents to preserve presence detection without token overflow.
-- **Multiple Output Formats**: Rich interactive terminal tables, JSON (for pipelines/APIs), and Markdown reports (for GitHub PRs/issues).
-- **CI/CD Ready**: Distinct exit codes (`0` pass, `1` violation, `2` usage/config error, `3` runtime error) with precedence of violations over runtime errors.
+`typesafe-eval` is an evaluation harness and CI gate that wraps TypeSafe System One. It adds:
+
+- **Context-Aware Masking & Candidate Evaluation**: Deterministic regex rules combined with candidate-level feature extraction (for emails, phone numbers, IP addresses, internal URLs, and secrets). Detection and feature extraction always run even when `--no-mask` is passed.
+- **Validation & Calibration Harness (`validate`)**: Built-in test runner for evaluating presets against ground-truth document sets and ablation variants (`labels.yaml`) to verify calibration, detection rates, and regression directions.
+- **Baseline Regression Detection (`--baseline`)**: Flags score drops larger than the measured noise between revisions, detecting subtle quality degradation against previous runs.
+- **Measured Built-in Checklists**: Objective presence-based checklists (`design-doc`) checked on fixtures (not real documents yet).
+- **Long Document Chunking**: Overlapping window chunking for presence questions (`Noul`) to prevent middle-truncation false degradation while keeping token budgets safe.
+- **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
+- **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
+
+### TypeSafe System One API Properties
+The underlying evaluation engine is powered by the [TypeSafe System One API](https://docs.typesafe.ai/) (`jev-1.13.0`):
+- **Typed Judgments**: Calibrated probabilities (`Noul`), multi-level rubrics (`Score`), and categorical decisions (`Choice`).
+- **Batched Parallel Questions**: Evaluates all questions in a single API request per document/chunk, avoiding redundant document re-transmissions (~3.8× lower token cost for 4 questions; around 10–12× with 13 questions per [TypeSafe's benchmark](https://docs.typesafe.ai/cookbooks/parallel_questions)).
+
+---
+
+## 🚫 Non-Goals
+
+- **Not a replacement for human review**: `typesafe-eval` acts as an automated sanity gate and regression check in CI/CD. It catches missing sections, exposed credentials, PII, and structure degradation, but does not substitute for deep human architectural or editorial review.
+- **Not a secret scanner**: The credential detection in `typesafe-eval` is designed to prevent accidental leakage in evaluated texts and enforce basic hygiene. It does not scan git commit history, binary artifacts, or deep repository revisions. Pair it with dedicated tools like `gitleaks` in CI.
+- **No absolute quality score**: Single composite scores (e.g. "this document is 82% good") do not provide a reliable absolute pass/fail quality gate across diverse writing styles and document domains. `typesafe-eval` focuses on regression detection (`--baseline`) and checklist presence verification rather than claiming an absolute quality verdict.
+
+---
+
+## 📦 Built-in Presets & Calibration Status
+
+| Preset | Purpose | Questions | Calibration / Measurement Status |
+| :--- | :--- | :--- | :--- |
+| `design-doc` | Review checklist for system design docs | 10 presence Nouls (`goal`, `rollback`, `metrics`, etc.) | Fixtures only, not yet measured on the corpus (#41 open). EN 7/10, JA 6/10, 0/100 false alarms ([labels_en.yaml](tests/fixtures/design_doc/labels_en.yaml), [labels_ja.yaml](tests/fixtures/design_doc/labels_ja.yaml)). `goal`, `risks`, `migration` (and `rollback` in Japanese) are not reliable: a missing section can be inferred from other sections, so a pass is not a guarantee; a flag is reliable. |
+| `safety` | Content safety, PII, credentials, confidentiality | `has_secrets`, `has_pii`, `confidentiality_risk`, `policy_compliance` | Measured on fixtures ([pii_secrets](tests/fixtures/pii_secrets/labels.yaml), [confidentiality](tests/fixtures/confidentiality/labels.yaml)):<br>• `pii_secrets` (40 docs, #40): all 40 document verdicts correct, masked and `--no-mask`, 3 runs (validate: min_detected 23, max_false_alarms 0 met).<br>• `confidentiality` (46 docs, #53): 32/32 harmless below the threshold (max 0.31) and 14/14 confidential above (min 0.66), masked and `--no-mask`, 3 runs. |
+| `pr-description` | Checklist for pull request descriptions | 5 presence Nouls (`summary`, `testing`, `impact`, etc.) | **Not measured yet** (waits for real PR corpus). |
+| `quality` | Readability & structure regression detection | `clarity` (Score), `tone` (Choice) | **Not measured yet** (waits for real corpus); thresholds act as warnings, use with `--baseline`. |
+| `tech-spec` | Architecture depth, edge cases, test planning | `technical_depth`, `edge_case_coverage`, `has_test_plan`, `readiness` | **Not measured yet** (waits for real corpus). |
+
+### Language Support & Non-English Accuracy
+
+TypeSafe System One is trained primarily on English. As noted in TypeSafe's documentation, accuracy and calibration can be lower on non-English texts.
+
+In our measured Japanese fixtures compared to English:
+- **Design Doc Checklist (`design-doc`)**:
+  - Tested on single-section ablation fixtures (11 documents each): EN caught 7/10 removed sections, JA caught 6/10 removed sections (0/100 false alarms in both).
+  - Missing `goal`, `risks`, and `migration` were not reliably flagged in either language (and `rollback` in Japanese) because the model inferred their topics from surrounding context.
+- **PII & Confidentiality (`safety`)**:
+  - Only 1 of the 40 `pii_secrets` fixtures and 3 of the 46 `confidentiality` fixtures are Japanese, so there is no Japanese accuracy figure for PII.
+- **Long Document Truncation & Chunking**:
+  - English 30.8k doc: middle rollback dropped to 0.58 with truncation, restored to **0.98** with chunking.
+  - Japanese 32.4k doc: middle rollback dropped to 0.79 with truncation, restored to **0.98** with chunking.
 
 ---
 
@@ -60,47 +95,25 @@ Or pass it directly via `--api-key`.
 
 ### 1. Evaluate Documents with Built-in Preset
 ```bash
-# Evaluate all Markdown files in docs/ using the quality preset
-typesafe-eval docs/*.md --preset quality
+# Evaluate design documents using the design-doc checklist
+typesafe-eval docs/design/*.md --preset design-doc
 
 # Alias command is also available:
-jev-eval docs/*.md --preset quality
+jev-eval docs/design/*.md --preset design-doc
 ```
 
-### 2. Screen for Sensitive Information & Policy Violations
+### 2. Screen for Sensitive Information & Policy Violations (`safety`)
 ```bash
 typesafe-eval specs/*.txt --preset safety
 ```
 
-### 3. Evaluate Architecture Specs / PR Descriptions
-```bash
-typesafe-eval rfc/*.md --preset tech-spec --format markdown --out eval_report.md
-```
+> [!IMPORTANT]
+> **Pre-Flight Gate, Not a Secret Scanner**: `has_secrets` and regex masking serve as a pre-flight safety gate to prevent credentials from leaking in evaluated document payloads. It is **not** a secret scanner: it does not inspect git history, commits, or binary files. We strongly recommend pairing `typesafe-eval` with dedicated scanners like [gitleaks](https://github.com/gitleaks/gitleaks) or [trufflehog](https://github.com/trufflesecurity/trufflehog) in your CI pipeline.
 
-### 4. Output as JSON for Pipeline / Tooling Integration
-```bash
-typesafe-eval docs/memo.md --preset quality --format json
-```
-
-#### JSON Output & Result Schema
-
-When exporting results with `--format json`, each document evaluation result contains:
-
-- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, and `near_threshold`.
-- `nouls`: Map of noul questions with calibrated probability, override transparency, and `near_threshold`:
-  - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
-  - `overridden_by`: Set to `"preflight_scan"` when deterministic regex pre-flight masking caught exposed credentials (for questions bound to `preflight: credentials`) or personal PII (for `preflight: pii`, ignoring generic role emails like `support@company.com`). Overridden questions continue to contribute their model probability to `composite_score` when present, while independently failing the evaluation gate.
-  - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
-- `choices`: Map of choice questions with selected `choice` and `confidence`.
-- `email_evaluations`: List of evaluated email addresses with placeholder, question ID, structural features, outcome (`personal` or `role`), and decision source (`model` or `free_mail`).
-- `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
-- `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
-
-### 5. Context-Aware PII and Secrets Evaluation (v0.4.0)
-
-`typesafe-eval` utilizes a candidate-level context-aware evaluation architecture for PII and secrets:
+#### Context-Aware PII and Secrets Evaluation (v0.4.0)
+`typesafe-eval` utilizes a candidate-level context-aware evaluation architecture:
 1. **Numbered Placeholders**: Replaces detected candidates with numbered placeholders (`[EMAIL_n]`, `[PHONE_n]`, `[IP_n]`, `[URL_n]`, `[SECRET_n]`).
-2. **Metadata in State**: Extracts objective structural features into `state` (e.g., `state.redacted_emails`, `state.redacted_phones`, `state.redacted_ips`, `state.redacted_urls`, `state.redacted_secrets`).
+2. **Metadata in State**: Extracts objective structural features into `state` (e.g. `state.redacted_emails`, `state.redacted_phones`, `state.redacted_ips`, `state.redacted_urls`, `state.redacted_secrets`).
 3. **Strict Safety Constraint**: `state.redacted_secrets` NEVER contains raw secret values, value fragments, or hashes—only non-sensitive metadata (key name, value length, character classes, syntax flags, location).
 4. **Rule-Based Fast Paths**:
    - **Known Credential Formats** (AWS `AKIA…`, GitHub `ghp_…`, Slack `xox…`, private keys, live API keys): FAIL deterministically by code (`decided_by: "rule"`). Jev is not asked. Known documentation example keys (e.g. `AKIAIOSFODNN7EXAMPLE`) are allowed and PASS by code.
@@ -114,40 +127,102 @@ When exporting results with `--format json`, each document evaluation result con
    - `--no-mask` controls only whether sensitive values are substituted in the document text sent to the API.
    - With `--no-mask`, deterministic rules still apply (e.g. `support@gmail.com` and exposed credentials still fail by rule).
 
-> [!TIP]
-> **CI Recommendation**: `typesafe-eval` is designed for semantic context evaluation and policy compliance. For deep commit-history and repository-level secret scanning, we recommend pairing `typesafe-eval` with dedicated scanners like [gitleaks](https://github.com/gitleaks/gitleaks) in your CI pipeline.
-
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
+
+### 3. Evaluate Architecture Specs / PR Descriptions (`tech-spec`)
+```bash
+typesafe-eval rfc/*.md --preset tech-spec --format markdown --out eval_report.md
+```
+
+### 4. Output as JSON for Pipeline / Tooling Integration
+```bash
+typesafe-eval docs/memo.md --preset quality --format json
+```
+
+#### JSON Output & Result Schema
+
+When exporting results with `--format json`, each document evaluation result contains:
+
+- `filepath` / `filename`: Evaluated file path and name.
+- `preset_name`: Applied preset or custom config name.
+- `composite_score`: Weighted overall score (0.0 to 1.0) when scores or nouls are present.
+- `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
+- `mock`: Boolean indicating whether `--dry-run` was used without calling the API (`true` in dry-run, `false` otherwise).
+- `api_calls`: Number of API calls made for evaluating the document (1 for standard documents, >1 when chunking long documents).
+- `was_truncated`: Boolean indicating whether the document text was truncated due to length.
+- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, `threshold`, `passed`, and `near_threshold`.
+- `nouls`: Map of noul questions with calibrated probability, override transparency, threshold, `passed`, and `near_threshold`:
+  - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
+  - `overridden_by`: Set to `"preflight_scan"` when deterministic rules caught credentials or personal PII.
+  - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
+- `choices`: Map of choice questions with selected `choice`, `confidence`, and `passed`.
+- `email_evaluations`: List of evaluated email addresses with placeholder, question ID, structural features, outcome (`personal` or `role`), decision source (`rule`, `free_mail`, or `model`), and `near_threshold`.
+- `phone_evaluations`: List of evaluated phone numbers with placeholder, structural features, outcome, decision source, and `near_threshold`.
+- `ip_evaluations`: List of evaluated IP addresses with placeholder, structural features, outcome, decision source, and `near_threshold`.
+- `url_evaluations`: List of evaluated URLs with placeholder, structural features, outcome, decision source, and `near_threshold`.
+- `secret_evaluations`: List of evaluated secrets with placeholder, non-sensitive structural metadata (never raw values), outcome, decision source, and `near_threshold`.
+- `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
+- `warnings`: List of non-fatal threshold warnings (e.g. when `thresholds_as_warnings: true`).
+- `baseline_diff`: When `--baseline` is used, contains comparison status (`compared` or `new`), truncation mismatch flag, and per-question deltas (`diff`, `max_drop`, `passed`).
+
+### 5. List Built-in Presets
+```bash
+typesafe-eval --list-presets
+```
 
 ### 6. Dry-Run Mode (Validation without Calling API)
 ```bash
 typesafe-eval docs/*.md --dry-run
 ```
+In dry-run mode:
+- Terminal tables and Markdown reports clearly display `(MOCK)` in headers, and status is shown as `Verdict: N/A (MOCK)`.
+- JSON output includes `"mock": true` for every evaluated document, with `violations: []` and `warnings: []`.
+- Exits with code `0` for valid inputs across all presets, without making any external API calls. Usage errors still exit with code `2`.
 
-### 7. List Built-in Presets
+### 7. Baseline Regression Detection (`--baseline`)
+A fixed absolute threshold cannot reliably catch subtle quality degradation between document edits. `typesafe-eval` provides `--baseline` mode to detect score drops against previous evaluation results:
+
 ```bash
-typesafe-eval --list-presets
+# Save baseline evaluation to JSON
+typesafe-eval docs/*.md --preset quality --format json --out baseline.json
+
+# Check modified documents against previous baseline
+typesafe-eval docs/*.md --preset quality --baseline baseline.json
 ```
 
-### 8. Exit Codes & CI Integration
+- **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
+- **Empirical Noise Calibration**: In noise measurements across 3 documents × 10 runs on each built-in preset (90 evaluations, 1,215 pairwise comparisons; measured on v0.3.x presets; re-measure pending):
+  - `quality`: 99th percentile |Δ| = `0.020`, max = `0.020`
+  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.040`
+  - `tech-spec`: 99th percentile |Δ| = `0.030`, max = `0.050`
+  - Overall 99th percentile was `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
+- **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
+- **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 
-`typesafe-eval` returns distinct exit codes to allow CI pipelines and automated agents to distinguish quality/safety violations from system or configuration failures:
+### 8. Near-Threshold Indication (`near_threshold`)
+Because run-to-run noise is up to about 0.055, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
-| Code | Meaning |
-| :---: | :--- |
-| `0` | All evaluated documents passed (also returned when threshold violations exist but `--no-fail-on-threshold` is set, and no runtime errors occurred). |
-| `1` | At least one threshold violation occurred across evaluated documents (with `--fail-on-threshold`, which is enabled by default). |
-| `2` | Usage or configuration error: no files specified, no files matched pattern, preset/config loading failure, or invalid CLI options. |
-| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, or file read error during evaluation. |
+- **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
+- **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
+- **Table and Markdown Reports**: Near-threshold question values are marked with `~` (e.g. `51% ~`). Documents with near-threshold candidates display an explanatory line using placeholders: `~ near threshold: [EMAIL_1] personal (p=0.60), [URL_2] safe (p=0.46)`.
+- **Constant Margin**: The margin (`0.1`) is a constant (`NEAR_THRESHOLD_MARGIN = 0.1`).
+- **No Exit Code Change**: `near_threshold` is purely informational. A passing score near threshold still passes (exit code 0), and a failing score still fails (exit code 1).
 
-#### Precedence Rule (1 over 3)
-When evaluating multiple files, evaluation continues across all remaining files even if an individual file encounters a runtime error. Errored files are reported on `stderr` (`<file>: <error>`), while successfully evaluated files are included in the normal output (table, JSON, or Markdown).
+### 9. Long Document Chunking for Presence Questions (v0.4.0)
+When documents exceed `max_chars` (default: 25,000 characters, ~6,000–8,000 tokens), dropping the middle via truncation causes presence questions (such as checking whether a design doc contains a rollback plan) to suffer significant false degradation.
 
-If **any** evaluated file has a threshold violation, the CLI exits with **code 1**, even if other files encountered runtime errors. A detected violation is certain and is not masked by subsequent runtime errors. Code 3 is returned only when runtime errors occur and **no** threshold violations were detected. Code 2 is determined before evaluation starts, so it never overlaps.
+- **Overlapping Chunks for Noul**: For `Noul` presence questions, documents over `max_chars` are split into overlapping chunks (each within the character budget with 2,000-character overlap). Each chunk is evaluated, and the question takes the maximum probability across all chunks ("present if it is anywhere").
+  > [!NOTE]
+  > "Max over chunks" assumes a presence-style Noul ("is X anywhere in the document"). A custom Noul about the whole document (e.g. "Is the whole document written in English?") would be distorted when chunked, so custom configurations should use a `Score` or keep documents under `max_chars` for such questions.
+- **API Calls Display**: The number of API calls per document is explicitly tracked and displayed in terminal tables (`(N calls)`), Markdown reports (`*(N calls)*`), and JSON exports (`api_calls: N`).
+- **Baseline Truncation Warning**: `--baseline` warns when `was_truncated` differs between the baseline and current evaluation.
 
-### 9. Validation Command & Ablation Helper (`validate`)
+#### Known Limitation: Scores and Choices Are Not Chunked
+- **Scores and Choices**: `Score` and `Choice` questions evaluate overall document quality or categorical choices where taking a `max` across slices would distort the metric. Therefore, Scores and Choices are **not** chunked; they retain head/tail truncation and keep `was_truncated: true`.
+- If a document exceeds `max_chars`, only `Noul` presence questions are evaluated across overlapping chunks. Scores and Choices are evaluated on the head-and-tail truncated document with the middle dropped.
 
+### 10. Validation Command & Ablation Helper (`validate`)
 `typesafe-eval validate` runs presets over fixed test documents defined in a `labels.yaml` file to verify preset calibration, detection rates, false alarms, and regression direction:
 
 ```bash
@@ -155,7 +230,7 @@ If **any** evaluated file has a threshold violation, the CLI exits with **code 1
 typesafe-eval validate labels.yaml --runs 3
 
 # Generate "one section removed" ablation variants and starter labels.yaml from a Markdown document:
-typesafe-eval validate --ablate docs/design.md --ablate-preset design_doc
+typesafe-eval validate --ablate docs/design.md --ablate-preset design-doc
 ```
 
 #### Labels File Format (`labels.yaml`)
@@ -181,49 +256,26 @@ pairs:
     expect: {clarity: neutral}
 ```
 
-### 10. Baseline Regression Detection (`--baseline`)
+### 11. Exit Codes & CI Integration
 
-A fixed absolute threshold cannot reliably catch subtle quality degradation between document edits. `typesafe-eval` provides `--baseline` mode to detect score drops against previous evaluation results:
+`typesafe-eval` returns distinct exit codes to allow CI pipelines and automated agents to distinguish quality/safety violations from system or configuration failures:
 
-```bash
-# Save baseline evaluation to JSON
-typesafe-eval docs/*.md --preset quality --format json --out baseline.json
+| Code | Meaning |
+| :---: | :--- |
+| `0` | All evaluated documents passed (also returned when threshold violations exist but `--no-fail-on-threshold` is set, and no runtime errors occurred). |
+| `1` | At least one threshold violation occurred across evaluated documents (with `--fail-on-threshold`, which is enabled by default). |
+| `2` | Usage or configuration error: no files specified, no files matched pattern, preset/config loading failure, or invalid CLI options. |
+| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, missing evaluation result across chunks, or file read error during evaluation. |
 
-# Check modified documents against previous baseline
-typesafe-eval docs/*.md --preset quality --baseline baseline.json
-```
+#### Precedence Rule (1 over 3)
+When evaluating multiple files, evaluation continues across all remaining files even if an individual file encounters a runtime error. Errored files are reported on `stderr` (`<file>: <error>`), while successfully evaluated files are included in the normal output (table, JSON, or Markdown).
 
-- **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
-- **Empirical Noise Calibration**: In noise measurements across 3 documents × 10 runs on each built-in preset (90 evaluations, 1,215 pairwise comparisons), run-to-run noise was:
-  - `quality`: 99th percentile |Δ| = `0.020`, max = `0.020`
-  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.040`
-  - `tech-spec`: 99th percentile |Δ| = `0.030`, max = `0.050`
-  - Overall 99th percentile is `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
-- **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
-- **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
+If **any** evaluated file has a threshold violation, the CLI exits with **code 1**, even if other files encountered runtime errors. A detected violation is certain and is not masked by subsequent runtime errors. Code 3 is returned only when runtime errors occur and **no** threshold violations were detected. Code 2 is determined before evaluation starts, so it never overlaps.
 
-### 11. Near-Threshold Indication (`near_threshold`)
-
-Because run-to-run noise is up to about 0.055, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
-
-- **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against the candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
-- **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
-- **Table and Markdown Reports**: Near-threshold question values are marked with `~` (e.g. `51% ~`). Documents with near-threshold candidates display an explanatory line using placeholders: `~ near threshold: [EMAIL_1] personal (p=0.60), [URL_2] safe (p=0.46)`.
-- **Constant Margin**: The margin (`0.1`) is a constant (`NEAR_THRESHOLD_MARGIN = 0.1`). It is not a CLI option in v0.4.0.
-- **No Exit Code Change**: `near_threshold` is purely informational. A passing score near threshold still passes (exit code 0), and a failing score still fails (exit code 1).
-
-### 12. Long Document Chunking for Presence Questions (v0.4.0)
-
-When documents exceed `max_chars` (default: 25,000 characters, ~6,000–8,000 tokens), dropping the middle via truncation causes presence questions (such as checking whether a design doc contains a rollback plan) to suffer significant false degradation.
-
-- **Overlapping Chunks for Noul**: For `Noul` presence questions, documents over `max_chars` are split into overlapping chunks (each within the character budget with 2,000-character overlap). Each chunk is evaluated, and the question takes the maximum probability across all chunks ("present if it is anywhere").
-  > [!NOTE]
-  > "Max over chunks" assumes a presence-style Noul ("is X anywhere in the document"). A custom Noul about the whole document (e.g. "Is the whole document written in English?") would be distorted when chunked, so custom configurations should use a `Score` or keep documents under `max_chars` for such questions.
-- **API Calls Display**: The number of API calls per document is explicitly tracked and displayed in terminal tables (`(N calls)`), Markdown reports (`*(N calls)*`), and JSON exports (`api_calls: N`).
-- **Baseline Truncation Warning**: `--baseline` warns when `was_truncated` differs between the baseline and current evaluation.
-
-#### Known Limitation: Scores and Choices Are Not Chunked
-- **Scores and Choices**: `Score` and `Choice` questions evaluate overall document quality or categorical choices where taking a `max` across slices would distort the metric. Therefore, Scores and Choices are **not** chunked; they retain head/tail truncation and keep `was_truncated: true`.
+### 12. Output Formats (Table, Markdown, JSON)
+- **Table**: Interactive Rich terminal table with color-coded score badges, candidate near-threshold indicators, and violation panels.
+- **Markdown**: Formatted table for GitHub Actions PR comments or issue updates (`--format markdown`).
+- **JSON**: Machine-readable structured array for pipelines, baseline saves, and downstream tools (`--format json`).
 
 ---
 
