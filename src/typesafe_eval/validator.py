@@ -160,6 +160,7 @@ class ValidationReport(BaseModel):
     pair_results: List[PairScoreResult] = Field(default_factory=list)
     question_stats: Dict[str, QuestionValidationStats] = Field(default_factory=dict)
     criteria_results: List[CriterionEvaluationResult] = Field(default_factory=list)
+    choice_distributions: Dict[str, Dict[str, int]] = Field(default_factory=dict)
 
 
 # --- Execution Engine ---
@@ -175,7 +176,19 @@ def load_labels_file(labels_path: Union[str, Path]) -> Tuple[ValidationLabelsCon
     
     if not isinstance(data, dict):
         raise ValueError(f"Invalid labels configuration in {path}: expected YAML mapping")
-    
+
+    # Check document label values before evaluation
+    for doc in data.get("documents", []):
+        if isinstance(doc, dict):
+            d_path = doc.get("path", "<unknown>")
+            expect_map = doc.get("expect", {})
+            if isinstance(expect_map, dict):
+                for q_id, val in expect_map.items():
+                    if val not in ("present", "absent"):
+                        raise ValueError(
+                            f"Invalid expectation '{val}' for question '{q_id}' in document '{d_path}': must be 'present' or 'absent'"
+                        )
+
     config = ValidationLabelsConfig(**data)
     return config, path.parent
 
@@ -225,8 +238,18 @@ def run_validation(
             f"Available question ID(s) in preset '{preset_cfg.name}': {', '.join(sorted(preset_q_ids))}."
         )
 
+    # Check for invalid labels on choice questions
+    for q_id in sorted(label_q_ids):
+        if q_id in preset_cfg.questions:
+            q_cfg = preset_cfg.questions[q_id]
+            if q_cfg.type == "choice":
+                raise ValueError(
+                    f"{q_id} is a choice question; its distribution is recorded automatically, do not label it"
+                )
+
     presence_results: List[DocumentPresenceResult] = []
     pair_results: List[PairScoreResult] = []
+    choice_distributions: Dict[str, Dict[str, int]] = {}
     has_runtime_error = False
 
     # 1. Evaluate document presence expectations
@@ -241,6 +264,14 @@ def run_validation(
                     preset=preset_cfg,
                     dry_run=dry_run,
                 )
+                # Track non-gating choice distributions across evaluated documents
+                for ch_qid, ch_obj in res.choices.items():
+                    if ch_qid not in choice_distributions:
+                        choice_distributions[ch_qid] = {}
+                    choice_distributions[ch_qid][ch_obj.choice] = (
+                        choice_distributions[ch_qid].get(ch_obj.choice, 0) + 1
+                    )
+
                 for q_id in doc_item.expect:
                     if q_id in res.nouls:
                         noul_obj = res.nouls[q_id]
@@ -361,6 +392,13 @@ def run_validation(
                     preset=preset_cfg,
                     dry_run=dry_run,
                 )
+                for res_item in (res_b, res_a):
+                    for ch_qid, ch_obj in res_item.choices.items():
+                        if ch_qid not in choice_distributions:
+                            choice_distributions[ch_qid] = {}
+                        choice_distributions[ch_qid][ch_obj.choice] = (
+                            choice_distributions[ch_qid].get(ch_obj.choice, 0) + 1
+                        )
                 for q_id in pair_item.expect:
                     if q_id in res_b.scores:
                         before_scores_by_q[q_id].append(res_b.scores[q_id].normalized_score)
@@ -572,6 +610,7 @@ def run_validation(
         pair_results=pair_results,
         question_stats=question_stats,
         criteria_results=criteria_results,
+        choice_distributions=choice_distributions,
     )
 
     return report, has_runtime_error
@@ -670,6 +709,22 @@ def render_validation_table(report: ValidationReport) -> None:
         console.print(table_crit)
         console.print()
 
+    # 4. Choice Distributions (Non-gating, e.g. readiness, tone)
+    if report.choice_distributions:
+        dist_texts = []
+        for q_id, counts in sorted(report.choice_distributions.items()):
+            total = sum(counts.values())
+            parts = [f"{choice}: {c} ({(c/total*100):.1f}%)" for choice, c in sorted(counts.items())]
+            dist_texts.append(f"• [bold cyan]{q_id}[/bold cyan]: " + ", ".join(parts))
+        console.print(
+            Panel(
+                "\n".join(dist_texts),
+                title=f"[bold cyan]Choice Question Distributions (Non-gating, counts over {report.runs} run(s))[/bold cyan]",
+                border_style="cyan",
+            )
+        )
+        console.print()
+
 
 def render_validation_json(report: ValidationReport) -> str:
     """Renders validation report as structured JSON."""
@@ -719,6 +774,15 @@ def render_validation_markdown(report: ValidationReport) -> str:
         for c in report.criteria_results:
             status = "PASS" if c.passed else "FAIL"
             lines.append(f"| {c.name} | {c.expected} | {c.actual} | **{status}** |")
+        lines.append("")
+
+    if report.choice_distributions:
+        lines.append(f"## Choice Distributions (Non-gating, counts over {report.runs} run(s))")
+        lines.append("")
+        for q_id, counts in sorted(report.choice_distributions.items()):
+            total = sum(counts.values())
+            parts = [f"`{choice}`: {c} ({(c/total*100):.1f}%)" for choice, c in sorted(counts.items())]
+            lines.append(f"- **`{q_id}`**: " + ", ".join(parts))
         lines.append("")
 
     return "\n".join(lines)
