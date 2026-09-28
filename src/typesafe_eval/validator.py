@@ -74,7 +74,7 @@ def compute_ci_95(deltas: List[float]) -> Tuple[float, float, float]:
 
 class ValidationDocumentExpectation(BaseModel):
     path: str
-    expect: Dict[str, str]
+    expect: Dict[str, Literal["present", "absent"]]
 
 
 class ValidationPairExpectation(BaseModel):
@@ -176,7 +176,19 @@ def load_labels_file(labels_path: Union[str, Path]) -> Tuple[ValidationLabelsCon
     
     if not isinstance(data, dict):
         raise ValueError(f"Invalid labels configuration in {path}: expected YAML mapping")
-    
+
+    # Check document label values before evaluation
+    for doc in data.get("documents", []):
+        if isinstance(doc, dict):
+            d_path = doc.get("path", "<unknown>")
+            expect_map = doc.get("expect", {})
+            if isinstance(expect_map, dict):
+                for q_id, val in expect_map.items():
+                    if val not in ("present", "absent"):
+                        raise ValueError(
+                            f"Invalid expectation '{val}' for question '{q_id}' in document '{d_path}': must be 'present' or 'absent'"
+                        )
+
     config = ValidationLabelsConfig(**data)
     return config, path.parent
 
@@ -225,6 +237,15 @@ def run_validation(
             f"Labels file contains unknown question ID(s): {', '.join(unknown_q_ids)}. "
             f"Available question ID(s) in preset '{preset_cfg.name}': {', '.join(sorted(preset_q_ids))}."
         )
+
+    # Check for invalid labels on choice questions
+    for q_id in sorted(label_q_ids):
+        if q_id in preset_cfg.questions:
+            q_cfg = preset_cfg.questions[q_id]
+            if q_cfg.type == "choice":
+                raise ValueError(
+                    f"{q_id} is a choice question; its distribution is recorded automatically, do not label it"
+                )
 
     presence_results: List[DocumentPresenceResult] = []
     pair_results: List[PairScoreResult] = []
@@ -298,8 +319,6 @@ def run_validation(
                             has_runtime_error = True
                     elif q_id in res.scores:
                         probs_by_question[q_id].append(res.scores[q_id].normalized_score)
-                    elif q_id in res.choices:
-                        probs_by_question[q_id].append(res.choices[q_id].confidence)
                     else:
                         click.echo(
                             f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' was not returned by evaluator",
@@ -700,7 +719,7 @@ def render_validation_table(report: ValidationReport) -> None:
         console.print(
             Panel(
                 "\n".join(dist_texts),
-                title="[bold cyan]Choice Question Distributions (Non-gating)[/bold cyan]",
+                title=f"[bold cyan]Choice Question Distributions (Non-gating, counts over {report.runs} run(s))[/bold cyan]",
                 border_style="cyan",
             )
         )
@@ -758,7 +777,7 @@ def render_validation_markdown(report: ValidationReport) -> str:
         lines.append("")
 
     if report.choice_distributions:
-        lines.append("## Choice Distributions (Non-gating)")
+        lines.append(f"## Choice Distributions (Non-gating, counts over {report.runs} run(s))")
         lines.append("")
         for q_id, counts in sorted(report.choice_distributions.items()):
             total = sum(counts.values())

@@ -103,7 +103,7 @@ def test_validate_with_tech_spec_preset(tmp_path):
 
     # Verify markdown includes choice distributions
     md_output = render_validation_markdown(report)
-    assert "Choice Distributions (Non-gating)" in md_output
+    assert "Choice Distributions (Non-gating" in md_output
     assert "`readiness`" in md_output
 
 
@@ -148,3 +148,90 @@ def test_feasibility_check_with_tech_spec_preset(tmp_path):
     assert report["preset"] == "tech-spec"
     assert report["num_pairs"] == 3
     assert len(report["pairs"]) == 3
+
+
+def test_validate_expect_label_typo_fails_at_load_time(tmp_path):
+    runner = CliRunner()
+    doc = tmp_path / "spec.md"
+    doc.write_text("# Spec\nContent", encoding="utf-8")
+
+    labels_data = {
+        "preset": "tech-spec",
+        "documents": [
+            {
+                "path": str(doc),
+                "expect": {"has_test_plan": "presnt"},
+            }
+        ],
+    }
+    labels_file = tmp_path / "labels_typo.yaml"
+    import yaml
+    labels_file.write_text(yaml.dump(labels_data), encoding="utf-8")
+
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 2
+    out = " ".join(result.output.split())
+    assert "Invalid expectation 'presnt' for question 'has_test_plan'" in out
+    assert "must be 'present' or 'absent'" in out
+
+
+def test_validate_choice_question_label_rejected(tmp_path):
+    runner = CliRunner()
+    doc = tmp_path / "spec.md"
+    doc.write_text("# Spec\nContent", encoding="utf-8")
+
+    labels_data = {
+        "preset": "tech-spec",
+        "documents": [
+            {
+                "path": str(doc),
+                "expect": {"readiness": "present"},
+            }
+        ],
+    }
+    labels_file = tmp_path / "labels_choice.yaml"
+    import yaml
+    labels_file.write_text(yaml.dump(labels_data), encoding="utf-8")
+
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 2
+    out = " ".join(result.output.split())
+    assert "readiness is a choice question; its distribution is recorded automatically, do not label it" in out
+
+
+def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
+    doc = tmp_path / "spec.md"
+    doc.write_text("# Spec\nContent", encoding="utf-8")
+
+    # Typo in question_id
+    with pytest.raises(ValueError) as excinfo_typo:
+        run_feasibility(
+            doc_paths=[doc],
+            preset_name="tech-spec",
+            question_id="tehcnical_depth",
+            dry_run=True,
+        )
+    assert "Question 'tehcnical_depth' is not a valid score question in preset 'tech-spec'" in str(excinfo_typo.value)
+    assert "edge_case_coverage, technical_depth" in str(excinfo_typo.value)
+
+    # Noul question_id
+    with pytest.raises(ValueError) as excinfo_noul:
+        run_feasibility(
+            doc_paths=[doc],
+            preset_name="tech-spec",
+            question_id="has_test_plan",
+            dry_run=True,
+        )
+    assert "Question 'has_test_plan' is not a valid score question in preset 'tech-spec'" in str(excinfo_noul.value)
+    assert "edge_case_coverage, technical_depth" in str(excinfo_noul.value)
+
+    # Preset without clarity and no question specified
+    with pytest.raises(ValueError) as excinfo_no_q:
+        run_feasibility(
+            doc_paths=[doc],
+            preset_name="tech-spec",
+            question_id=None,
+            dry_run=True,
+        )
+    assert "Preset 'tech-spec' has no 'clarity' question. Specify a score question with --question." in str(excinfo_no_q.value)
+
