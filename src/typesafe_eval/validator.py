@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union, Literal
 
 import yaml
 import click
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -96,11 +96,13 @@ def compute_ci_95(deltas: List[float]) -> Tuple[float, float, float]:
 # --- Schema for labels.yaml ---
 
 class ValidationDocumentExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     path: str
     expect: Dict[str, Literal["present", "absent"]]
 
 
 class ValidationPairExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     before: str
     after: str
     expect: Dict[str, Literal["down", "neutral"]]
@@ -110,6 +112,7 @@ class ValidationPairExpectation(BaseModel):
 
 
 class QuestionCriteria(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     min_detected: Optional[Union[int, float]] = None
     max_false_alarms: Optional[Union[int, float]] = None
     max_neutral_delta: Optional[float] = None
@@ -118,6 +121,7 @@ class QuestionCriteria(BaseModel):
 
 
 class ValidationCriteria(QuestionCriteria):
+    model_config = ConfigDict(extra="forbid")
     questions: Optional[Dict[str, QuestionCriteria]] = None
     group_by: Literal["kind", "pair"] = "pair"
     degradation_ci_upper_max: Optional[float] = None
@@ -125,9 +129,11 @@ class ValidationCriteria(QuestionCriteria):
     min_group_size: int = 6
     pair_guard_neutral_abs_max: Optional[float] = None
     report_only_kinds: List[str] = Field(default_factory=list)
+    per_pair_kinds: List[str] = Field(default_factory=list)
 
 
 class ValidationLabelsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     preset: Optional[str] = None
     config: Optional[str] = None
     runs: int = 3
@@ -244,7 +250,18 @@ def load_labels_file(labels_path: Union[str, Path]) -> Tuple[ValidationLabelsCon
                             f"Invalid expectation '{val}' for question '{q_id}' in document '{d_path}': must be 'present' or 'absent'"
                         )
 
-    config = ValidationLabelsConfig(**data)
+    try:
+        config = ValidationLabelsConfig(**data)
+    except ValidationError as e:
+        err_msgs = []
+        for err in e.errors():
+            loc_parts = [str(x) for x in err.get("loc", ())]
+            loc_str = " -> ".join(loc_parts) if loc_parts else "root"
+            msg = err.get("msg", "Validation error")
+            err_msgs.append(f"{loc_str}: {msg}")
+        raise ValueError(
+            f"Invalid labels configuration in {path}:\n" + "\n".join(err_msgs)
+        ) from e
     return config, path.parent
 
 
@@ -615,11 +632,34 @@ def run_validation(
     pair_group_results: List[PairGroupResult] = []
     group_by = crit_cfg.group_by if crit_cfg else "pair"
     report_only = set(crit_cfg.report_only_kinds) if crit_cfg else set()
+    per_pair_kinds = set(crit_cfg.per_pair_kinds) if crit_cfg else set()
     min_grp_size = crit_cfg.min_group_size if crit_cfg else 6
 
+    def _eval_pair_ci_passed(p: PairScoreResult) -> Optional[bool]:
+        if p.incomplete or p.was_truncated or (p.kind and p.kind in report_only):
+            return None
+        if p.expected == "down":
+            if crit_cfg and crit_cfg.degradation_ci_upper_max is not None:
+                return p.ci_95_upper < crit_cfg.degradation_ci_upper_max
+            elif crit_cfg and crit_cfg.min_degradation_drop is not None:
+                return p.mean_delta <= -crit_cfg.min_degradation_drop
+            else:
+                return p.mean_delta < 0.0
+        else:
+            if crit_cfg and crit_cfg.neutral_ci_abs_max is not None:
+                return max(abs(p.ci_95_lower), abs(p.ci_95_upper)) <= crit_cfg.neutral_ci_abs_max
+            elif crit_cfg and crit_cfg.max_neutral_delta is not None:
+                return abs(p.mean_delta) <= crit_cfg.max_neutral_delta
+            else:
+                return abs(p.mean_delta) <= 0.05
+
     if group_by == "kind":
+        # Separate per_pair_kinds and regular kind-grouped pairs
+        regular_pairs = [p for p in pair_results if not (p.kind and p.kind in per_pair_kinds)]
+        per_pair_items = [p for p in pair_results if p.kind and p.kind in per_pair_kinds]
+
         groups_dict: Dict[str, List[PairScoreResult]] = {}
-        for p in pair_results:
+        for p in regular_pairs:
             k = p.kind or "default"
             groups_dict.setdefault(k, []).append(p)
 
@@ -633,7 +673,11 @@ def run_validation(
                 worst_p = max(candidate_worst, key=lambda p: p.mean_delta)
             else:
                 worst_p = max(candidate_worst, key=lambda p: abs(p.mean_delta))
-            worst_path = f"{Path(worst_p.before_path).name} → {Path(worst_p.after_path).name}"
+            worst_path = (
+                f"[{worst_p.doc_id}] {worst_p.before_path} → {worst_p.after_path}"
+                if worst_p.doc_id
+                else f"{worst_p.before_path} → {worst_p.after_path}"
+            )
             worst_delta = worst_p.mean_delta
 
             if n == 0:
@@ -648,7 +692,7 @@ def run_validation(
                 else:
                     if exp == "down":
                         if crit_cfg and crit_cfg.degradation_ci_upper_max is not None:
-                            grp_passed = ci_hi <= crit_cfg.degradation_ci_upper_max
+                            grp_passed = ci_hi < crit_cfg.degradation_ci_upper_max
                         elif crit_cfg and crit_cfg.min_degradation_drop is not None:
                             grp_passed = grp_mean <= -crit_cfg.min_degradation_drop
                         else:
@@ -674,35 +718,42 @@ def run_validation(
                     worst_pair_delta=worst_delta,
                 )
             )
+
+        # per_pair_kinds: each pair reported as own row, n = runs, not subject to min_group_size
+        for p in per_pair_items:
+            exp = p.expected
+            pair_label = f"[{p.doc_id}] {p.after_path}" if p.doc_id else p.after_path
+            grp_passed = _eval_pair_ci_passed(p)
+            pair_group_results.append(
+                PairGroupResult(
+                    kind=p.kind,
+                    expected=exp,
+                    n=len(p.deltas),
+                    mean_delta=p.mean_delta,
+                    ci_95_lower=p.ci_95_lower,
+                    ci_95_upper=p.ci_95_upper,
+                    passed=grp_passed,
+                    worst_pair_path=pair_label,
+                    worst_pair_delta=p.mean_delta,
+                )
+            )
     else:
-        # group_by == "pair": each pair is treated as a group of n=1 evaluated on its own run CI
+        # group_by == "pair": each pair is treated as a group of n=runs evaluated on its own run CI
         for p in pair_results:
             exp = p.expected
-            pair_name = f"{Path(p.before_path).name} → {Path(p.after_path).name}"
+            pair_name = (
+                f"[{p.doc_id}] {p.before_path} → {p.after_path}"
+                if p.doc_id
+                else f"{p.before_path} → {p.after_path}"
+            )
             k = p.kind or pair_name
-            if p.incomplete or p.was_truncated or (p.kind and p.kind in report_only):
-                grp_passed = None
-            else:
-                if exp == "down":
-                    if crit_cfg and crit_cfg.degradation_ci_upper_max is not None:
-                        grp_passed = p.ci_95_upper <= crit_cfg.degradation_ci_upper_max
-                    elif crit_cfg and crit_cfg.min_degradation_drop is not None:
-                        grp_passed = p.mean_delta <= -crit_cfg.min_degradation_drop
-                    else:
-                        grp_passed = p.mean_delta < 0.0
-                else:
-                    if crit_cfg and crit_cfg.neutral_ci_abs_max is not None:
-                        grp_passed = max(abs(p.ci_95_lower), abs(p.ci_95_upper)) <= crit_cfg.neutral_ci_abs_max
-                    elif crit_cfg and crit_cfg.max_neutral_delta is not None:
-                        grp_passed = abs(p.mean_delta) <= crit_cfg.max_neutral_delta
-                    else:
-                        grp_passed = abs(p.mean_delta) <= 0.05
+            grp_passed = _eval_pair_ci_passed(p)
 
             pair_group_results.append(
                 PairGroupResult(
                     kind=k,
                     expected=exp,
-                    n=1,
+                    n=len(p.deltas),
                     mean_delta=p.mean_delta,
                     ci_95_lower=p.ci_95_lower,
                     ci_95_upper=p.ci_95_upper,
@@ -835,7 +886,7 @@ def run_validation(
             criteria_results.append(
                 CriterionEvaluationResult(
                     name="degradation_ci_upper_max",
-                    expected=f"<= {crit_cfg.degradation_ci_upper_max:+.3f}",
+                    expected=f"< {crit_cfg.degradation_ci_upper_max:+.3f}",
                     actual=act_str,
                     passed=None if dry_run else passed,
                     message="Degradation 95% CI upper bound check across down groups",

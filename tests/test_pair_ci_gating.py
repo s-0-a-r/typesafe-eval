@@ -537,6 +537,164 @@ def test_group_gating_pair_guard_failing_on_one_extreme_pair(tmp_path):
     assert crit.passed is False
 
 
+def test_per_pair_kinds_passes_and_fails_overall_criteria(tmp_path):
+    """per_pair_kinds with runs=10 gates on own run CI inside group_by: kind without min_group_size."""
+    # Group: 'shuffled' (6 pairs, down, CI upper < -0.10)
+    pairs_data = [
+        ("shuffled", "down", 0.82, 0.60),
+        ("shuffled", "down", 0.84, 0.60),
+        ("shuffled", "down", 0.80, 0.60),
+        ("shuffled", "down", 0.85, 0.60),
+        ("shuffled", "down", 0.81, 0.60),
+        ("shuffled", "down", 0.83, 0.60),
+    ]
+    pair_expectations = []
+    score_map = {}
+    for idx, (kind, exp, b_val, a_val) in enumerate(pairs_data):
+        bf = tmp_path / f"{kind}_{idx}_b.md"
+        af = tmp_path / f"{kind}_{idx}_a.md"
+        bf.write_text(f"before {idx}", encoding="utf-8")
+        af.write_text(f"after {idx}", encoding="utf-8")
+        score_map[str(bf)] = b_val
+        score_map[str(af)] = a_val
+        pair_expectations.append(
+            ValidationPairExpectation(
+                before=str(bf),
+                after=str(af),
+                kind=kind,
+                expect={"clarity": exp},
+            )
+        )
+
+    # Add 1 paraphrase pair with runs=10
+    para_b = tmp_path / "para_b.md"
+    para_a = tmp_path / "para_a.md"
+    para_b.write_text("before para", encoding="utf-8")
+    para_a.write_text("after para", encoding="utf-8")
+    score_map[str(para_b)] = 0.80
+    score_map[str(para_a)] = 0.81
+    pair_expectations.append(
+        ValidationPairExpectation(
+            before=str(para_b),
+            after=str(para_a),
+            kind="paraphrase",
+            doc_id="doc_para",
+            runs=10,
+            expect={"clarity": "neutral"},
+        )
+    )
+
+    labels_cfg = ValidationLabelsConfig(
+        preset="quality",
+        runs=3,
+        criteria=ValidationCriteria(
+            group_by="kind",
+            degradation_ci_upper_max=-0.10,
+            neutral_ci_abs_max=0.05,
+            min_group_size=6,
+            per_pair_kinds=["paraphrase"],
+        ),
+        pairs=pair_expectations,
+    )
+    evaluator = FakeEvaluator(score_map)
+    preset = _make_preset("clarity")
+    report = run_validation(labels_cfg, tmp_path, evaluator, preset_cfg=preset)[0]
+
+    # Check rows in pair_group_results
+    assert len(report.pair_group_results) == 2
+    shuffled_grp = next(g for g in report.pair_group_results if g.kind == "shuffled")
+    assert shuffled_grp.passed is True
+    para_grp = next(g for g in report.pair_group_results if g.kind == "paraphrase")
+    assert para_grp.n == 10
+    assert para_grp.passed is True
+    assert "[doc_para]" in para_grp.worst_pair_path
+    assert report.all_passed is True
+
+    # Now if paraphrase CI crosses 0.05 (e.g. delta = +0.06 > 0.05)
+    score_map[str(para_a)] = 0.86
+    evaluator_fail = FakeEvaluator(score_map)
+    report_fail = run_validation(labels_cfg, tmp_path, evaluator_fail, preset_cfg=preset)[0]
+    para_grp_fail = next(g for g in report_fail.pair_group_results if g.kind == "paraphrase")
+    assert para_grp_fail.passed is False
+    assert report_fail.all_passed is False
+
+
+def test_labels_extra_keys_forbid_exits_2(tmp_path):
+    """Labels file with typo in criteria or pair exits 2 before evaluation and names unknown key."""
+    from click.testing import CliRunner
+    from typesafe_eval.cli import main
+
+    labels_content = """preset: design-doc
+criteria:
+  degradaton_ci_upper_max: -0.1
+pairs:
+  - before: foo.md
+    after: bar.md
+    expcet:
+      clarity: down
+"""
+    labels_file = tmp_path / "bad_labels.yaml"
+    labels_file.write_text(labels_content, encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+    assert result.exit_code == 2
+    assert "degradaton_ci_upper_max" in result.output
+    assert "criteria" in result.output
+
+
+def test_degradation_ci_upper_max_is_strict(tmp_path):
+    """degradation_ci_upper_max uses strict < so an upper bound of exactly -0.125 fails."""
+    # 1.0 - 0.125 = 0.875, exact in IEEE-754 binary floating point
+    pairs_data = [
+        ("shuffled", "down", 1.0, 0.875),
+        ("shuffled", "down", 1.0, 0.875),
+        ("shuffled", "down", 1.0, 0.875),
+        ("shuffled", "down", 1.0, 0.875),
+        ("shuffled", "down", 1.0, 0.875),
+        ("shuffled", "down", 1.0, 0.875),
+    ]
+    report = _setup_group_scenario(
+        tmp_path, pairs_data, {"degradation_ci_upper_max": -0.125, "min_group_size": 6}
+    )
+    grp = report.pair_group_results[0]
+    assert grp.ci_95_upper == -0.125
+    # Because < is strict, -0.125 < -0.125 is False (with <= it would be True)
+    assert grp.passed is False
+    assert report.all_passed is False
+
+
+def test_worst_pair_path_includes_full_relative_path_and_doc_id(tmp_path):
+    """worst_pair_path identifies document with relative path and doc_id."""
+    sub_dir = tmp_path / "pairs" / "art_1"
+    sub_dir.mkdir(parents=True)
+    bf = sub_dir / "before.md"
+    af = sub_dir / "after.md"
+    bf.write_text("before", encoding="utf-8")
+    af.write_text("after", encoding="utf-8")
+
+    pair = ValidationPairExpectation(
+        before="pairs/art_1/before.md",
+        after="pairs/art_1/after.md",
+        kind="paraphrase",
+        doc_id="art_1",
+        expect={"clarity": "neutral"},
+    )
+    labels_cfg = ValidationLabelsConfig(
+        preset="quality",
+        runs=3,
+        criteria=ValidationCriteria(group_by="pair"),
+        pairs=[pair],
+    )
+    evaluator = FakeEvaluator({str(bf): 0.80, str(af): 0.80})
+    preset = _make_preset("clarity")
+    report = run_validation(labels_cfg, tmp_path, evaluator, preset_cfg=preset)[0]
+    grp = report.pair_group_results[0]
+    assert "[art_1]" in grp.worst_pair_path
+    assert "pairs/art_1/before.md" in grp.worst_pair_path
+    assert "pairs/art_1/after.md" in grp.worst_pair_path
+
+
 # --- 8. Feasibility Check Tests ---
 
 def test_feasibility_check_missing_relative_file_exits_2(tmp_path):
