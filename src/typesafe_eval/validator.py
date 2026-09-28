@@ -204,19 +204,11 @@ def resolve_file_path(base_dir: Path, target_path: str) -> Path:
     return p
 
 
-def run_validation(
+def validate_labels_preset(
     labels_cfg: ValidationLabelsConfig,
     base_dir: Path,
-    evaluator: TypeSafeEvaluator,
-    runs_override: Optional[int] = None,
-    dry_run: bool = False,
-) -> Tuple[ValidationReport, bool]:
-    """Runs validation over documents and pairs across N runs."""
-    runs = runs_override if runs_override is not None else labels_cfg.runs
-    if runs < 1:
-        runs = 1
-
-    # Load preset
+) -> PresetConfig:
+    """Loads and validates preset and question IDs for a labels config."""
     target_preset = labels_cfg.config or labels_cfg.preset or "quality"
     if labels_cfg.config:
         resolved_cfg_path = resolve_file_path(base_dir, labels_cfg.config)
@@ -247,6 +239,25 @@ def run_validation(
                 raise ValueError(
                     f"{q_id} is a choice question; its distribution is recorded automatically, do not label it"
                 )
+
+    return preset_cfg
+
+
+def run_validation(
+    labels_cfg: ValidationLabelsConfig,
+    base_dir: Path,
+    evaluator: TypeSafeEvaluator,
+    runs_override: Optional[int] = None,
+    dry_run: bool = False,
+    preset_cfg: Optional[PresetConfig] = None,
+) -> Tuple[ValidationReport, bool]:
+    """Runs validation over documents and pairs across N runs."""
+    runs = runs_override if runs_override is not None else labels_cfg.runs
+    if runs < 1:
+        runs = 1
+
+    if preset_cfg is None:
+        preset_cfg = validate_labels_preset(labels_cfg, base_dir)
 
     presence_results: List[DocumentPresenceResult] = []
     pair_results: List[PairScoreResult] = []

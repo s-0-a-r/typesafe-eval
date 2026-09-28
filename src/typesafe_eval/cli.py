@@ -15,6 +15,7 @@ from typesafe_eval.reporter import render_table, render_json, render_markdown
 from typesafe_eval.baseline import load_baseline, compare_document_with_baseline
 from typesafe_eval.validator import (
     load_labels_file,
+    validate_labels_preset,
     run_validation,
     render_validation_table,
     render_validation_json,
@@ -352,8 +353,23 @@ def validate_command(
         err_console.print(f"[bold red]Error loading labels file:[/bold red] {e}")
         sys.exit(2)
 
+    # Validate preset and questions
+    try:
+        preset_cfg = validate_labels_preset(labels_cfg, base_dir)
+    except Exception as e:
+        err_console.print(f"[bold red]Validation setup error:[/bold red] {e}")
+        sys.exit(2)
+
     # Initialize evaluator
     evaluator = TypeSafeEvaluator(api_key=api_key)
+
+    if not dry_run and not evaluator.api_key:
+        click.echo(
+            "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
+            "or pass --api-key / specify in configuration.",
+            err=True,
+        )
+        sys.exit(3)
 
     # Run validation
     try:
@@ -363,6 +379,7 @@ def validate_command(
             evaluator=evaluator,
             runs_override=runs,
             dry_run=dry_run,
+            preset_cfg=preset_cfg,
         )
     except Exception as e:
         err_console.print(f"[bold red]Validation setup error:[/bold red] {e}")

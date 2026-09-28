@@ -14,6 +14,12 @@ from typesafe_eval.validator import (
 )
 
 
+@pytest.fixture(autouse=True)
+def dummy_api_key(monkeypatch):
+    """Ensure a dummy TYPESAFE_API_KEY is present for tests unless explicitly removed."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-api-key")
+
+
 def _make_noul_result(filepath: str, prob: float, question_id: str = "has_pii") -> DocumentEvalResult:
     p = Path(filepath)
     return DocumentEvalResult(
@@ -580,6 +586,23 @@ def test_validate_design_doc_labels_structure():
         assert "Presence Questions (Noul)" in result.output
         assert "goal" in result.output
         assert "owner_ti" in result.output
+
+
+def test_validate_without_api_key_exits_3_with_one_message(tmp_path, monkeypatch):
+    """Verify validate without API key checks once before evaluation and exits 3 with one message."""
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+    labels_file = Path("tests/fixtures/pii_secrets/labels.yaml")
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 3
+    # Check that the error message is printed exactly once, not 120 times
+    assert "No TypeSafe API key provided" in result.output
+    assert result.output.count("No TypeSafe API key provided") == 1
+    # Verify it did not proceed to criteria evaluation or show FAIL report
+    assert "TypeSafe Validation Report" not in result.output
+    assert "Pass Criteria Verification" not in result.output
 
 
 
