@@ -29,6 +29,46 @@ def _is_candidate_near_threshold(decided_by: str, prob: Optional[float]) -> bool
         return abs(prob - CANDIDATE_DECISION_THRESHOLD) <= NEAR_THRESHOLD_MARGIN + 1e-9
     return False
 
+def _is_transient_error(exc: Exception) -> bool:
+    """Checks whether an exception represents a transient 429 or 5xx API error."""
+    status = getattr(exc, "status", None)
+    if status is None:
+        status = getattr(exc, "status_code", None)
+    if status is None and hasattr(exc, "response") and hasattr(exc.response, "status_code"):
+        status = exc.response.status_code
+    if isinstance(status, int):
+        return status == 429 or (500 <= status < 600)
+
+    cls_name = type(exc).__name__
+    if cls_name in ("TypeSafeRateLimitError", "TypeSafeInternalServerError"):
+        return True
+
+    err_str = str(exc)
+    for code in ("429", "500", "502", "503", "504"):
+        if code in err_str:
+            return True
+    return False
+
+def _call_system_one_with_retry(
+    client: Any,
+    state: Dict[str, Any],
+    questions: Dict[str, Any],
+    max_attempts: int = 3,
+    initial_backoff: float = 0.5,
+) -> Any:
+    """Calls client.system_one retrying transient 429 and 5xx errors with exponential backoff."""
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            return client.system_one(state=state, questions=questions)
+        except Exception as e:
+            if attempt < max_attempts and _is_transient_error(e):
+                import time
+                time.sleep(initial_backoff * (2 ** (attempt - 1)))
+                continue
+            raise
+
 def _find_preflight_question(preset: PresetConfig, target: str) -> Optional[str]:
     """Finds the question ID mapped to a pre-flight scanner category."""
     for q_id, q_cfg in preset.questions.items():
@@ -282,7 +322,7 @@ class TypeSafeEvaluator:
             for _, q_id, q_obj in candidate_specs:
                 all_questions[q_id] = q_obj
             st = _make_state(content, is_full=True)
-            response = client.system_one(state=st, questions=all_questions)
+            response = _call_system_one_with_retry(client, state=st, questions=all_questions)
             if response.usage:
                 total_input_tokens += response.usage.input_tokens
                 total_output_tokens += response.usage.output_tokens
@@ -319,7 +359,7 @@ class TypeSafeEvaluator:
         else:
             if has_scores_or_choices:
                 st_trunc = _make_state(content_truncated, is_full=True)
-                resp_sc = client.system_one(state=st_trunc, questions=sdk_score_choice_questions)
+                resp_sc = _call_system_one_with_retry(client, state=st_trunc, questions=sdk_score_choice_questions)
                 if resp_sc.usage:
                     total_input_tokens += resp_sc.usage.input_tokens
                     total_output_tokens += resp_sc.usage.output_tokens
@@ -353,7 +393,7 @@ class TypeSafeEvaluator:
                         if placeholder in chunk_text_part:
                             chunk_questions[q_id] = q_obj
                     if chunk_questions:
-                        resp_chk = client.system_one(state=chunk_st, questions=chunk_questions)
+                        resp_chk = _call_system_one_with_retry(client, state=chunk_st, questions=chunk_questions)
                         if resp_chk.usage:
                             total_input_tokens += resp_chk.usage.input_tokens
                             total_output_tokens += resp_chk.usage.output_tokens

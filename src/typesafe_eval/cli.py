@@ -7,6 +7,7 @@ from typing import List, Optional
 
 import click
 from rich.console import Console
+from rich.markup import escape
 
 from typesafe_eval import __version__
 from typesafe_eval.presets import load_preset, list_builtin_presets
@@ -354,10 +355,10 @@ def validate_command(
     try:
         labels_cfg, base_dir = load_labels_file(labels_file)
     except FileNotFoundError as e:
-        err_console.print(f"[bold red]Error:[/bold red] {e}")
+        err_console.print(f"[bold red]Error:[/bold red] {escape(str(e))}")
         sys.exit(2)
     except Exception as e:
-        err_console.print(f"[bold red]Error loading labels file:[/bold red] {e}")
+        err_console.print(f"[bold red]Error loading labels file:[/bold red] {escape(str(e))}")
         sys.exit(2)
 
     # Validate preset and questions
