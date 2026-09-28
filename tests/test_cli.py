@@ -22,8 +22,10 @@ def test_cli_dry_run(tmp_path):
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality", "--dry-run"])
     assert result.exit_code == 0
-    assert "TypeSafe Evaluation Report" in result.output
-    assert "PASS" in result.output
+    assert "TypeSafe Evaluation Report (MOCK)" in result.output
+    assert "N/A" in result.output
+    assert "PASS" not in result.output
+    assert "FAIL" not in result.output
 
 def test_cli_json_format(tmp_path):
     doc = tmp_path / "test.md"
@@ -34,6 +36,7 @@ def test_cli_json_format(tmp_path):
     assert result.exit_code == 0
     assert '"preset_name": "quality"' in result.output
     assert '"composite_score"' in result.output
+    assert '"mock": true' in result.output
 
 
 import json
@@ -50,11 +53,17 @@ def _make_mock_result(filepath: str, passed: bool = True, violations: list = Non
         violations=violations or ([] if passed else ["Minimum score threshold failed"]),
     )
 
-def test_cli_exit_code_0_all_pass(tmp_path):
+def test_cli_exit_code_0_all_pass(tmp_path, monkeypatch):
     doc = tmp_path / "valid.md"
     doc.write_text("# Valid Document\nClean content.", encoding="utf-8")
+    from typesafe_eval.client import TypeSafeEvaluator
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_mock_result(str(doc), passed=True),
+    )
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "quality", "--dry-run"])
+    result = runner.invoke(main, [str(doc), "--preset", "quality"])
     assert result.exit_code == 0
     assert "PASS" in result.output
 

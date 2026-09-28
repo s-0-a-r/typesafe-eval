@@ -206,3 +206,26 @@ def test_acceptance_fixtures_evaluation(tmp_path, idx, doc_text, expected_per_em
     assert len(result.email_evaluations) == len(expected_per_email)
     for eval_res, exp_kind in zip(result.email_evaluations, expected_per_email):
         assert eval_res.outcome == exp_kind
+
+
+def test_email_pii_dry_run_returns_mock_true_and_na_verdict(tmp_path):
+    # Free-mail fixture in dry-run mode: mock is True, exit 0, verdict N/A (Issue #45)
+    doc_file = tmp_path / "email_freemail.txt"
+    doc_file.write_text("Our support team uses support@gmail.com.", encoding="utf-8")
+
+    evaluator = TypeSafeEvaluator()
+    preset = load_preset("safety")
+
+    res = evaluator.evaluate_document(str(doc_file), preset=preset, dry_run=True)
+    assert res.mock is True
+    assert res.passed_thresholds is True
+    assert res.violations == []
+
+    from click.testing import CliRunner
+    from typesafe_eval.cli import main
+    runner = CliRunner()
+    cli_res = runner.invoke(main, [str(doc_file), "--preset", "safety", "--dry-run"])
+    assert cli_res.exit_code == 0
+    assert "MOCK" in cli_res.output
+    assert "N/A" in cli_res.output
+    assert "FAIL" not in cli_res.output

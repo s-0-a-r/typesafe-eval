@@ -944,18 +944,9 @@ class TypeSafeEvaluator:
         if "has_pii" in nouls:
             nouls["has_pii"].probability = 0.90 if has_prose_pii else 0.05
 
-        composite, passed, violations, warnings = self._evaluate_thresholds_and_composite(
+        composite, _, _, _ = self._evaluate_thresholds_and_composite(
             preset, scores, nouls, choices, redaction_details=redaction_details
         )
-        has_sec_check = bool(_find_preflight_question(preset, "credentials") or "has_secrets" in preset.questions)
-        has_pii_check = bool(_find_preflight_question(preset, "pii") or "has_pii" in preset.questions)
-
-        if has_sec_check and any(s.outcome == "secret" for s in secret_evaluations):
-            violations.extend([v for v in extra_violations if "Credential" in v])
-            passed = False
-        if has_pii_check and has_any_pii_violation:
-            violations.extend([v for v in extra_violations if "PII" in v])
-            passed = False
 
         return DocumentEvalResult(
             filepath=filepath,
@@ -970,12 +961,13 @@ class TypeSafeEvaluator:
             url_evaluations=url_evaluations,
             secret_evaluations=secret_evaluations,
             composite_score=composite,
-            passed_thresholds=passed,
-            violations=violations,
-            warnings=warnings,
+            passed_thresholds=True,
+            violations=[],
+            warnings=[],
             usage={"input_tokens": 120, "output_tokens": 30},
             model="mock-jev",
             was_truncated=was_truncated,
             redactions_count=redaction_count,
             redaction_details=redaction_details,
+            mock=True,
         )

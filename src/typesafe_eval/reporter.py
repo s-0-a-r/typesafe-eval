@@ -22,8 +22,10 @@ def format_score_badge(val: float) -> str:
 
 def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> None:
     """Renders evaluation results as an interactive Rich terminal table."""
+    is_mock = any(r.mock for r in results)
+    title_prefix = "TypeSafe Evaluation Report (MOCK)" if is_mock else "TypeSafe Evaluation Report"
     table = Table(
-        title=f"TypeSafe Evaluation Report — Preset: [bold cyan]{preset.title or preset.name}[/bold cyan]",
+        title=f"{title_prefix} — Preset: [bold cyan]{preset.title or preset.name}[/bold cyan]",
         show_header=True,
         header_style="bold magenta",
         border_style="dim",
@@ -96,7 +98,9 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
         if b_diff and b_diff.status == "new":
             status_suffix = " (new)"
 
-        if res.passed_thresholds:
+        if res.mock:
+            row_cells.append(f"[bold yellow]N/A{status_suffix}[/bold yellow]")
+        elif res.passed_thresholds:
             row_cells.append(f"[bold green]✔ PASS{status_suffix}[/bold green]")
         else:
             row_cells.append(f"[bold red]✘ FAIL{status_suffix}[/bold red]")
@@ -105,6 +109,8 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
 
     console.print()
     console.print(table)
+    if is_mock:
+        console.print("[dim]Mode: MOCK (dry-run, no API calls made)[/dim]")
 
     has_near_threshold = any(
         s.near_threshold for r in results for s in r.scores.values()
@@ -142,7 +148,7 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
             )
 
     # Print warnings summary if any
-    warning_items = [r for r in results if r.warnings]
+    warning_items = [r for r in results if r.warnings and not r.mock]
     if warning_items:
         console.print()
         warning_texts = []
@@ -158,7 +164,7 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
         )
 
     # Print violations summary if any
-    failed_items = [r for r in results if not r.passed_thresholds]
+    failed_items = [r for r in results if not r.passed_thresholds and not r.mock]
     if failed_items:
         console.print()
         violation_texts = []
@@ -177,15 +183,21 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
 
 def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> str:
     """Renders evaluation report into Markdown format."""
+    is_mock = any(r.mock for r in results)
+    title = "# TypeSafe Evaluation Report (MOCK)" if is_mock else "# TypeSafe Evaluation Report"
     lines = [
-        f"# TypeSafe Evaluation Report",
-        f"",
+        title,
+        "",
         f"**Preset:** {preset.title or preset.name}  ",
         f"**Description:** {preset.description or 'N/A'}  ",
-        f"",
+    ]
+    if is_mock:
+        lines.append("**Mode:** MOCK (dry-run, no API calls made)  ")
+    lines.extend([
+        "",
         f"| Document | " + " | ".join(q.label or q_id for q_id, q in preset.questions.items()) + " | Composite | Status |",
         f"| :--- | " + " | ".join([":---:"] * len(preset.questions)) + " | :---: | :---: |",
-    ]
+    ])
 
     has_baseline = any(r.baseline_diff is not None for r in results)
 
@@ -221,7 +233,12 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
 
         composite_str = f"{res.composite_score * 100:.0f}%" if res.composite_score is not None else "-"
         status_suffix = " (new)" if (b_diff and b_diff.status == "new") else ""
-        status_str = f"PASS{status_suffix}" if res.passed_thresholds else f"FAIL{status_suffix}"
+        if res.mock:
+            status_str = f"N/A{status_suffix}"
+        elif res.passed_thresholds:
+            status_str = f"PASS{status_suffix}"
+        else:
+            status_str = f"FAIL{status_suffix}"
         cells.append(composite_str)
         cells.append(status_str)
 
@@ -274,7 +291,7 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
                 )
         lines.append("")
 
-    warned = [r for r in results if r.warnings]
+    warned = [r for r in results if r.warnings and not r.mock]
     if warned:
         lines.append("## Warnings")
         lines.append("")
@@ -283,7 +300,7 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
                 lines.append(f"- **{r.filename}**: {w}")
         lines.append("")
 
-    failed = [r for r in results if not r.passed_thresholds]
+    failed = [r for r in results if not r.passed_thresholds and not r.mock]
     if failed:
         lines.append("## Threshold & Baseline Violations")
         lines.append("")

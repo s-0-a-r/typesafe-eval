@@ -214,7 +214,7 @@ def eval_command(
                     has_violations = True
 
             results.append(res)
-            if not res.passed_thresholds:
+            if not res.passed_thresholds and not res.mock:
                 has_violations = True
         except Exception as e:
             click.echo(f"{path}: {e}", err=True)
@@ -241,8 +241,10 @@ def eval_command(
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
-    # 7. Exit code resolution (1 takes precedence over 3)
-    if fail_on_threshold and has_violations:
+    # 7. Exit code resolution (1 takes precedence over 3; dry-run always exits 0)
+    if dry_run:
+        sys.exit(0)
+    elif fail_on_threshold and has_violations:
         sys.exit(1)
     elif has_errors:
         sys.exit(3)

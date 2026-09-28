@@ -197,16 +197,34 @@ def test_support_gmail_personal_by_rule_with_no_mask(tmp_path):
     doc = tmp_path / "gmail_test.md"
     doc.write_text("Our support team uses support@gmail.com for help.", encoding="utf-8")
 
-    evaluator = TypeSafeEvaluator()
+    from unittest.mock import MagicMock
+    evaluator = TypeSafeEvaluator(api_key="mock-key")
     preset = load_preset("safety")
 
-    # Dry-run with mask_secrets=False
-    res = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=False, dry_run=True)
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.nouls = {"has_secrets": MagicMock(noul=0.01), "has_pii": MagicMock(noul=0.05)}
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.usage = None
+    mock_resp.model = "mock-jev"
+    mock_client.system_one.return_value = mock_resp
+    evaluator._client = mock_client
+
+    # Real evaluation (with mocked client) and mask_secrets=False
+    res = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=False)
     assert len(res.email_evaluations) == 1
     assert res.email_evaluations[0].outcome == "personal"
     assert res.email_evaluations[0].decided_by == "free_mail"
     assert not res.passed_thresholds
     assert any("PII Exposure" in v for v in res.violations)
+    assert res.mock is False
+
+    # Dry-run returns mock=True with verdict N/A
+    res_dry = evaluator.evaluate_document(str(doc), preset=preset, mask_secrets=False, dry_run=True)
+    assert res_dry.mock is True
+    assert res_dry.email_evaluations[0].outcome == "personal"
+    assert res_dry.email_evaluations[0].decided_by == "free_mail"
 
 
 def test_all_40_fixtures_masked_and_unmasked(tmp_path):
