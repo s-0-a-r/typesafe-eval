@@ -355,6 +355,15 @@ def validate_command(
     # Initialize evaluator
     evaluator = TypeSafeEvaluator(api_key=api_key)
 
+    if not dry_run and not evaluator.api_key and evaluator._client is None:
+        if getattr(evaluator.evaluate_document, "__func__", evaluator.evaluate_document) is TypeSafeEvaluator.evaluate_document:
+            click.echo(
+                "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
+                "or pass --api-key / specify in configuration.",
+                err=True,
+            )
+            sys.exit(3)
+
     # Run validation
     try:
         report, has_runtime_error = run_validation(

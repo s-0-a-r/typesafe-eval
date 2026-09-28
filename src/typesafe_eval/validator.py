@@ -248,6 +248,14 @@ def run_validation(
                     f"{q_id} is a choice question; its distribution is recorded automatically, do not label it"
                 )
 
+    # Check API key before evaluation
+    if not dry_run and not evaluator.api_key and evaluator._client is None:
+        if getattr(evaluator.evaluate_document, "__func__", evaluator.evaluate_document) is TypeSafeEvaluator.evaluate_document:
+            raise ValueError(
+                "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
+                "or pass --api-key / specify in configuration."
+            )
+
     presence_results: List[DocumentPresenceResult] = []
     pair_results: List[PairScoreResult] = []
     choice_distributions: Dict[str, Dict[str, int]] = {}
