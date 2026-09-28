@@ -18,8 +18,16 @@ from typesafe_eval.models import (
     IPEvaluationResult,
     URLEvaluationResult,
     SecretEvaluationResult,
+    NEAR_THRESHOLD_MARGIN,
+    CANDIDATE_DECISION_THRESHOLD,
 )
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
+
+def _is_candidate_near_threshold(decided_by: str, prob: Optional[float]) -> bool:
+    """Returns True if candidate outcome was model-decided and within margin of decision threshold."""
+    if decided_by == "model" and prob is not None:
+        return abs(prob - CANDIDATE_DECISION_THRESHOLD) <= NEAR_THRESHOLD_MARGIN + 1e-9
+    return False
 
 def _find_preflight_question(preset: PresetConfig, target: str) -> Optional[str]:
     """Finds the question ID mapped to a pre-flight scanner category."""
@@ -260,7 +268,7 @@ class TypeSafeEvaluator:
                     prob = response.nouls[q_id].noul
                 outcome: Literal["personal", "role", "undecided"] = "undecided"
                 if prob is not None:
-                    outcome = "personal" if prob >= 0.5 else "role"
+                    outcome = "personal" if prob >= CANDIDATE_DECISION_THRESHOLD else "role"
 
                 email_evaluations.append(
                     EmailEvaluationResult(
@@ -270,6 +278,7 @@ class TypeSafeEvaluator:
                         outcome=outcome,
                         probability=prob,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", prob),
                     )
                 )
                 if outcome == "personal":
@@ -291,7 +300,7 @@ class TypeSafeEvaluator:
                 outcome = "support"
                 decided_by = "rule"
             elif prob is not None:
-                outcome = "personal" if prob >= 0.5 else "support"
+                outcome = "personal" if prob >= CANDIDATE_DECISION_THRESHOLD else "support"
             elif feature.get("looks_like_support"):
                 outcome = "support"
             else:
@@ -305,6 +314,7 @@ class TypeSafeEvaluator:
                     outcome=outcome,
                     probability=prob,
                     decided_by=decided_by,
+                    near_threshold=_is_candidate_near_threshold(decided_by, prob),
                 )
             )
             if outcome == "personal":
@@ -334,7 +344,7 @@ class TypeSafeEvaluator:
                 prob = response.nouls[q_id].noul if q_id in response.nouls else None
                 outcome_ip: Literal["sensitive", "safe", "undecided"] = "undecided"
                 if prob is not None:
-                    outcome_ip = "sensitive" if prob >= 0.5 else "safe"
+                    outcome_ip = "sensitive" if prob >= CANDIDATE_DECISION_THRESHOLD else "safe"
                 elif feature.get("is_private"):
                     outcome_ip = "sensitive"
                 else:
@@ -348,6 +358,7 @@ class TypeSafeEvaluator:
                         outcome=outcome_ip,
                         probability=prob,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", prob),
                     )
                 )
                 if outcome_ip == "sensitive":
@@ -382,7 +393,7 @@ class TypeSafeEvaluator:
                 prob = response.nouls[q_id].noul if q_id in response.nouls else None
                 outcome_url: Literal["sensitive", "safe", "undecided"] = "undecided"
                 if prob is not None:
-                    outcome_url = "sensitive" if prob >= 0.5 else "safe"
+                    outcome_url = "sensitive" if prob >= CANDIDATE_DECISION_THRESHOLD else "safe"
                 elif feature.get("is_internal_tld"):
                     outcome_url = "sensitive"
                 else:
@@ -396,6 +407,7 @@ class TypeSafeEvaluator:
                         outcome=outcome_url,
                         probability=prob,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", prob),
                     )
                 )
                 if outcome_url == "sensitive":
@@ -439,7 +451,7 @@ class TypeSafeEvaluator:
                 prob = response.nouls[q_id].noul if q_id in response.nouls else None
                 outcome_sec: Literal["secret", "safe", "undecided"] = "undecided"
                 if prob is not None:
-                    outcome_sec = "secret" if prob >= 0.5 else "safe"
+                    outcome_sec = "secret" if prob >= CANDIDATE_DECISION_THRESHOLD else "safe"
                 elif feature.get("near_example_words"):
                     outcome_sec = "safe"
                 else:
@@ -453,6 +465,7 @@ class TypeSafeEvaluator:
                         outcome=outcome_sec,
                         probability=prob,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", prob),
                     )
                 )
                 if outcome_sec == "secret":
@@ -561,6 +574,19 @@ class TypeSafeEvaluator:
             if val is not None and q_cfg.weight is not None and q_cfg.weight > 0:
                 weighted_sum += val * q_cfg.weight
                 total_weight += q_cfg.weight
+
+            # Near-threshold detection (Issue #44)
+            is_near = False
+            if val is not None:
+                if q_cfg.min_threshold is not None and abs(val - q_cfg.min_threshold) <= NEAR_THRESHOLD_MARGIN + 1e-9:
+                    is_near = True
+                if q_cfg.max_threshold is not None and abs(val - q_cfg.max_threshold) <= NEAR_THRESHOLD_MARGIN + 1e-9:
+                    is_near = True
+
+            if q_cfg.type == "score" and q_id in scores:
+                scores[q_id].near_threshold = is_near
+            elif q_cfg.type == "noul" and q_id in nouls:
+                nouls[q_id].near_threshold = is_near
 
             # Pre-flight scan override violation check
             if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
@@ -671,7 +697,7 @@ class TypeSafeEvaluator:
                 )
             else:
                 mock_prob = 0.10 if (feature.get("known_role_word") or feature.get("matches_custom_role")) else 0.80
-                outcome_em: Literal["personal", "role", "undecided"] = "personal" if mock_prob >= 0.5 else "role"
+                outcome_em: Literal["personal", "role", "undecided"] = "personal" if mock_prob >= CANDIDATE_DECISION_THRESHOLD else "role"
                 email_evaluations.append(
                     EmailEvaluationResult(
                         placeholder=placeholder,
@@ -680,6 +706,7 @@ class TypeSafeEvaluator:
                         outcome=outcome_em,
                         probability=mock_prob,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", mock_prob),
                     )
                 )
                 if outcome_em == "personal":
@@ -713,6 +740,7 @@ class TypeSafeEvaluator:
                         outcome="support",
                         probability=0.10,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.10),
                     )
                 )
             else:
@@ -724,6 +752,7 @@ class TypeSafeEvaluator:
                         outcome="personal",
                         probability=0.85,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.85),
                     )
                 )
                 extra_violations.append(
@@ -756,6 +785,7 @@ class TypeSafeEvaluator:
                         outcome="sensitive",
                         probability=0.85,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.85),
                     )
                 )
                 extra_violations.append(
@@ -772,6 +802,7 @@ class TypeSafeEvaluator:
                         outcome="safe",
                         probability=0.08,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.08),
                     )
                 )
 
@@ -806,6 +837,7 @@ class TypeSafeEvaluator:
                         outcome="sensitive",
                         probability=0.88,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.88),
                     )
                 )
                 extra_violations.append(
@@ -822,6 +854,7 @@ class TypeSafeEvaluator:
                         outcome="safe",
                         probability=0.08,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.08),
                     )
                 )
 
@@ -866,6 +899,7 @@ class TypeSafeEvaluator:
                         outcome="safe",
                         probability=0.10,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.10),
                     )
                 )
             else:
@@ -879,6 +913,7 @@ class TypeSafeEvaluator:
                         outcome="secret",
                         probability=0.88,
                         decided_by="model",
+                        near_threshold=_is_candidate_near_threshold("model", 0.88),
                     )
                 )
                 extra_violations.append(
