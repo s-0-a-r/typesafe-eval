@@ -1,0 +1,53 @@
+# Built by build_pairs.py from labels_design_doc_en.yaml (edit that file, not this one). split: tuning.
+# 5 documents, 17 absent / 18 present labels. min_detected = ceil(0.9 x absent).
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 16
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/kep-3140/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: present
+    rollback: present
+    migration: present
+    open_questions: absent
+- path: design_doc/en/kep-3325/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: absent
+    rollback: present
+    migration: present
+    open_questions: absent
+    owner_timeline: absent
+- path: design_doc/en/rfc-3027/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    metrics: absent
+    open_questions: present
+- path: design_doc/en/rfc-3323/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: present
+- path: design_doc/en/go-draft-fuzzing/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    risks: absent
+    rollback: absent
+    metrics: present
+    open_questions: present
+    owner_timeline: absent

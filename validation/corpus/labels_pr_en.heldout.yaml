@@ -1,0 +1,26 @@
+# Built by build_pairs.py from labels_pr_en.yaml (edit that file, not this one). split: heldout.
+# 3 documents, 2 absent / 10 present labels. min_detected = ceil(0.9 x absent).
+preset: pr-description
+runs: 2
+criteria:
+  min_detected: 2
+  max_false_alarms: 0
+documents:
+- path: pr_description/en/pr-kubernetes-kubernetes-134660/after.md
+  expect:
+    summary: present
+    testing: present
+    impact: present
+    related_issues: present
+- path: pr_description/en/pr-kubernetes-kubernetes-134947/after.md
+  expect:
+    summary: present
+    testing: absent
+    impact: present
+    breaking_changes: present
+    related_issues: present
+- path: pr_description/en/pr-electron-electron-49103/after.md
+  expect:
+    summary: present
+    breaking_changes: absent
+    related_issues: present

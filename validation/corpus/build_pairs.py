@@ -7,11 +7,14 @@ Outputs (next to this script):
 - labels_quality_pairs.{heldout,tuning}.yaml: validate pairs (synthetic degradations: down; synthetic neutral
   edits, hand-written paraphrases and real correctness-only pairs: neutral). tuning uses 2 documents per cell
 - variants/: the synthetic variant files
+- labels_<name>.{tuning,heldout}.yaml: the presence labels (labels_<name>.yaml) split the same way, so
+  #41 keeps a held-out set too. min_detected is recomputed per file
 """
 
 import difflib
 import hashlib
 import json
+import math
 import random
 import re
 from pathlib import Path
@@ -24,6 +27,9 @@ HELDOUT_FRACTION = 0.3
 SEED = 20260928
 MAX_PER_PROJECT = 2  # at most 2 documents per project (author / repository) in every cell
 MIN_CHANGED_LINES = 0.05
+# presence label files and the share of absent items that must be detected (#41)
+PRESENCE_LABELS = {"labels_pr_en": 0.9, "labels_pr_ja": 0.8, "labels_design_doc_en": 0.9,
+                   "labels_design_doc_ja": 0.8, "labels_tech_spec": 1.0}
 
 FILLER = {
     "en": (
@@ -313,6 +319,21 @@ def main():
         (ROOT / f"labels_quality_pairs.{split}.yaml").write_text(
             hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
     (ROOT / "labels_quality_pairs.yaml").unlink(missing_ok=True)
+
+    split_of = {f"{r['folder']}/after.md": r["split"] for r in rows}
+    for name, ratio in PRESENCE_LABELS.items():
+        src = yaml.safe_load((ROOT / f"{name}.yaml").read_text(encoding="utf-8"))
+        for split in ("tuning", "heldout"):
+            docs = [d for d in src["documents"] if split_of[d["path"]] == split]
+            absent = sum(v == "absent" for d in docs for v in d["expect"].values())
+            present = sum(v == "present" for d in docs for v in d["expect"].values())
+            doc = dict(src, documents=docs)
+            doc["criteria"] = dict(src["criteria"], min_detected=math.ceil(ratio * absent))
+            hdr = (f"# Built by build_pairs.py from {name}.yaml (edit that file, not this one). split: {split}.\n"
+                   f"# {len(docs)} documents, {absent} absent / {present} present labels. "
+                   f"min_detected = ceil({ratio} x absent).\n")
+            (ROOT / f"{name}.{split}.yaml").write_text(
+                hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     (ROOT / "manifest_all.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     (ROOT / "manifest_variants.json").write_text(json.dumps(
