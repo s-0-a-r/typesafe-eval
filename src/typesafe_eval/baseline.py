@@ -21,7 +21,8 @@ def _check_comparable(doc: DocumentEvalResult, preset_name: Optional[str]) -> No
     """
     if doc.mock or doc.model == "mock-jev":
         raise ValueError(
-            f"Baseline contains dry-run document '{doc.filepath}' (mock=true); cannot compare against dry-run baseline."
+            f"Baseline contains dry-run document '{doc.filepath}' (mock=true or model 'mock-jev'); "
+            "cannot compare against dry-run baseline."
         )
     if preset_name is not None and _norm_preset(doc.preset_name) != _norm_preset(preset_name):
         raise ValueError(

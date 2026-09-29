@@ -809,7 +809,8 @@ class TypeSafeEvaluator:
         if unplaced:
             warnings.append(
                 f"{len(unplaced)} redacted item(s) ({', '.join(sorted(unplaced))}) were not found in any of "
-                f"{len(chunks)} chunks and were asked in every chunk; their probabilities may be less reliable."
+                f"{len(chunks)} chunks and were treated as present in every chunk; "
+                f"any candidate probabilities for them may be less reliable."
             )
 
         has_sec_check = bool(_find_preflight_question(preset, "credentials") or "has_secrets" in preset.questions)
