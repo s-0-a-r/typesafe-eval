@@ -47,19 +47,31 @@ class FakeEvaluator:
         self.call_log.append(str(path))
         score_val = self.score_map.get(str(path), self.score_map.get(path.name, 0.5))
 
+        scores = {}
+        for q_id, q_cfg in preset.questions.items():
+            if q_cfg.type == "score":
+                s = self.score_map.get((str(path), q_id), score_val)
+                scores[q_id] = ScoreResult(
+                    score=s,
+                    max_score=1.0,
+                    normalized_score=s,
+                    confidence=0.9,
+                    probabilities={},
+                )
+        if not scores:
+            scores["clarity"] = ScoreResult(
+                score=score_val,
+                max_score=1.0,
+                normalized_score=score_val,
+                confidence=0.9,
+                probabilities={},
+            )
+
         return DocumentEvalResult(
             filepath=str(path),
             filename=path.name,
             preset_name=preset.name,
-            scores={
-                "clarity": ScoreResult(
-                    score=score_val,
-                    max_score=1.0,
-                    normalized_score=score_val,
-                    confidence=0.9,
-                    probabilities={},
-                )
-            },
+            scores=scores,
             passed_thresholds=True,
             was_truncated=False,
         )
@@ -783,4 +795,75 @@ def test_feasibility_check_no_heldout_gives_nulls(tmp_path):
     assert res["by_doc_type"]["article"]["held_out_roc_auc"] is None
     assert res["by_doc_type"]["article"]["held_out_false_alarm_rate"] is None
     assert res["by_doc_type"]["article"]["feasible"] is False
+
+
+def test_group_by_kind_two_questions(tmp_path):
+    """When a pair expectation specifies two score questions, kind grouping splits them into separate groups with correct n."""
+    preset = PresetConfig(
+        name="tech-spec",
+        title="Tech Spec",
+        description="Tech Spec preset",
+        questions={
+            "technical_depth": QuestionConfig(
+                type="score",
+                label="Technical Depth",
+                instructions="Score depth",
+                criteria=["Low", "High"],
+                weight=1.0,
+            ),
+            "edge_case_coverage": QuestionConfig(
+                type="score",
+                label="Edge Case Coverage",
+                instructions="Score edge cases",
+                criteria=["Low", "High"],
+                weight=1.0,
+            ),
+        },
+    )
+
+    pair_expectations = []
+    score_map = {}
+    for idx in range(10):
+        bf = tmp_path / f"rm_{idx}_b.md"
+        af = tmp_path / f"rm_{idx}_a.md"
+        bf.write_text(f"before {idx}", encoding="utf-8")
+        af.write_text(f"after {idx}", encoding="utf-8")
+        score_map[str(bf)] = 0.8
+        score_map[str(af)] = 0.6
+        pair_expectations.append(
+            ValidationPairExpectation(
+                before=str(bf),
+                after=str(af),
+                kind="removed_middle",
+                expect={"technical_depth": "down", "edge_case_coverage": "down"},
+            )
+        )
+
+    labels_cfg = ValidationLabelsConfig(
+        preset="tech-spec",
+        runs=3,
+        criteria=ValidationCriteria(
+            group_by="kind",
+            min_group_size=6,
+            degradation_ci_upper_max=-0.10,
+        ),
+        pairs=pair_expectations,
+    )
+    evaluator = FakeEvaluator(score_map)
+    report, has_error = run_validation(labels_cfg, tmp_path, evaluator, preset_cfg=preset)
+
+    assert not has_error
+    assert len(report.pair_group_results) == 2
+    grp_depth = next(g for g in report.pair_group_results if g.question_id == "technical_depth")
+    grp_edge = next(g for g in report.pair_group_results if g.question_id == "edge_case_coverage")
+
+    assert grp_depth.kind == "removed_middle"
+    assert grp_depth.n == 10
+    assert grp_depth.passed is True
+    assert pytest.approx(grp_depth.mean_delta, abs=1e-4) == -0.2
+
+    assert grp_edge.kind == "removed_middle"
+    assert grp_edge.n == 10
+    assert grp_edge.passed is True
+    assert pytest.approx(grp_edge.mean_delta, abs=1e-4) == -0.2
 

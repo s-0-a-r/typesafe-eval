@@ -176,6 +176,7 @@ class PairScoreResult(BaseModel):
 
 class PairGroupResult(BaseModel):
     kind: str
+    question_id: Optional[str] = None
     expected: Literal["down", "neutral"]
     n: int
     mean_delta: float
@@ -658,12 +659,12 @@ def run_validation(
         regular_pairs = [p for p in pair_results if not (p.kind and p.kind in per_pair_kinds)]
         per_pair_items = [p for p in pair_results if p.kind and p.kind in per_pair_kinds]
 
-        groups_dict: Dict[str, List[PairScoreResult]] = {}
+        groups_dict: Dict[Tuple[str, str], List[PairScoreResult]] = {}
         for p in regular_pairs:
             k = p.kind or "default"
-            groups_dict.setdefault(k, []).append(p)
+            groups_dict.setdefault((k, p.question_id), []).append(p)
 
-        for grp_kind, grp_pairs in groups_dict.items():
+        for (grp_kind, grp_qid), grp_pairs in groups_dict.items():
             exp = grp_pairs[0].expected
             active_pairs = [p for p in grp_pairs if not p.incomplete and not p.was_truncated]
             n = len(active_pairs)
@@ -708,6 +709,7 @@ def run_validation(
             pair_group_results.append(
                 PairGroupResult(
                     kind=grp_kind,
+                    question_id=grp_qid,
                     expected=exp,
                     n=n,
                     mean_delta=grp_mean,
@@ -727,6 +729,7 @@ def run_validation(
             pair_group_results.append(
                 PairGroupResult(
                     kind=p.kind,
+                    question_id=p.question_id,
                     expected=exp,
                     n=len(p.deltas),
                     mean_delta=p.mean_delta,
@@ -752,6 +755,7 @@ def run_validation(
             pair_group_results.append(
                 PairGroupResult(
                     kind=k,
+                    question_id=p.question_id,
                     expected=exp,
                     n=len(p.deltas),
                     mean_delta=p.mean_delta,
@@ -1063,6 +1067,7 @@ def render_validation_table(report: ValidationReport) -> None:
             border_style="dim",
         )
         table_groups.add_column("Group (Kind)", style="bold")
+        table_groups.add_column("Question", justify="center")
         table_groups.add_column("Expected", justify="center")
         table_groups.add_column("n", justify="center")
         table_groups.add_column("Mean Δ", justify="center")
@@ -1083,6 +1088,7 @@ def render_validation_table(report: ValidationReport) -> None:
             worst_str = f"{g.worst_pair_path} ({g.worst_pair_delta:+.3f})"
             table_groups.add_row(
                 g.kind,
+                g.question_id or "—",
                 g.expected,
                 str(g.n),
                 f"{g.mean_delta:+.3f}",
@@ -1222,8 +1228,8 @@ def render_validation_markdown(report: ValidationReport) -> str:
     if report.pair_group_results:
         lines.append("## Pair Groups (Direction & CI)")
         lines.append("")
-        lines.append("| Group (Kind) | Expected | n | Mean Δ | 95% CI | Status | Worst Pair |")
-        lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :--- |")
+        lines.append("| Group (Kind) | Question | Expected | n | Mean Δ | 95% CI | Status | Worst Pair |")
+        lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |")
         for g in report.pair_group_results:
             if report.mock:
                 status = "N/A (MOCK)"
@@ -1235,8 +1241,9 @@ def render_validation_markdown(report: ValidationReport) -> str:
                 status = "FAIL"
             ci_str = f"[{g.ci_95_lower:+.3f}, {g.ci_95_upper:+.3f}]"
             worst_str = f"`{g.worst_pair_path}` ({g.worst_pair_delta:+.3f})"
+            qid_str = f"`{g.question_id}`" if g.question_id else "—"
             lines.append(
-                f"| `{g.kind}` | `{g.expected}` | {g.n} | {g.mean_delta:+.3f} | {ci_str} | **{status}** | {worst_str} |"
+                f"| `{g.kind}` | {qid_str} | `{g.expected}` | {g.n} | {g.mean_delta:+.3f} | {ci_str} | **{status}** | {worst_str} |"
             )
         lines.append("")
 
