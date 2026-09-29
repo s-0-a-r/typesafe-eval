@@ -1,0 +1,39 @@
+# Built by build_pairs.py from labels_pr_ja.yaml (edit that file, not this one). split: tuning.
+# 5 documents, 3 absent / 18 present labels. min_detected = ceil(0.8 x absent).
+preset: pr-description
+runs: 2
+criteria:
+  min_detected: 3
+  max_false_alarms: 0
+documents:
+- path: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  expect:
+    summary: present
+    testing: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/ja/pr-voicevox-voicevox-1374/after.md
+  expect:
+    summary: present
+    impact: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/ja/pr-voicevox-voicevox_engine-1261/after.md
+  expect:
+    summary: present
+    testing: absent
+    impact: present
+    breaking_changes: present
+    related_issues: present
+- path: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  expect:
+    summary: present
+    testing: present
+    impact: present
+    related_issues: present
+- path: pr_description/ja/pr-sakura-editor-sakura-2682/after.md
+  expect:
+    testing: present
+    impact: present
+    breaking_changes: present
+    related_issues: present

@@ -1,0 +1,20 @@
+# Built by build_pairs.py from labels_tech_spec.yaml (edit that file, not this one). split: heldout.
+# 4 documents, 3 absent / 1 present labels. min_detected = ceil(1.0 x absent).
+preset: tech-spec
+runs: 2
+criteria:
+  min_detected: 3
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/pep-0655/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/en/pep-0709/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/ja/mizchi-vlmkit-creative-markup-eval/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/en/swift-se-0510/after.md
+  expect:
+    has_test_plan: absent

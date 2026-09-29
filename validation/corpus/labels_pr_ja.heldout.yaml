@@ -1,0 +1,25 @@
+# Built by build_pairs.py from labels_pr_ja.yaml (edit that file, not this one). split: heldout.
+# 3 documents, 5 absent / 6 present labels. min_detected = ceil(0.8 x absent).
+preset: pr-description
+runs: 2
+criteria:
+  min_detected: 4
+  max_false_alarms: 0
+documents:
+- path: pr_description/ja/pr-kufu-smarthr-ui-5622/after.md
+  expect:
+    summary: present
+    testing: absent
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/ja/pr-kufu-smarthr-ui-5749/after.md
+  expect:
+    summary: present
+    testing: present
+    breaking_changes: absent
+    related_issues: absent
+- path: pr_description/ja/pr-pixiv-charcoal-300/after.md
+  expect:
+    summary: present
+    breaking_changes: present
+    related_issues: absent

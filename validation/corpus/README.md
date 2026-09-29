@@ -36,6 +36,6 @@ Both fetch scripts check every file against the sha256 in the manifests and stop
 
 ## Tuning and held-out
 
-`build_pairs.py` splits each cell by project into tuning and held-out, stratified so held-out gets its share of real review pairs. Rewording rounds use only `labels_quality_pairs.tuning.yaml`. The held-out file runs once per preset version. The gating rules are fixed in the #42 comments.
+`build_pairs.py` splits each cell by project into tuning and held-out, stratified so held-out gets its share of real review pairs. The presence labels are split the same way: edit `labels_<name>.yaml`, and `build_pairs.py` writes `labels_<name>.tuning.yaml` and `labels_<name>.heldout.yaml`. Rewording rounds use only the `.tuning.yaml` files. The held-out files run once per preset version. The gating rules are fixed in the #42 comments.
 
 Labels were written from reading the documents before any evaluation and are not changed after seeing results. A change needs its own commit with the reason.
