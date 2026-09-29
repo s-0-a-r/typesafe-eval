@@ -315,6 +315,23 @@ def validate_labels_preset(
     return preset_cfg
 
 
+def compute_questions_hash(preset: PresetConfig) -> str:
+    """Computes a deterministic SHA256 hash of preset questions for cache keys."""
+    dump = {}
+    for q_id, q_cfg in sorted(preset.questions.items()):
+        dump[q_id] = {
+            "type": q_cfg.type,
+            "instructions": q_cfg.instructions,
+            "criteria": q_cfg.criteria,
+            "label": q_cfg.label,
+            "weight": q_cfg.weight,
+            "min_threshold": q_cfg.min_threshold,
+            "max_threshold": q_cfg.max_threshold,
+            "preflight": q_cfg.preflight,
+        }
+    return hashlib.sha256(json.dumps(dump, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def run_validation(
     labels_cfg: ValidationLabelsConfig,
     base_dir: Path,
@@ -341,22 +358,7 @@ def run_validation(
     # Key: (resolved_path, file_sha256, questions_hash, mask_secrets, run_index)
     eval_cache: Dict[Tuple[str, str, str, bool, int], DocumentEvalResult] = {}
 
-    def _compute_questions_hash(preset: PresetConfig) -> str:
-        dump = {}
-        for q_id, q_cfg in sorted(preset.questions.items()):
-            dump[q_id] = {
-                "type": q_cfg.type,
-                "instructions": q_cfg.instructions,
-                "criteria": q_cfg.criteria,
-                "label": q_cfg.label,
-                "weight": q_cfg.weight,
-                "min_threshold": q_cfg.min_threshold,
-                "max_threshold": q_cfg.max_threshold,
-                "preflight": q_cfg.preflight,
-            }
-        return hashlib.sha256(json.dumps(dump, sort_keys=True).encode("utf-8")).hexdigest()
-
-    questions_hash = _compute_questions_hash(preset_cfg)
+    questions_hash = compute_questions_hash(preset_cfg)
 
     def _eval_cached(fpath: Path, r_idx: int) -> DocumentEvalResult:
         resolved = fpath.resolve()

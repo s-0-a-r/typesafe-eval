@@ -18,6 +18,7 @@ from typesafe_eval.validator import (
     get_t_crit_95,
     compute_ci_95,
     run_validation,
+    compute_questions_hash,
     ValidationLabelsConfig,
     ValidationPairExpectation,
     ValidationCriteria,
@@ -303,7 +304,11 @@ def test_cache_and_run_major_order_264_calls(tmp_path):
     # 13 base files + 75 variant files = 88 distinct files evaluated per run × 3 runs = 264 calls
     assert fake_eval.call_count == 264
 
-    # Changing one character of a preset question instructions must miss the cache
+    # The questions hash (used by run_validation for the cache key) differs when
+    # one question's instructions changes by one character, and is equal otherwise.
+    preset_identical = _make_preset("clarity")
+    assert compute_questions_hash(preset) == compute_questions_hash(preset_identical)
+
     preset_changed = PresetConfig(
         name="quality",
         title="Quality",
@@ -318,14 +323,7 @@ def test_cache_and_run_major_order_264_calls(tmp_path):
             )
         },
     )
-    fake_eval_2 = FakeEvaluator()
-    report2, has_error2 = run_validation(
-        labels_cfg=labels_cfg,
-        base_dir=tmp_path,
-        evaluator=fake_eval_2,
-        preset_cfg=preset_changed,
-    )
-    assert fake_eval_2.call_count == 264
+    assert compute_questions_hash(preset) != compute_questions_hash(preset_changed)
 
 
 # --- 6. Retry transient API errors ---

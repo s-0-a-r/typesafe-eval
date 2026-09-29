@@ -230,8 +230,12 @@ def test_support_gmail_personal_by_rule_with_no_mask(tmp_path):
     assert res_dry.email_evaluations[0].decided_by == "free_mail"
 
 
-def test_all_40_fixtures_masked_and_unmasked(tmp_path):
-    # All 40 fixtures in tests/fixtures/pii_secrets match expected verdicts masked and with --no-mask
+def test_all_40_fixtures_match_dry_run_mock_rules(tmp_path):
+    """Checks that all 40 fixtures in tests/fixtures/pii_secrets match expected verdicts.
+
+    Runs with dry_run=True, so it checks the fixtures against the mock rules in
+    _build_mock_result, not the model. The README figure comes from the validate runs.
+    """
     fixtures_dir = Path("tests/fixtures/pii_secrets")
     import yaml
     labels = yaml.safe_load((fixtures_dir / "labels.yaml").read_text(encoding="utf-8"))
