@@ -1,6 +1,6 @@
 # Pre-registration for the v0.4.0 rewording rounds
 
-Written after the round 0 tuning run (2026-09-29) and before any rewording, any new API call and any held-out run. The gates in the #42 comments and in `build_pairs.py` stay as they are, except for the one deviation below. Round 0 results: #41, #42, #43.
+Written after the round 0 tuning run (2026-09-29) and before any rewording, any new API call and any held-out run. The gates in the #42 comments and in `build_pairs.py` stay as they are, except for the one deviation below. Round 0 results: #41, #42, #43. Public specifications (KEP, PEP, Rust RFC, Go proposal, Swift Evolution) are named; other documents are referred to by label file, split and a letter (for example "pr_ja tuning doc A"), because their authors did not ask to be scored (`README.md`).
 
 ## What round 0 showed
 
@@ -41,7 +41,7 @@ Considered and not used:
 - Files: `labels_{pr_en,pr_ja,design_doc_en,design_doc_ja}.tuning.yaml`, once each. `tech_spec` and `quality` are not rerun; their questions do not change.
 - Criterion 4 compares with round 0b (`results/2026-09-29b/`, the same tool after the fixes above), not round 0. It counts misses and false alarms per (file, question). A lower probability without a changed verdict is not worse. A question with no items in a file cannot be worse there.
 - A present item that fails criterion 3 makes its question "not met" in that preset version.
-- Criterion 3 already fails in round 0b for four present items: `pr-rust-lang-rust-147803` `related_issues` 0.56 / 0.59, `pr-misskey-dev-misskey-14375` `testing` 0.61 / 0.61, `kep-3325` `migration` 0.60 / 0.59, `go-draft-fuzzing` `metrics` 0.61 / 0.56. Round 1 is read against these.
+- Criterion 3 already fails in round 0b for four present items: pr_en tuning doc A `related_issues` 0.56 / 0.59, pr_ja tuning doc A `testing` 0.61 / 0.61, `kep-3325` `migration` 0.60 / 0.59, `go-draft-fuzzing` `metrics` 0.61 / 0.56. Round 1 is read against these.
 - `kep-3325` `risks` (absent) is at 0.49 / 0.49 in round 0b, within noise of the threshold. Any wording can move it. If it becomes a miss, it counts as worse under criterion 4; it is not explained away afterwards.
 - The preset version is the commit that adds this section. The run log records that commit and the sha256 of both preset files.
 
@@ -54,13 +54,13 @@ Round 1 ran once on 2026-09-29 (tool d0efa2a, `results/2026-09-29c/`). Against r
 | File | 1. min_detected | 2. False alarms | 3. Margin 0.15 | 4. Not worse | Result |
 |---|---|---|---|---|---|
 | design_doc_ja | 15/16 (13) | 0 | met | met | met |
-| pr_ja | 3/3 (3) | 0 | `voicevox_engine-1261` `impact` 0.65 / 0.63 | met | not met |
-| pr_en | 10/10 (9) | 1: `rust-147803` `related_issues` 0.53 / 0.48 | not met | not met | not met |
+| pr_ja | 3/3 (3) | 0 | pr_ja tuning doc B `impact` 0.65 / 0.63 | met | not met |
+| pr_en | 10/10 (9) | 1: pr_en tuning doc A `related_issues` 0.53 / 0.48 | not met | not met | not met |
 | design_doc_en | 14/17 (16) | 0 | `kep-3325` `migration`, `go-draft-fuzzing` `metrics` | `kep-3325` `risks` became a miss (0.64 / 0.65) | not met |
 
 The three non_goals positive controls stay at 0.99. Misses fell from 8 to 4, false alarms rose from 0 to 1.
 
-**No round 2.** The rules allow one more round, but it has to be one uniform change to every question. The remaining failures need opposite changes: `rust-147803` needs a looser reading (its only reference is a line linking another pull request, and the `related_issues` question lists issues, tickets, design docs and discussions but not pull requests), while `design_doc_en` needs two of its three misses to go below 0.5 at once. Round 1 moved them by 0.02 to 0.09, and one moved the wrong way. A stricter change could not do that, and a looser one would undo `design_doc_ja`. Fixing `related_issues` means changing that one question, which these rules do not allow; it goes to v0.5. The preset version shipped in v0.4.0 is d0efa2a.
+**No round 2.** The rules allow one more round, but it has to be one uniform change to every question. The remaining failures need opposite changes: pr_en tuning doc A needs a looser reading (its only reference is a line linking another pull request, and the `related_issues` question lists issues, tickets, design docs and discussions but not pull requests), while `design_doc_en` needs two of its three misses to go below 0.5 at once. Round 1 moved them by 0.02 to 0.09, and one moved the wrong way. A stricter change could not do that, and a looser one would undo `design_doc_ja`. Fixing `related_issues` means changing that one question, which these rules do not allow; it goes to v0.5. The preset version shipped in v0.4.0 is d0efa2a.
 
 **From files to questions.** The four criteria decide whether a file passed. What the README says about each question comes from all tuning files of its preset together, because a preset ships one wording for both languages: a question is reliable when it has no miss, no false alarm and no present item inside 0.5 ± 0.15 in any of them. On round 1:
 
@@ -92,8 +92,8 @@ Run once on 2026-09-29 15:26 (tool d0efa2a, after this file's round 1 section wa
 |---|---|---|---|
 | design_doc_en | 13/14 | 0 | 0 |
 | design_doc_ja | no absent label | 0 | 0 |
-| pr_en | 2/2 | 0 | 1: `kubernetes-134947` `related_issues` 0.57 / 0.55 |
-| pr_ja | 5/5 | 2: `smarthr-ui-5622` `related_issues` 0.45 / 0.45, `pixiv-charcoal-300` `breaking_changes` 0.48 / 0.45 | 1: `pixiv-charcoal-300` `summary` 0.65 / 0.62 |
+| pr_en | 2/2 | 0 | 1: pr_en held-out doc A `related_issues` 0.57 / 0.55 |
+| pr_ja | 5/5 | 2: pr_ja held-out doc A `related_issues` 0.45 / 0.45, pr_ja held-out doc B `breaking_changes` 0.48 / 0.45 | 1: pr_ja held-out doc B `summary` 0.65 / 0.62 |
 
 The one miss is `pep-0709` `non_goals` (0.77 / 0.76). Both non_goals controls score 0.99.
 
@@ -111,10 +111,10 @@ Measured on 2026-09-29 (tool 2cdcc75, HTML comments stripped), 10 runs each, cla
 
 | Document | Mean | SD | Range |
 |---|---|---|---|
-| akaza-numeric-counter-redesign | 1.000 | 0.0000 | 1.000–1.000 |
-| pr-misskey-dev-misskey-14375 | 0.878 | 0.0054 | 0.870–0.890 |
-| pr-python-cpython-140234 | 0.597 | 0.0048 | 0.590–0.605 |
-| pr-voicevox-voicevox-1374 | 0.619 | 0.0071 | 0.610–0.630 |
+| design_doc_ja tuning doc A | 1.000 | 0.0000 | 1.000–1.000 |
+| pr_ja tuning doc A | 0.878 | 0.0054 | 0.870–0.890 |
+| pr_en tuning doc B | 0.597 | 0.0048 | 0.590–0.605 |
+| pr_ja tuning doc C | 0.619 | 0.0071 | 0.610–0.630 |
 
 Largest SD 0.0071, times 3 is 0.0212, rounded up to **0.025**.
 
