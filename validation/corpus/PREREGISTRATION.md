@@ -132,6 +132,8 @@ The API evaluates all questions of a preset in one request, so removing two ques
 - This is a confirmation, not a rewording round. If `has_test_plan` fails, its wording is not changed; it ships as not reliable.
 - Held-out runs once, as for the other presets. It only confirms or demotes.
 
+Result, run once on 2026-09-29 16:55 (tool 0a56f28, the merge that removed the Scores; `results/2026-09-29e/`): tuning 3/3 absent flagged, 0/5 false alarms; held-out 3/3, 0/1; no present item within 0.5 ± 0.15. Against round 0b every probability moved by 0.01 or less. `has_test_plan` meets all four criteria and ships as reliable. `readiness` answered ready 19 / needs_revision 5 over these runs, against 162 / 158 with the four-question preset, so its answers depend on the other questions in the request; it stays unmeasured.
+
 ## Added before the rounds
 
 - **non_goals positive controls.** The corpus had only 2 documents whose `non_goals` label is present, so a stricter wording could not show new false alarms. `build_pairs.py` inserts a short hand-written Non-goals section into public specifications (tuning: kep-3140, kep-3325, rfc-3027; held-out: pep-0655, pep-0709), labeled `non_goals: present`. `risks` still has few present labels (tuning 2, held-out 1); that is a disclosed limitation.
