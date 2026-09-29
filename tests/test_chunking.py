@@ -205,3 +205,67 @@ def test_cli_chunk_missing_noul_exits_3(tmp_path, monkeypatch):
     assert "rollback" in (result.stderr or result.output)
     assert "Missing evaluation result" in (result.stderr or result.output)
 
+
+def test_single_call_missing_question_raises_runtime_error(tmp_path, monkeypatch):
+    """S2: If a single-call response is missing a preset question, raise RuntimeError."""
+    doc = tmp_path / "short_doc.md"
+    doc.write_text("## Goal\nx\n", encoding="utf-8")
+
+    class MockAns:
+        def __init__(self, val):
+            self.noul = val
+
+    class MockResp:
+        def __init__(self, questions):
+            self.nouls = {q: MockAns(0.9) for q in questions if q != "rollback"}
+            self.scores = {}
+            self.choices = {}
+            self.usage = None
+            self.model = "fake"
+
+    class MockClient:
+        def system_one(self, state, questions):
+            return MockResp(questions)
+
+    evaluator = TypeSafeEvaluator(api_key="mock_key")
+    monkeypatch.setattr(evaluator, "_get_client", lambda: MockClient())
+
+    preset = load_preset("design-doc")
+    with pytest.raises(RuntimeError) as exc_info:
+        evaluator.evaluate_document(str(doc), preset=preset)
+
+    assert "rollback" in str(exc_info.value)
+    assert "Missing evaluation result for question(s)" in str(exc_info.value)
+
+
+def test_cli_single_call_missing_question_exits_3(tmp_path, monkeypatch):
+    """S2: Missing question in single call reports error and exits 3."""
+    doc = tmp_path / "short_doc.md"
+    doc.write_text("## Goal\nx\n", encoding="utf-8")
+
+    class MockAns:
+        def __init__(self, val):
+            self.noul = val
+
+    class MockResp:
+        def __init__(self, questions):
+            self.nouls = {q: MockAns(0.9) for q in questions if q != "rollback"}
+            self.scores = {}
+            self.choices = {}
+            self.usage = None
+            self.model = "fake"
+
+    class MockClient:
+        def system_one(self, state, questions):
+            return MockResp(questions)
+
+    from typesafe_eval import client as client_module
+    monkeypatch.setattr(client_module.TypeSafeEvaluator, "_get_client", lambda self: MockClient())
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(doc), "--preset", "design-doc", "--api-key", "test_key"])
+    assert result.exit_code == 3
+    assert "rollback" in (result.stderr or result.output)
+    assert "Missing evaluation result" in (result.stderr or result.output)
+
+

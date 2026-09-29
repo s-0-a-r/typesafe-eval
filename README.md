@@ -152,7 +152,7 @@ typesafe-eval specs/*.txt --preset safety
    - **Free-mail Addresses**: Free-mail providers (`gmail.com`, `yahoo.com`, `icloud.com`, etc.) deterministically fail as personal PII (`decided_by: "free_mail"`).
 5. **Parallel Per-Candidate Evaluation**: Ambiguous candidates (e.g. corporate emails, private IPs, internal TLDs like `.internal`/`.corp`, switchboard vs personal phones, ambiguous `key=val` secrets) are evaluated via parallel `Noul` questions, allowing the model to make contextual determinations based on surrounding document text.
 6. **Decoupled Detection from Masking**:
-   - Detection, feature extraction, and candidate questions **always run**, even when `--no-mask` is passed.
+   - Detection, feature extraction, and candidate questions **always run**, even when `--no-mask` is passed (including for long, chunked documents).
    - `--no-mask` controls only whether sensitive values are substituted in the document text sent to the API.
    - With `--no-mask`, deterministic rules still apply (e.g. `support@gmail.com` and exposed credentials still fail by rule).
 7. **HTML Comments Stripped**:
@@ -160,6 +160,7 @@ typesafe-eval specs/*.txt --preset safety
 
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
+- **HTML Comments Removed**: HTML comments are removed before detection, so secrets or PII inside `<!-- -->` are not checked; use a dedicated secret scanner as well.
 
 ### 3. Evaluate Technical Specs (`tech-spec`)
 ```bash
@@ -184,7 +185,7 @@ When exporting results with `--format json`, each document evaluation result con
 - `was_truncated`: Boolean indicating whether the document text was truncated due to length.
 - `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, `threshold`, `passed`, and `near_threshold`.
 - `nouls`: Map of noul questions with calibrated probability, override transparency, threshold, `passed`, and `near_threshold`:
-  - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
+  - `probability`: Calibrated probability returned by the model (`null` only when the model did not return a question that the preflight scan overrode, so `overridden_by` is also set; any other question missing from the API response raises an error).
   - `overridden_by`: Set to `"preflight_scan"` when deterministic rules caught credentials or personal PII.
   - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
 - `choices`: Map of choice questions with selected `choice`, `confidence`, and `passed`.
@@ -209,7 +210,7 @@ typesafe-eval docs/*.md --dry-run
 In dry-run mode:
 - Terminal tables and Markdown reports clearly display `(MOCK)` in headers, and status is shown as `Verdict: N/A (MOCK)`.
 - JSON output includes `"mock": true` for every evaluated document, with `violations: []` and `warnings: []`.
-- Exits with code `0` for valid inputs across all presets, without making any external API calls. Usage errors still exit with code `2`.
+- Exits with code `0` for valid inputs across all presets, without making any external API calls. Usage errors still exit with code `2`, and file errors exit with code `3`.
 
 ### 7. Baseline Regression Detection (`--baseline`)
 A fixed absolute threshold cannot reliably catch subtle quality degradation between document edits. `typesafe-eval` provides `--baseline` mode to detect score drops against previous evaluation results:
@@ -232,7 +233,7 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 
 ### 8. Near-Threshold Indication (`near_threshold`)
-Because run-to-run noise is up to about 0.055, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+Because run-to-run noise is up to about 0.050, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
 - **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
 - **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
@@ -277,7 +278,8 @@ criteria:
   degradation_ci_upper_max: -0.1 # optional: upper 95% CI bound must be < this value for down groups
   neutral_ci_abs_max: 0.05       # optional: max(|lower|, |upper|) <= this value for neutral groups
   min_group_size: 6              # optional: groups with fewer pairs report numbers with passed: null and do not gate (default: 6)
-  pair_guard_neutral_abs_max: 0.10 # optional: every neutral pair's |mean delta| <= this, every down pair's mean delta < 0
+  pair_guard_neutral_abs_max: 0.10 # optional: every neutral pair's |mean delta| <= this, every down pair's mean delta <= pair_guard_down_tolerance
+  pair_guard_down_tolerance: 0.0   # optional: maximum mean delta allowed for a down pair in pair guard check (default: 0.0)
   report_only_kinds: [exploratory] # optional: list of kinds that are reported but do not gate
   per_pair_kinds: [paraphrase]   # optional: kinds evaluated per-pair on their own run CI inside group_by: kind
 documents:
@@ -309,7 +311,7 @@ pairs:
 | `0` | All evaluated documents passed (also returned when threshold violations exist but `--no-fail-on-threshold` is set, and no runtime errors occurred). |
 | `1` | At least one threshold violation occurred across evaluated documents (with `--fail-on-threshold`, which is enabled by default). |
 | `2` | Usage or configuration error: no files specified, no files matched pattern, preset/config loading failure, or invalid CLI options. |
-| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, missing evaluation result across chunks, or file read error during evaluation. |
+| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, question missing from API response, or file read error during evaluation. |
 
 #### Precedence Rule (1 over 3)
 When evaluating multiple files, evaluation continues across all remaining files even if an individual file encounters a runtime error. Errored files are reported on `stderr` (`<file>: <error>`), while successfully evaluated files are included in the normal output (table, JSON, or Markdown).

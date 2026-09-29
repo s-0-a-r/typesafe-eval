@@ -89,7 +89,7 @@ def main():
 )
 @click.option(
     "--max-chars",
-    type=int,
+    type=click.IntRange(min=1),
     default=25000,
     help="Maximum character threshold before safe head/tail truncation. Default: 25000.",
 )
@@ -243,8 +243,10 @@ def eval_command(
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
-    # 7. Exit code resolution (1 takes precedence over 3; dry-run always exits 0)
+    # 7. Exit code resolution (1 takes precedence over 3; dry-run exits 3 on file errors, 0 otherwise)
     if dry_run:
+        if has_errors:
+            sys.exit(3)
         sys.exit(0)
     elif fail_on_threshold and has_violations:
         sys.exit(1)
@@ -414,8 +416,10 @@ def validate_command(
             out.write_text(render_validation_markdown(report), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
-    # Exit code resolution (1 over 3 precedence; dry-run exits 0)
+    # Exit code resolution (1 over 3 precedence; dry-run exits 3 on file/runtime errors, 0 otherwise)
     if dry_run:
+        if has_runtime_error:
+            sys.exit(3)
         sys.exit(0)
     elif not report.all_passed:
         sys.exit(1)

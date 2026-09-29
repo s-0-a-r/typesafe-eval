@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, List, Literal, Tuple
 
 from typesafe_sdk import TypeSafeClient, Choice, Noul, Score, TypeSafeError
 
@@ -116,6 +116,30 @@ class TypeSafeEvaluator:
         content, redaction_count, redaction_details = mask_sensitive_data(
             clean_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
         )
+        raw_mapping: Dict[str, List[str]] = (
+            redaction_details.pop("_raw_mapping", {}) if redaction_details else {}
+        )
+
+        _raw_token_cache: Dict[str, set] = {}
+
+        def _raw_tokens_in(text: str) -> set:
+            # Re-run the same detector on the chunk so a raw value matches only as a whole detected token.
+            if text not in _raw_token_cache:
+                _, _, chunk_details = mask_sensitive_data(
+                    text, mask=False, return_details=True, custom_role_patterns=custom_roles
+                )
+                _raw_token_cache[text] = {
+                    raw for vals in chunk_details.get("_raw_mapping", {}).values() for raw in vals
+                }
+            return _raw_token_cache[text]
+
+        def _item_in_text(placeholder: str, text: str) -> bool:
+            if mask_secrets:
+                return placeholder in text
+            raw_occurrences = raw_mapping.get(placeholder, [])
+            if raw_occurrences:
+                return any(raw in _raw_tokens_in(text) for raw in raw_occurrences)
+            return placeholder in text
 
         # 2. Length check & chunking determination
         is_long = len(content) > max_chars
@@ -306,11 +330,11 @@ class TypeSafeEvaluator:
                 if redacted_secrets:
                     st["redacted_secrets"] = redacted_secrets
             else:
-                chunk_em = [f for f in redacted_emails if f["placeholder"] in doc_text]
-                chunk_ph = [f for f in redacted_phones if f["placeholder"] in doc_text]
-                chunk_ip = [f for f in redacted_ips if f["placeholder"] in doc_text]
-                chunk_ur = [f for f in redacted_urls if f["placeholder"] in doc_text]
-                chunk_sec = [f for f in redacted_secrets if f["placeholder"] in doc_text]
+                chunk_em = [f for f in redacted_emails if _item_in_text(f["placeholder"], doc_text)]
+                chunk_ph = [f for f in redacted_phones if _item_in_text(f["placeholder"], doc_text)]
+                chunk_ip = [f for f in redacted_ips if _item_in_text(f["placeholder"], doc_text)]
+                chunk_ur = [f for f in redacted_urls if _item_in_text(f["placeholder"], doc_text)]
+                chunk_sec = [f for f in redacted_secrets if _item_in_text(f["placeholder"], doc_text)]
                 if chunk_em:
                     st["redacted_emails"] = chunk_em
                 if chunk_ph:
@@ -335,45 +359,19 @@ class TypeSafeEvaluator:
             if response.model:
                 model_name = response.model
 
+            cred_q_id = _find_preflight_question(preset, "credentials")
+            cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+            is_cred_override = cred_count > 0 and cred_q_id
+
+            pii_q_id = _find_preflight_question(preset, "pii")
+            pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+            is_pii_override = pii_count > 0 and pii_q_id
+
+            missing_questions = []
             for q_id, q_cfg in preset.questions.items():
-                if q_cfg.type == "score" and q_id in response.scores:
-                    ans = response.scores[q_id]
-                    num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
-                    max_score = float(max(num_levels - 1, 1))
-                    norm_score = min(max(ans.score / max_score, 0.0), 1.0)
-                    scores[q_id] = ScoreResult(
-                        score=ans.score,
-                        max_score=max_score,
-                        normalized_score=norm_score,
-                        confidence=ans.confidence,
-                        probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                    )
-                elif q_cfg.type == "noul" and q_id in response.nouls:
-                    nouls[q_id] = NoulResult(
-                        probability=response.nouls[q_id].noul,
-                    )
-                elif q_cfg.type == "choice" and q_id in response.choices:
-                    ans = response.choices[q_id]
-                    choices[q_id] = ChoiceResult(
-                        choice=ans.choice,
-                        confidence=ans.confidence,
-                        probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                    )
-            for _, q_id, _ in candidate_specs:
-                if q_id in response.nouls:
-                    candidate_prob_map[q_id] = [response.nouls[q_id].noul]
-        else:
-            if has_scores_or_choices:
-                st_trunc = _make_state(content_truncated, is_full=True)
-                resp_sc = _call_system_one_with_retry(client, state=st_trunc, questions=sdk_score_choice_questions)
-                if resp_sc.usage:
-                    total_input_tokens += resp_sc.usage.input_tokens
-                    total_output_tokens += resp_sc.usage.output_tokens
-                if resp_sc.model:
-                    model_name = resp_sc.model
-                for q_id, q_cfg in preset.questions.items():
-                    if q_cfg.type == "score" and q_id in resp_sc.scores:
-                        ans = resp_sc.scores[q_id]
+                if q_cfg.type == "score":
+                    if q_id in response.scores:
+                        ans = response.scores[q_id]
                         num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
                         max_score = float(max(num_levels - 1, 1))
                         norm_score = min(max(ans.score / max_score, 0.0), 1.0)
@@ -384,19 +382,94 @@ class TypeSafeEvaluator:
                             confidence=ans.confidence,
                             probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                         )
-                    elif q_cfg.type == "choice" and q_id in resp_sc.choices:
-                        ans = resp_sc.choices[q_id]
+                    else:
+                        missing_questions.append(q_id)
+                elif q_cfg.type == "noul":
+                    if q_id in response.nouls:
+                        nouls[q_id] = NoulResult(
+                            probability=response.nouls[q_id].noul,
+                        )
+                    elif (is_cred_override and q_id == cred_q_id) or (is_pii_override and q_id == pii_q_id):
+                        nouls[q_id] = NoulResult(
+                            probability=None,
+                            overridden_by="preflight_scan",
+                        )
+                    else:
+                        missing_questions.append(q_id)
+                elif q_cfg.type == "choice":
+                    if q_id in response.choices:
+                        ans = response.choices[q_id]
                         choices[q_id] = ChoiceResult(
                             choice=ans.choice,
                             confidence=ans.confidence,
                             probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
                         )
+                    else:
+                        missing_questions.append(q_id)
+
+            for _, q_id, _ in candidate_specs:
+                if q_id in response.nouls:
+                    candidate_prob_map[q_id] = [response.nouls[q_id].noul]
+                else:
+                    missing_questions.append(q_id)
+
+            if missing_questions:
+                q_names = ", ".join(f"'{q}'" for q in missing_questions)
+                raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
+        else:
+            cred_q_id = _find_preflight_question(preset, "credentials")
+            cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+            is_cred_override = cred_count > 0 and cred_q_id
+
+            pii_q_id = _find_preflight_question(preset, "pii")
+            pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+            is_pii_override = pii_count > 0 and pii_q_id
+
+            if has_scores_or_choices:
+                st_trunc = _make_state(content_truncated, is_full=True)
+                resp_sc = _call_system_one_with_retry(client, state=st_trunc, questions=sdk_score_choice_questions)
+                if resp_sc.usage:
+                    total_input_tokens += resp_sc.usage.input_tokens
+                    total_output_tokens += resp_sc.usage.output_tokens
+                if resp_sc.model:
+                    model_name = resp_sc.model
+                missing_score_choice = []
+                for q_id, q_cfg in preset.questions.items():
+                    if q_cfg.type == "score":
+                        if q_id in resp_sc.scores:
+                            ans = resp_sc.scores[q_id]
+                            num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
+                            max_score = float(max(num_levels - 1, 1))
+                            norm_score = min(max(ans.score / max_score, 0.0), 1.0)
+                            scores[q_id] = ScoreResult(
+                                score=ans.score,
+                                max_score=max_score,
+                                normalized_score=norm_score,
+                                confidence=ans.confidence,
+                                probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                            )
+                        else:
+                            missing_score_choice.append(q_id)
+                    elif q_cfg.type == "choice":
+                        if q_id in resp_sc.choices:
+                            ans = resp_sc.choices[q_id]
+                            choices[q_id] = ChoiceResult(
+                                choice=ans.choice,
+                                confidence=ans.confidence,
+                                probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                            )
+                        else:
+                            missing_score_choice.append(q_id)
+                if missing_score_choice:
+                    q_names = ", ".join(f"'{q}'" for q in missing_score_choice)
+                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
             if chunks:
-                for chunk_text_part in chunks:
+                n_chunks = len(chunks)
+                for chunk_idx, chunk_text_part in enumerate(chunks, start=1):
                     chunk_st = _make_state(chunk_text_part, is_full=False)
                     chunk_questions = dict(sdk_preset_noul_questions)
                     for placeholder, q_id, q_obj in candidate_specs:
-                        if placeholder in chunk_text_part:
+                        if _item_in_text(placeholder, chunk_text_part):
                             chunk_questions[q_id] = q_obj
                     if chunk_questions:
                         resp_chk = _call_system_one_with_retry(client, state=chunk_st, questions=chunk_questions)
@@ -405,6 +478,20 @@ class TypeSafeEvaluator:
                             total_output_tokens += resp_chk.usage.output_tokens
                         if resp_chk.model:
                             model_name = resp_chk.model
+
+                        missing_chunk_questions = []
+                        for q_id in chunk_questions:
+                            if (is_cred_override and q_id == cred_q_id) or (is_pii_override and q_id == pii_q_id):
+                                continue
+                            if q_id not in resp_chk.nouls:
+                                missing_chunk_questions.append(q_id)
+
+                        if missing_chunk_questions:
+                            q_names = ", ".join(f"'{q}'" for q in missing_chunk_questions)
+                            raise RuntimeError(
+                                f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
+                            )
+
                         for q_id in sdk_preset_noul_questions:
                             if q_id in resp_chk.nouls:
                                 preset_noul_probs[q_id].append(resp_chk.nouls[q_id].noul)
@@ -412,18 +499,19 @@ class TypeSafeEvaluator:
                             if q_id in resp_chk.nouls:
                                 candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
 
-                missing_noul_questions = []
+                never_asked = [q_id for _, q_id, _ in candidate_specs if q_id not in candidate_prob_map]
+                if never_asked:
+                    q_names = ", ".join(f"'{q}'" for q in never_asked)
+                    raise RuntimeError(f"Candidate question(s) {q_names} were not asked in any of {n_chunks} chunks")
+
                 for q_id in sdk_preset_noul_questions:
                     probs = preset_noul_probs.get(q_id, [])
                     if probs:
                         nouls[q_id] = NoulResult(probability=max(probs))
+                    elif (is_cred_override and q_id == cred_q_id) or (is_pii_override and q_id == pii_q_id):
+                        nouls[q_id] = NoulResult(probability=None, overridden_by="preflight_scan")
                     else:
                         nouls[q_id] = NoulResult(probability=None)
-                        missing_noul_questions.append(q_id)
-
-                if missing_noul_questions:
-                    q_names = ", ".join(f"'{q}'" for q in missing_noul_questions)
-                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names} across all chunks")
 
         email_violations: List[str] = []
         phone_violations: List[str] = []

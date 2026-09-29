@@ -205,3 +205,47 @@ def test_cli_continue_on_file_error_json_format(tmp_path, monkeypatch):
     assert data[0]["filename"] == "doc1.md"
     # stderr contains doc2 error
     assert f"{doc2}: Disk read error" in (result.stderr or result.output)
+
+
+def test_cli_dry_run_file_read_error_exits_3(tmp_path):
+    """S4: dry-run exits 3 when a file cannot be read (e.g. invalid UTF-8 bytes)."""
+    bad_doc = tmp_path / "bad.md"
+    bad_doc.write_bytes(b"\x80\x81\x82 invalid utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(bad_doc), "--dry-run"])
+    assert result.exit_code == 3
+    assert "codec can't decode byte" in (result.stderr or result.output)
+
+
+def test_cli_max_chars_range(tmp_path):
+    """--max-chars with 0 or negative values must fail usage validation (exit 2)."""
+    doc = tmp_path / "test.md"
+    doc.write_text("# Test document\nContent", encoding="utf-8")
+
+    runner = CliRunner()
+    for val in ["0", "-1", "-100"]:
+        res = runner.invoke(main, [str(doc), "--max-chars", val])
+        assert res.exit_code == 2
+        assert "is not in the range" in (res.stderr or res.output)
+
+
+def test_validate_dry_run_file_read_error_exits_3(tmp_path):
+    """validate --dry-run exits 3 when a document cannot be read (e.g. invalid UTF-8 bytes)."""
+    bad_doc = tmp_path / "bad.md"
+    bad_doc.write_bytes(b"\x80\x81\x82 invalid utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_content = f"""preset: quality
+documents:
+  - path: {bad_doc.name}
+    expect:
+      clarity: present
+"""
+    labels_file.write_text(labels_content, encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+    assert result.exit_code == 3
+
+

@@ -621,3 +621,23 @@ def test_validate_confidentiality_labels_dry_run_and_no_mask():
     data = json.loads(res_unmasked.output)
     assert data["mock"] is True
     assert data["preset_name"] == "safety"
+
+
+def test_criteria_questions_field_rejected_at_load_time(tmp_path):
+    """S5: criteria.questions is removed and forbidden by extra='forbid'."""
+    labels_file = tmp_path / "labels_forbidden.yaml"
+    labels_file.write_text(
+        "preset: quality\n"
+        "criteria:\n"
+        "  questions:\n"
+        "    clarity:\n"
+        "      min_detected: 1\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.validator import load_labels_file
+    with pytest.raises(ValueError) as excinfo:
+        load_labels_file(labels_file)
+
+    assert "criteria -> questions" in str(excinfo.value)
+    assert "Extra inputs are not permitted" in str(excinfo.value)

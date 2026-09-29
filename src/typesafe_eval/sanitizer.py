@@ -374,6 +374,7 @@ def mask_sensitive_data(
     distinct_urls: Dict[str, Dict[str, Any]] = {}
     distinct_secrets: List[Dict[str, Any]] = []
     rule_violations: List[str] = []
+    raw_mapping: Dict[str, List[str]] = {}
 
     details: Dict[str, Any] = {
         "total": 0,
@@ -438,6 +439,7 @@ def mask_sensitive_data(
                 feat["decided_by"] = "rule"
                 distinct_secrets.append(feat)
                 add_span(s, e, default_repl)
+                raw_mapping.setdefault(default_repl, []).append(token)
 
     # 2. Ambiguous secrets (key=val)
     for m in AMBIGUOUS_SECRET_PATTERN.finditer(text):
@@ -475,6 +477,7 @@ def mask_sensitive_data(
             details["by_type"]["ambiguous_secret"] = details["by_type"].get("ambiguous_secret", 0) + 1
             feat["decided_by"] = "model"
             add_span(s, e, f"{key_name}{delim}{placeholder}")
+            raw_mapping.setdefault(placeholder, []).append(matched_str)
 
         distinct_secrets.append(feat)
 
@@ -500,6 +503,10 @@ def mask_sensitive_data(
         else:
             placeholder = distinct_emails[norm_email]["placeholder"]
             features = distinct_emails[norm_email]["features"]
+
+        raw_mapping.setdefault(placeholder, []).append(email_str)
+        if norm_email != email_str:
+            raw_mapping[placeholder].append(norm_email)
 
         if features["domain_type"] == "free_mail":
             details["pii_personal"] = details.get("pii_personal", 0) + 1
@@ -533,6 +540,10 @@ def mask_sensitive_data(
         else:
             placeholder = distinct_urls[norm_url]["placeholder"]
             url_feat = distinct_urls[norm_url]["features"]
+
+        raw_mapping.setdefault(placeholder, []).append(url_str)
+        if norm_url != url_str:
+            raw_mapping[placeholder].append(norm_url)
 
         total_redactions += 1
         if url_feat["is_example_domain"] or url_feat["is_public_common"]:
@@ -572,6 +583,8 @@ def mask_sensitive_data(
             placeholder = distinct_ips[ip_str]["placeholder"]
             ip_feat = distinct_ips[ip_str]["features"]
 
+        raw_mapping.setdefault(placeholder, []).append(ip_str)
+
         total_redactions += 1
         if ip_feat["is_documentation"] or ip_feat["is_loopback"]:
             details["examples"] += 1
@@ -608,6 +621,8 @@ def mask_sensitive_data(
             placeholder = distinct_phones[phone_str]["placeholder"]
             phone_feat = distinct_phones[phone_str]["features"]
 
+        raw_mapping.setdefault(placeholder, []).append(phone_str)
+
         total_redactions += 1
         details["pii"] += 1
         if phone_feat["looks_like_support"]:
@@ -639,6 +654,8 @@ def mask_sensitive_data(
     details["redacted_urls"] = [v["features"] for v in distinct_urls.values()]
     details["redacted_secrets"] = distinct_secrets
     details["rule_violations"] = rule_violations
+    if not mask:
+        details["_raw_mapping"] = raw_mapping
 
     if return_details:
         return sanitized, total_redactions, details

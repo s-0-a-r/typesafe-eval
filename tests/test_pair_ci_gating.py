@@ -354,7 +354,7 @@ def test_retry_transient_api_errors(monkeypatch):
             mock_ans.probabilities = {}
             mock_resp = MagicMock()
             mock_resp.scores = {"clarity": mock_ans}
-            mock_resp.nouls = {}
+            mock_resp.nouls = {q: MagicMock(noul=0.1) for q in questions if q != "clarity"}
             mock_resp.choices = {}
             mock_resp.usage = None
             mock_resp.model = "test-model"
@@ -870,8 +870,32 @@ def test_group_by_kind_two_questions(tmp_path):
 
 
 def test_pair_guard_down_tolerance_default(tmp_path):
-    """Default tolerance 0.0 fails down pair with delta = +0.005."""
-    pairs_data = [
+    """Default tolerance 0.0: delta = 0.000 passes (equal), delta = +0.005 fails (above)."""
+    # 1. Delta = 0.000 exactly passes boundary
+    pairs_data_equal = [
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.50),  # delta = 0.000 (equal to tolerance)
+    ]
+    dir_equal = tmp_path / "equal"
+    dir_equal.mkdir()
+    report_equal = _setup_group_scenario(
+        dir_equal,
+        pairs_data_equal,
+        {"pair_guard_neutral_abs_max": 0.10, "min_group_size": 6},
+    )
+    p_equal = next(p for p in report_equal.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.0)
+    assert p_equal.passed is True
+    crit_equal = next(c for c in report_equal.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    assert crit_equal.passed is True
+    assert "down <= 0.000" in crit_equal.expected
+    assert report_equal.all_passed is True
+
+    # 2. Delta = +0.005 fails (above tolerance)
+    pairs_data_above = [
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
@@ -879,29 +903,31 @@ def test_pair_guard_down_tolerance_default(tmp_path):
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.505),  # delta = +0.005
     ]
-    report = _setup_group_scenario(
-        tmp_path,
-        pairs_data,
+    dir_above = tmp_path / "above"
+    dir_above.mkdir()
+    report_above = _setup_group_scenario(
+        dir_above,
+        pairs_data_above,
         {"pair_guard_neutral_abs_max": 0.10, "min_group_size": 6},
     )
-    slight_up_p = next(p for p in report.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005)
+    slight_up_p = next(p for p in report_above.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005)
     assert slight_up_p.passed is False
-    crit = next(c for c in report.criteria_results if c.name == "pair_guard_neutral_abs_max")
-    assert crit.passed is False
-    assert "down < 0.000" in crit.expected
-    assert report.all_passed is False
+    crit_above = next(c for c in report_above.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    assert crit_above.passed is False
+    assert "down <= 0.000" in crit_above.expected
+    assert report_above.all_passed is False
 
 
 def test_pair_guard_down_tolerance_custom(tmp_path):
-    """Tolerance 0.02 passes down pair with delta = +0.005 and fails delta = +0.020."""
-    # Passes with delta = +0.005
+    """Tolerance 0.02: delta = +0.020 passes (equal), delta = +0.021 fails (just above)."""
+    # Passes with delta = +0.020 (equal to tolerance)
     pairs_data_pass = [
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
-        ("shuffled", "down", 0.50, 0.505),  # delta = +0.005 (< 0.02)
+        ("shuffled", "down", 0.0, 0.020),  # delta = +0.020 (equal to tolerance)
     ]
     dir_pass = tmp_path / "pass"
     dir_pass.mkdir()
@@ -910,21 +936,21 @@ def test_pair_guard_down_tolerance_custom(tmp_path):
         pairs_data_pass,
         {"pair_guard_neutral_abs_max": 0.10, "pair_guard_down_tolerance": 0.02, "min_group_size": 6},
     )
-    p_pass = next(p for p in report_pass.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005)
+    p_pass = next(p for p in report_pass.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.02)
     assert p_pass.passed is True
     crit_pass = next(c for c in report_pass.criteria_results if c.name == "pair_guard_neutral_abs_max")
     assert crit_pass.passed is True
-    assert "down < 0.020" in crit_pass.expected
+    assert "down <= 0.020" in crit_pass.expected
     assert report_pass.all_passed is True
 
-    # Fails with delta = +0.020
+    # Fails with delta = +0.021 (just above tolerance)
     pairs_data_fail = [
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
         ("shuffled", "down", 0.50, 0.30),
-        ("shuffled", "down", 0.50, 0.520),  # delta = +0.020 (>= 0.02)
+        ("shuffled", "down", 0.0, 0.021),  # delta = +0.021 (> 0.02)
     ]
     dir_fail = tmp_path / "fail"
     dir_fail.mkdir()
@@ -933,7 +959,7 @@ def test_pair_guard_down_tolerance_custom(tmp_path):
         pairs_data_fail,
         {"pair_guard_neutral_abs_max": 0.10, "pair_guard_down_tolerance": 0.02, "min_group_size": 6},
     )
-    p_fail = next(p for p in report_fail.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.02)
+    p_fail = next(p for p in report_fail.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.021)
     assert p_fail.passed is False
     crit_fail = next(c for c in report_fail.criteria_results if c.name == "pair_guard_neutral_abs_max")
     assert crit_fail.passed is False

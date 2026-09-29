@@ -1,5 +1,6 @@
 """Tests for per-candidate Noul evaluation (phone, IP, URL, secrets) and decoupled masking (#40)."""
 
+import json
 from pathlib import Path
 from click.testing import CliRunner
 import pytest
@@ -180,6 +181,8 @@ def test_decoupled_masking_no_mask_flag(tmp_path):
     assert len(details["redacted_urls"]) == 1
     assert len(details["redacted_emails"]) == 1
     assert len(details["redacted_secrets"]) == 1
+    assert "_raw_mapping" not in details
+    assert "hunter2" not in json.dumps(details, default=str)
 
     # Unmasked (--no-mask): raw text is preserved, count is 0, but details are fully extracted
     unmasked, count_unmasked, details_unmasked = mask_sensitive_data(raw, mask=False, return_details=True)
@@ -318,7 +321,7 @@ Legacy note: the password is {raw_secret_prose}
         "url_pii_1": MagicMock(noul=0.8),
         "secret_1": MagicMock(noul=0.8),
     }
-    mock_resp.choices = {}
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -370,3 +373,534 @@ Legacy note: the password is {raw_secret_prose}
     assert url_feat["is_internal_tld"] is True
     assert url_feat["suffix_class"] == ".internal"
     assert url_feat["is_example_domain"] is False
+
+
+def test_chunking_candidate_questions_per_call_masked_and_unmasked(tmp_path):
+    """B1: Masked behaviour must not change, and unmasked must match question sets per call."""
+    from types import SimpleNamespace as NS
+
+    class RecordingFakeClient:
+        def __init__(self):
+            self.calls = []
+            self.states = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(list(questions.keys())))
+            self.states.append(state)
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {q: NS(noul=0.1) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    doc = tmp_path / "long_doc.md"
+    doc.write_text(
+        "Contact taro.yamada@acme-corp.com or call +1-415-555-2671.\n\n"
+        + "A" * 30000 + "\n\n"
+        + "Visit http://internal-dashboard.corp.acme/metrics for details.\n\n"
+        + "B" * 30000 + "\n\n",
+        encoding="utf-8"
+    )
+
+    safety = load_preset("safety")
+    expected_calls = [
+        ["confidentiality_risk", "policy_compliance"],
+        ["email_pii_1", "has_pii", "has_secrets", "phone_pii_1"],
+        ["has_pii", "has_secrets", "url_pii_1"],
+        ["has_pii", "has_secrets"],
+    ]
+
+    # 1. Masked
+    ev_masked = TypeSafeEvaluator(api_key="mock")
+    fake_masked = RecordingFakeClient()
+    ev_masked._client = fake_masked
+    res_masked = ev_masked.evaluate_document(str(doc), preset=safety, mask_secrets=True, max_chars=25000)
+    assert fake_masked.calls == expected_calls
+
+    # 2. Unmasked
+    ev_unmasked = TypeSafeEvaluator(api_key="mock")
+    fake_unmasked = RecordingFakeClient()
+    ev_unmasked._client = fake_unmasked
+    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=safety, mask_secrets=False, max_chars=25000)
+    assert fake_unmasked.calls == expected_calls
+
+    # 3. Verify internal raw mapping does not leak into redaction_details or state, and email/phone don't leak outside text
+    assert "_raw_mapping" not in res_masked.redaction_details
+    assert "_raw_mapping" not in res_unmasked.redaction_details
+    assert "taro.yamada@acme-corp.com" not in json.dumps(res_masked.redaction_details, default=str)
+    for st in fake_unmasked.states:
+        outside_text = {k: v for k, v in st.items() if k != "document"}
+        serialized = json.dumps(outside_text)
+        assert "taro.yamada@acme-corp.com" not in serialized
+        assert "taro.yamada" not in serialized
+        assert "+1-415-555-2671" not in serialized
+        assert "415-555-2671" not in serialized
+
+
+def test_long_document_unmasked_candidate_evaluation_email_and_url(tmp_path):
+    """B1: ~50k doc with corporate personal address or internal URL fails with outcome personal/sensitive both masked and unmasked."""
+    from types import SimpleNamespace as NS
+
+    class MockClient:
+        def __init__(self, target_prefix):
+            self.target_prefix = target_prefix
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(list(questions.keys()))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.95 if q.startswith(self.target_prefix) else 0.05)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    safety = load_preset("safety")
+
+    # Email test
+    doc_email = tmp_path / "long_email.md"
+    doc_email.write_text("Contact taro.yamada@acme-corp.com for access.\n\n" + ("filler paragraph text.\n\n" * 2000), encoding="utf-8")
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = MockClient(target_prefix="email_pii")
+        res = ev.evaluate_document(str(doc_email), preset=safety, mask_secrets=mask)
+        assert res.passed_thresholds is False, f"Expected FAIL for mask={mask}"
+        assert len(res.email_evaluations) == 1
+        assert res.email_evaluations[0].outcome == "personal"
+        assert res.email_evaluations[0].probability == 0.95
+
+    # Internal URL test
+    doc_url = tmp_path / "long_url.md"
+    doc_url.write_text("Visit http://internal-dashboard.corp.acme/metrics for access.\n\n" + ("filler paragraph text.\n\n" * 2000), encoding="utf-8")
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = MockClient(target_prefix="url_pii")
+        res = ev.evaluate_document(str(doc_url), preset=safety, mask_secrets=mask)
+        assert res.passed_thresholds is False, f"Expected FAIL for mask={mask}"
+        assert len(res.url_evaluations) == 1
+        assert res.url_evaluations[0].outcome == "sensitive"
+        assert res.url_evaluations[0].probability == 0.95
+
+
+def test_delimiter_matching_ip_substring_unmasked(tmp_path):
+    """(a) 10.0.0.1 in the first chunk and 10.0.0.15 in a later chunk:
+    per-call question sets and IP outcomes are identical masked and unmasked.
+    """
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500
+    doc = tmp_path / "ip_test.md"
+    doc.write_text(f"Doc sample IP 10.0.0.1 in example.\n\n{FILL}Prod DB at 10.0.0.15.\n", encoding="utf-8")
+
+    class RecordingFake:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(questions.keys()))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.9 if (q.startswith("ip_") and "Prod DB" in state.get("document", "")) else 0.1)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+
+    fake_masked = RecordingFake()
+    ev_masked = TypeSafeEvaluator(api_key="mock")
+    ev_masked._client = fake_masked
+    res_masked = ev_masked.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    fake_unmasked = RecordingFake()
+    ev_unmasked = TypeSafeEvaluator(api_key="mock")
+    ev_unmasked._client = fake_unmasked
+    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=preset, mask_secrets=False)
+
+    assert fake_masked.calls == fake_unmasked.calls
+    masked_outcomes = [(e.placeholder, e.outcome, e.probability) for e in res_masked.ip_evaluations]
+    unmasked_outcomes = [(e.placeholder, e.outcome, e.probability) for e in res_unmasked.ip_evaluations]
+    assert masked_outcomes == unmasked_outcomes
+    assert masked_outcomes == [("[IP_1]", "safe", 0.1), ("[IP_2]", "sensitive", 0.9)]
+
+
+def test_delimiter_matching_secret_substring_unmasked(tmp_path):
+    """(b) password=1 early and Version 1 in a later chunk:
+    per-call question sets and secret outcomes are identical masked and unmasked.
+    """
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500
+    doc = tmp_path / "secret_test.md"
+    doc.write_text(f"Config: password=1 in setup.\n\n{FILL}Release Version 1 notes.\n", encoding="utf-8")
+
+    class RecordingFake:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(questions.keys()))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.9 if (q.startswith("secret_") and "Version 1" in state.get("document", "")) else 0.1)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+
+    fake_masked = RecordingFake()
+    ev_masked = TypeSafeEvaluator(api_key="mock")
+    ev_masked._client = fake_masked
+    res_masked = ev_masked.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    fake_unmasked = RecordingFake()
+    ev_unmasked = TypeSafeEvaluator(api_key="mock")
+    ev_unmasked._client = fake_unmasked
+    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=preset, mask_secrets=False)
+
+    assert fake_masked.calls == fake_unmasked.calls
+    masked_outcomes = [(s.placeholder, s.outcome, s.probability) for s in res_masked.secret_evaluations]
+    unmasked_outcomes = [(s.placeholder, s.outcome, s.probability) for s in res_unmasked.secret_evaluations]
+    assert masked_outcomes == unmasked_outcomes
+    assert len(masked_outcomes) == 1
+    assert masked_outcomes[0] == ("[SECRET_1]", "safe", 0.1)
+
+
+@pytest.mark.parametrize("long", [False, True])
+@pytest.mark.parametrize("mask", [False, True])
+def test_candidate_omitted_raises(tmp_path, long, mask):
+    """Candidate question omitted from response raises RuntimeError in both short and long, masked and unmasked."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500 if long else ""
+    doc = tmp_path / "em.md"
+    doc.write_text(f"Send it to taro.yamada@acme-corp.com.\n\n{FILL}", encoding="utf-8")
+
+    class DropCandidateClient:
+        def system_one(self, state, questions):
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.05)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance") and not q.startswith("email_pii")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropCandidateClient()
+    with pytest.raises(RuntimeError, match="email_pii_1"):
+        ev.evaluate_document(str(doc), preset=preset, mask_secrets=mask)
+
+
+def test_chunk_single_omitted_question_raises(tmp_path):
+    """Long document where only one chunk omits has_pii raises RuntimeError with chunk index."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500
+    doc = tmp_path / "long_doc.md"
+    doc.write_text(f"Heading\n\n{FILL}Middle\n\n{FILL}End\n", encoding="utf-8")
+
+    class DropInSecondChunkClient:
+        def __init__(self):
+            self.call_count = 0
+        def system_one(self, state, questions):
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            if "has_pii" in questions:
+                self.call_count += 1
+            # If chunk 2, omit has_pii
+            drop = {"has_pii"} if self.call_count == 2 else set()
+            nouls = {
+                q: NS(noul=0.05)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance") and q not in drop
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropInSecondChunkClient()
+    with pytest.raises(RuntimeError, match=r"has_pii.*in chunk 2/"):
+        ev.evaluate_document(str(doc), preset=preset)
+
+
+@pytest.mark.parametrize("long", [False, True])
+@pytest.mark.parametrize("q", ["confidentiality_risk", "policy_compliance"])
+def test_missing_score_choice_raises(tmp_path, q, long):
+    """Score and choice missing from response raise RuntimeError in short and long documents."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("hello\n\n" + (FILL if long else ""), encoding="utf-8")
+
+    class DropClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk" and k != q}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance" and k != q}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance") and k != q}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropClient()
+    with pytest.raises(RuntimeError, match=q):
+        ev.evaluate_document(str(d), preset=load_preset("safety"))
+
+
+def test_chunked_cred_override_when_model_omits(tmp_path):
+    """Chunked preflight exemption when every chunk omits has_secrets (overridden_by == 'preflight_scan', FAIL)."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("key sk-abcdef1234567890abcdef123456\n\n" + FILL, encoding="utf-8")
+
+    class DropSecretsClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance") and k != "has_secrets"}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropSecretsClient()
+    res = ev.evaluate_document(str(d), preset=load_preset("safety"))
+    assert res.nouls["has_secrets"].overridden_by == "preflight_scan"
+    assert res.passed_thresholds is False
+
+
+def test_unmasked_chunk_state_has_features(tmp_path):
+    """Unmasked chunk state carries redacted_emails for the chunk with the address."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
+
+    class CaptureClient:
+        def __init__(self):
+            self.states = []
+            self.calls = []
+        def system_one(self, state, questions):
+            self.states.append(state)
+            self.calls.append(list(questions.keys()))
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    c = CaptureClient()
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = c
+    ev.evaluate_document(str(d), preset=load_preset("safety"), mask_secrets=False)
+    chunk_states = [s for s, calls in zip(c.states, c.calls) if "email_pii_1" in calls]
+    assert chunk_states and all(
+        [e["placeholder"] for e in s.get("redacted_emails", [])] == ["[EMAIL_1]"]
+        for s in chunk_states
+    )
+
+
+@pytest.mark.parametrize("text,prefix,attr", [
+    ("Server at 10.1.2.3 internal host.\n\n", "ip_pii", "ip_evaluations"),
+    ("db_password=Xk9vLq2Tz8Wm\n\n", "secret", "secret_evaluations"),
+])
+def test_unmasked_long_ip_secret_candidates(tmp_path, text, prefix, attr):
+    """IP and key=val secret candidates in a long unmasked document get the model probability."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text(FILL + text + FILL, encoding="utf-8")
+
+    class TargetHiClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {
+                k: NS(noul=0.95 if k.startswith(prefix) else 0.05)
+                for k in questions if k not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = TargetHiClient()
+        res = ev.evaluate_document(str(d), preset=load_preset("safety"), mask_secrets=mask)
+        evs = getattr(res, attr)
+        assert evs, f"No evaluations found for {attr}"
+        assert any(e.probability == 0.95 for e in evs), (mask, evs)
+
+
+@pytest.mark.parametrize("mask", [True, False])
+def test_raw_mapping_not_in_result(tmp_path, mask):
+    """_raw_mapping is never in res.redaction_details, and raw address is not in serialized details when masking."""
+    from types import SimpleNamespace as NS
+
+    d = tmp_path / "a.md"
+    d.write_text("Contact taro.yamada@acme-corp.com\n", encoding="utf-8")
+
+    class SimpleClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = SimpleClient()
+    res = ev.evaluate_document(str(d), preset=load_preset("safety"), mask_secrets=mask)
+    assert "_raw_mapping" not in res.redaction_details
+    if mask:
+        assert "taro.yamada@acme-corp.com" not in json.dumps(res.redaction_details, default=str)
+
+
+@pytest.mark.parametrize("text", [
+    "Owners: hanako@acme-corp.com/taro.yamada@acme-corp.com today.",
+    "Owner (cc/taro.yamada@acme-corp.com) today.",
+    "owner -taro.yamada@acme-corp.com",
+    "GET /users/taro.yamada@acme-corp.com/settings",
+    "link x/http://internal-dashboard.corp.acme/metrics",
+    "Prod DB subnet 10.1.2.3/24 internal.",
+    "Start with --password=Xk9vLq2Tz8Wm now.",
+])
+def test_unmasked_delimiter_regression(tmp_path, text):
+    """3a: Unmasked chunk matching accepts raw values adjacent to / or -."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text(FILL + text + "\n\n" + FILL, encoding="utf-8")
+
+    class RecordingFakeClient:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(list(questions.keys())))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.95 if any(q.startswith(p) for p in ("email_pii", "ip_pii", "url_pii", "secret")) else 0.05)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    results = {}
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        client = RecordingFakeClient()
+        ev._client = client
+        res = ev.evaluate_document(str(d), preset=preset, mask_secrets=mask)
+        evs = [
+            (e.placeholder, e.outcome, e.probability)
+            for attr in ("email_evaluations", "ip_evaluations", "url_evaluations", "secret_evaluations")
+            for e in getattr(res, attr)
+        ]
+        results[mask] = (client.calls, res.passed_thresholds, evs)
+
+    assert results[True] == results[False]
+    assert results[False][1] is False
+
+
+@pytest.mark.parametrize("val_a,val_b", [
+    ("taro@acme.co", "taro@acme.co.jp"),
+    ("taro@acme.com", "x.taro@acme.com"),
+    ("taro@acme.com", "dev-taro@acme.com"),
+])
+def test_substring_discrimination_across_chunks(tmp_path, val_a, val_b):
+    """3b: Substring discrimination across chunks: masked and unmasked per-call question lists are equal."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 1500
+    d = tmp_path / "sub.md"
+    d.write_text(f"Contact {val_a}\n\n{FILL}Alternative {val_b}\n", encoding="utf-8")
+
+    class RecordingFakeClient:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(list(questions.keys())))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {q: NS(noul=0.1) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    calls = {}
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        client = RecordingFakeClient()
+        ev._client = client
+        ev.evaluate_document(str(d), preset=preset, mask_secrets=mask)
+        calls[mask] = client.calls
+
+    assert calls[True] == calls[False]
+
+
+def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
+    """3c: Candidate never asked in any chunk raises RuntimeError matching 'not asked in any of'."""
+    from typesafe_eval import client as client_mod
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "doc.md"
+    d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
+
+    orig_mask = client_mod.mask_sensitive_data
+    call_count = 0
+
+    def patched_mask(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        text, count, details = orig_mask(*args, **kwargs)
+        if call_count > 1 and details and "_raw_mapping" in details:
+            details = dict(details)
+            details["_raw_mapping"] = {}
+        return text, count, details
+
+    monkeypatch.setattr(client_mod, "mask_sensitive_data", patched_mask)
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {q: NS(noul=0.05) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = FakeClient()
+    with pytest.raises(RuntimeError, match="not asked in any of"):
+        ev.evaluate_document(str(d), preset=preset, mask_secrets=False)
+
+
+def test_chunked_pii_override_when_model_omits(tmp_path):
+    """Chunked preflight exemption for a preflight: pii question omitted in every chunk."""
+    from types import SimpleNamespace as NS
+    from typesafe_eval.models import PresetConfig, QuestionConfig
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("Contact hanako.suzuki@gmail.com\n\n" + FILL, encoding="utf-8")
+    preset = PresetConfig(
+        name="custom_pii_guard",
+        questions={
+            "pii_gate": QuestionConfig(
+                type="noul", label="PII Check", instructions="Check for PII", preflight="pii", max_threshold=0.3
+            )
+        },
+    )
+
+    class DropPiiGateClient:
+        def system_one(self, state, questions):
+            no = {k: NS(noul=0.05) for k in questions if k != "pii_gate"}
+            return NS(usage=None, model="f", scores={}, choices={}, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropPiiGateClient()
+    res = ev.evaluate_document(str(d), preset=preset)
+    assert res.nouls["pii_gate"].overridden_by == "preflight_scan"
+    assert res.passed_thresholds is False
+
+
