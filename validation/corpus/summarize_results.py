@@ -71,12 +71,13 @@ def validator_section(name, rep, public):
             out += [f"| {doc_of(r['path'])} | {r['question_id']} | {r['expected']} | {r['verdict']} |" for r in rows]
             out.append("")
     if rep["pair_group_results"]:
-        out += ["| Kind | Expected | n | Mean Δ | 95% CI | Result | Worst pair |", "|---|---|---|---|---|---|---|"]
+        out += ["| Kind | Question | Expected | n | Mean Δ | 95% CI | Result | Worst pair |",
+                "|---|---|---|---|---|---|---|---|"]
         for g in rep["pair_group_results"]:
             worst = g.get("worst_pair_path") or ""
             doc = worst[1:worst.index("]")] if worst.startswith("[") and "]" in worst else None
             worst = f"{doc} ({fmt(g.get('worst_pair_delta'))})" if doc in public else HIDDEN if worst else "–"
-            out.append(f"| {g['kind']} | {g['expected']} | {g['n']} | {fmt(g['mean_delta'])} | "
+            out.append(f"| {g['kind']} | {g.get('question_id') or '–'} | {g['expected']} | {g['n']} | {fmt(g['mean_delta'])} | "
                        f"{ci(g['ci_95_lower'], g['ci_95_upper'])} | {verdict(g['passed'])} | {worst} |")
         out.append("")
     if rep["criteria_results"]:
