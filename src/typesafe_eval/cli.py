@@ -176,7 +176,7 @@ def eval_command(
     baseline_lookup = None
     if baseline:
         try:
-            baseline_lookup = load_baseline(baseline)
+            baseline_lookup = load_baseline(baseline, expected_preset=preset_cfg.name)
         except FileNotFoundError as e:
             err_console.print(f"[bold red]Error:[/bold red] {e}")
             sys.exit(2)
@@ -204,12 +204,16 @@ def eval_command(
 
             # Compare against baseline if active
             if baseline_lookup is not None:
-                res, has_reg, warn_msg = compare_document_with_baseline(
-                    result=res,
-                    baseline_lookup=baseline_lookup,
-                    preset=preset_cfg,
-                    default_max_drop=0.10,
-                )
+                try:
+                    res, has_reg, warn_msg = compare_document_with_baseline(
+                        result=res,
+                        baseline_lookup=baseline_lookup,
+                        preset=preset_cfg,
+                        default_max_drop=0.10,
+                    )
+                except ValueError as e:
+                    err_console.print(f"[bold red]Error comparing baseline:[/bold red] {e}")
+                    sys.exit(2)
                 if warn_msg:
                     click.echo(f"Warning: {warn_msg}", err=True)
                 if has_reg:

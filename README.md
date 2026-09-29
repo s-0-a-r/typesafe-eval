@@ -231,6 +231,7 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
   - Overall 99th percentile was `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
+- **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).
 
 ### 8. Near-Threshold Indication (`near_threshold`)
 Because run-to-run noise is up to about 0.050, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:

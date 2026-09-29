@@ -122,7 +122,7 @@ def test_baseline_custom_max_drop_in_yaml(tmp_path, monkeypatch):
     )
 
     # Baseline clarity: 0.90
-    prev_res = _make_eval_result(str(doc), score_val=0.90)
+    prev_res = _make_eval_result(str(doc), score_val=0.90, preset_name="custom")
     baseline_file = tmp_path / "prev.json"
     baseline_file.write_text(json.dumps([prev_res.model_dump()]), encoding="utf-8")
 
@@ -131,7 +131,7 @@ def test_baseline_custom_max_drop_in_yaml(tmp_path, monkeypatch):
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
-        lambda *args, **kwargs: _make_eval_result(str(doc), score_val=0.72),
+        lambda *args, **kwargs: _make_eval_result(str(doc), score_val=0.72, preset_name="custom"),
     )
 
     runner = CliRunner()
@@ -343,4 +343,39 @@ def test_baseline_multiple_same_filename_no_collision(tmp_path, monkeypatch):
     assert diffs_by_file[str(doc_b)]["status"] == "compared"
     # doc_c must be "new", not falsely compared to a or b!
     assert diffs_by_file[str(doc_c)]["status"] == "new"
+
+
+def test_baseline_with_mock_rejected(tmp_path):
+    """B: Baseline containing mock: true documents is rejected with exit code 2."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc", encoding="utf-8")
+
+    res = _make_eval_result(str(doc), score_val=0.90)
+    data = res.model_dump()
+    data["mock"] = True
+
+    baseline_file = tmp_path / "baseline_mock.json"
+    baseline_file.write_text(json.dumps([data]), encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    assert result.exit_code == 2
+    assert "mock=true" in result.output.lower() or "dry-run" in result.output.lower()
+
+
+def test_baseline_with_mismatched_preset_rejected(tmp_path):
+    """B: Baseline containing documents evaluated with a different preset is rejected with exit code 2."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc", encoding="utf-8")
+
+    res = _make_eval_result(str(doc), preset_name="safety")
+    baseline_file = tmp_path / "baseline_safety.json"
+    baseline_file.write_text(json.dumps([res.model_dump()]), encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    assert result.exit_code == 2
+    assert "preset" in result.output.lower()
+    assert "safety" in result.output.lower()
+
 
