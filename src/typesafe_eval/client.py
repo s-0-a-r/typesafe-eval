@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, List, Literal, Tuple
 
 from typesafe_sdk import TypeSafeClient, Choice, Noul, Score, TypeSafeError
 

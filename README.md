@@ -152,7 +152,7 @@ typesafe-eval specs/*.txt --preset safety
    - **Free-mail Addresses**: Free-mail providers (`gmail.com`, `yahoo.com`, `icloud.com`, etc.) deterministically fail as personal PII (`decided_by: "free_mail"`).
 5. **Parallel Per-Candidate Evaluation**: Ambiguous candidates (e.g. corporate emails, private IPs, internal TLDs like `.internal`/`.corp`, switchboard vs personal phones, ambiguous `key=val` secrets) are evaluated via parallel `Noul` questions, allowing the model to make contextual determinations based on surrounding document text.
 6. **Decoupled Detection from Masking**:
-   - Detection, feature extraction, and candidate questions **always run**, even when `--no-mask` is passed.
+   - Detection, feature extraction, and candidate questions **always run**, even when `--no-mask` is passed (including for long, chunked documents).
    - `--no-mask` controls only whether sensitive values are substituted in the document text sent to the API.
    - With `--no-mask`, deterministic rules still apply (e.g. `support@gmail.com` and exposed credentials still fail by rule).
 7. **HTML Comments Stripped**:
@@ -160,6 +160,7 @@ typesafe-eval specs/*.txt --preset safety
 
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
+- **HTML Comments Removed**: HTML comments are removed before detection, so secrets or PII inside `<!-- -->` are not checked; use a dedicated secret scanner as well.
 
 ### 3. Evaluate Technical Specs (`tech-spec`)
 ```bash
@@ -232,7 +233,7 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 
 ### 8. Near-Threshold Indication (`near_threshold`)
-Because run-to-run noise is up to about 0.055, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+Because run-to-run noise is up to about 0.050, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
 - **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
 - **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).

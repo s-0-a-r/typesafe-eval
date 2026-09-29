@@ -89,7 +89,7 @@ def main():
 )
 @click.option(
     "--max-chars",
-    type=int,
+    type=click.IntRange(min=1),
     default=25000,
     help="Maximum character threshold before safe head/tail truncation. Default: 25000.",
 )

@@ -217,3 +217,15 @@ def test_cli_dry_run_file_read_error_exits_3(tmp_path):
     assert result.exit_code == 3
     assert "codec can't decode byte" in (result.stderr or result.output)
 
+
+def test_cli_max_chars_range(tmp_path):
+    """--max-chars with 0 or negative values must fail usage validation (exit 2)."""
+    doc = tmp_path / "test.md"
+    doc.write_text("# Test document\nContent", encoding="utf-8")
+
+    runner = CliRunner()
+    for val in ["0", "-1", "-100"]:
+        res = runner.invoke(main, [str(doc), "--max-chars", val])
+        assert res.exit_code == 2
+        assert "is not in the range" in (res.stderr or res.output)
+
