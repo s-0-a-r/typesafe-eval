@@ -21,6 +21,32 @@ A round succeeds for a label file when all of these hold on the tuning split:
 3. Every present item's probabilities are at least 0.15 away from 0.5 (with 2 runs, a value such as 0.54 / 0.48 is decided by noise).
 4. No other question or file gets more misses or false alarms than in round 0.
 
+## Round 1 (written before running it)
+
+This section was added with the rewording itself, before any round 1 call.
+
+**The wording.** One suffix is appended, unchanged, to the `instructions` of every Noul question in `design_doc` (10) and `pr_description` (5):
+
+> Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else.
+
+It is wider than the "own section or paragraph" of #41 on purpose. The labels were written to the rule "stated explicitly", and some present labels rest on less than a section: `go-draft-fuzzing`'s `metrics` on one sentence, and several `related_issues` on a single line with a link or "Fixes #N". A section-or-paragraph wording would turn those into new false alarms that the labels do not support.
+
+Considered and not used:
+- naming a "metadata field" (KEP front matter for `owner_timeline`): `owner_timeline` has no present label in tuning, so the effect could not be checked;
+- "A statement that there is none counts.": `breaking_changes` already asks "whether there are";
+- "parts written for another purpose" in the second sentence: what a section was written for is not visible in the text. A KEP "What are other known failure modes?" answer would count as written for risks. "About something else" asks what the text is about, which can be checked against the document;
+- "list item" and "link": bare links and "Fixes #N" already score 0.90 to 0.98 for `related_issues` in round 0b, and "list item" would make one bullet in a list of design decisions easier to take as a non-goal.
+
+**How round 1 is read.**
+- Files: `labels_{pr_en,pr_ja,design_doc_en,design_doc_ja}.tuning.yaml`, once each. `tech_spec` and `quality` are not rerun; their questions do not change.
+- Criterion 4 compares with round 0b (`results/2026-09-29b/`, the same tool after the fixes above), not round 0. It counts misses and false alarms per (file, question). A lower probability without a changed verdict is not worse. A question with no items in a file cannot be worse there.
+- A present item that fails criterion 3 makes its question "not met" in that preset version.
+- Criterion 3 already fails in round 0b for four present items: `pr-rust-lang-rust-147803` `related_issues` 0.56 / 0.59, `pr-misskey-dev-misskey-14375` `testing` 0.61 / 0.61, `kep-3325` `migration` 0.60 / 0.59, `go-draft-fuzzing` `metrics` 0.61 / 0.56. Round 1 is read against these.
+- `kep-3325` `risks` (absent) is at 0.49 / 0.49 in round 0b, within noise of the threshold. Any wording can move it. If it becomes a miss, it counts as worse under criterion 4; it is not explained away afterwards.
+- The preset version is the commit that adds this section. The run log records that commit and the sha256 of both preset files.
+
+**If a round 2 is needed.** The change again applies to every Noul question in both presets, all four files are rerun, and criterion 4 still compares with round 0b. A file that passed in round 1 is not frozen while the others are reworded.
+
 ## Held-out
 
 Held-out runs once per preset version. If a file fails there, the failing items ship as "not reliable" or are removed; the same held-out set is not run a second time for that version. A later confirmatory claim needs newly collected documents.
