@@ -236,3 +236,25 @@ def test_strip_html_comments_no_comments_unchanged():
     text = "# Title\n\nThis is a standard document with no comments."
     assert strip_html_comments(text) == text
 
+
+def test_consecutive_chunks_overlap():
+    """A4: Consecutive chunks overlap under defaults on long text and with max_chars=500, overlap=100."""
+    from typesafe_eval.sanitizer import chunk_text
+
+    # 1. Defaults on long text
+    long_text = ("Section Heading\n\nParagraph text line.\n" * 2000)
+    chunks_default = chunk_text(long_text)
+    assert len(chunks_default) > 1
+    for i in range(len(chunks_default) - 1):
+        c1, c2 = chunks_default[i], chunks_default[i + 1]
+        assert any(c1[-k:] == c2[:k] for k in range(100, min(len(c1), len(c2))))
+
+    # 2. max_chars=500, overlap=100
+    custom_text = ("a" * 490 + "\n" + "b" * 490 + "\n") * 5
+    chunks_custom = chunk_text(custom_text, max_chars=500, overlap=100)
+    assert len(chunks_custom) > 1
+    for i in range(len(chunks_custom) - 1):
+        c1, c2 = chunks_custom[i], chunks_custom[i + 1]
+        assert any(c1[-k:] == c2[:k] for k in range(10, min(len(c1), len(c2))))
+
+
