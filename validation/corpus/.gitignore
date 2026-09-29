@@ -1,0 +1,20 @@
+# Documents written by other people are not committed. Rebuild them with
+# fetch_documents.py and fetch_pr_bodies.py, then build_pairs.py (see README.md).
+article/
+design_doc/
+pr_description/
+variants/*
+!variants/pep-0655/
+!variants/pep-0709/
+!variants/swift-se-0510/
+!variants/kep-3140/
+variants/pep-0655/*
+variants/pep-0709/*
+variants/swift-se-0510/*
+variants/kep-3140/*
+!variants/pep-0655/paraphrase.md
+!variants/pep-0709/paraphrase.md
+!variants/swift-se-0510/paraphrase.md
+!variants/kep-3140/paraphrase.md
+# Measurement output stays local. Publish only what summarize_results.py prints.
+results/

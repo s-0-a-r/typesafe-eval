@@ -1,0 +1,15 @@
+# Built by build_pairs.py from labels_design_doc_ja.yaml (edit that file, not this one). split: heldout.
+# 1 documents, 0 absent / 5 present labels. min_detected = ceil(0.8 x absent).
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 0
+  max_false_alarms: 0
+documents:
+- path: design_doc/ja/mizchi-vlmkit-creative-markup-eval/after.md
+  expect:
+    goal: present
+    non_goals: present
+    risks: present
+    metrics: present
+    open_questions: present

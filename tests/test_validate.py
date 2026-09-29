@@ -1,0 +1,643 @@
+"""Tests for `typesafe-eval validate` command, statistical CI, criteria checks, and ablation helper."""
+
+import json
+from pathlib import Path
+import pytest
+from click.testing import CliRunner
+
+from typesafe_eval.cli import main
+from typesafe_eval.models import DocumentEvalResult, ScoreResult, NoulResult
+from typesafe_eval.validator import (
+    compute_ci_95,
+    get_t_crit_95,
+    generate_ablation_variants,
+)
+
+
+@pytest.fixture(autouse=True)
+def dummy_api_key(monkeypatch):
+    """Ensure a dummy TYPESAFE_API_KEY is present for tests unless explicitly removed."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-api-key")
+
+
+def _make_noul_result(filepath: str, prob: float, question_id: str = "has_pii") -> DocumentEvalResult:
+    p = Path(filepath)
+    return DocumentEvalResult(
+        filepath=filepath,
+        filename=p.name,
+        preset_name="safety",
+        nouls={question_id: NoulResult(probability=prob)},
+        passed_thresholds=True,
+    )
+
+
+def _make_score_result(filepath: str, score_val: float, question_id: str = "clarity") -> DocumentEvalResult:
+    p = Path(filepath)
+    return DocumentEvalResult(
+        filepath=filepath,
+        filename=p.name,
+        preset_name="quality",
+        scores={
+            question_id: ScoreResult(
+                score=score_val,
+                max_score=1.0,
+                normalized_score=score_val,
+                confidence=0.9,
+                probabilities={},
+            )
+        },
+        passed_thresholds=True,
+    )
+
+
+def test_t_crit_and_ci_computation():
+    assert get_t_crit_95(1) == 12.706
+    assert get_t_crit_95(2) == 4.303
+    assert get_t_crit_95(30) == 2.042
+
+    # Deltas with zero variance
+    mean_val, low, high = compute_ci_95([-0.2, -0.2, -0.2])
+    assert pytest.approx(mean_val) == -0.2
+    assert pytest.approx(low) == -0.2
+    assert pytest.approx(high) == -0.2
+
+    # Deltas with variance
+    deltas = [-0.10, -0.20, -0.30]
+    mean_val, low, high = compute_ci_95(deltas)
+    assert pytest.approx(mean_val) == -0.20
+    # s = 0.10, SE = 0.10 / sqrt(3) = 0.0577, margin = 4.303 * 0.0577 = 0.2484
+    assert low < mean_val < high
+
+
+def test_ablation_generator(tmp_path):
+    doc = tmp_path / "design.md"
+    doc.write_text(
+        "# My Architecture Design\n\n"
+        "Introduction to the architecture.\n\n"
+        "## Goal\n"
+        "Define primary business goals.\n\n"
+        "## Rollback Plan\n"
+        "Steps to rollback if deployment fails.\n\n"
+        "## Migration\n"
+        "Data migration sequence.\n",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "ablated"
+    variants, labels_yaml = generate_ablation_variants(
+        doc_path=doc,
+        out_dir=out_dir,
+        preset_name="design_doc",
+    )
+
+    assert len(variants) == 3
+    var_names = [v.name for v in variants]
+    assert "design_without_goal.md" in var_names
+    assert "design_without_rollback_plan.md" in var_names
+    assert "design_without_migration.md" in var_names
+
+    # Check content of design_without_goal.md
+    goal_variant = out_dir / "design_without_goal.md"
+    content = goal_variant.read_text(encoding="utf-8")
+    assert "## Goal" not in content
+    assert "Define primary business goals" not in content
+    assert "## Rollback Plan" in content
+    assert "## Migration" in content
+
+    # Check starter labels YAML
+    assert (out_dir / "labels.yaml").is_file()
+    assert "preset: design_doc" in labels_yaml
+    assert "min_detected: 3" in labels_yaml
+    assert "design_without_goal.md" in labels_yaml
+    assert "goal: absent" in labels_yaml
+    assert "rollback_plan: present" in labels_yaml
+    assert "migration: present" in labels_yaml
+
+
+def test_cli_validate_ablate_flag(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Title\n\n## Section One\nContent 1\n\n## Section Two\nContent 2\n", encoding="utf-8")
+
+    labels_out = tmp_path / "custom_labels.yaml"
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["validate", "--ablate", str(doc), "--ablate-out-dir", str(tmp_path / "variants"), "--ablate-labels-out", str(labels_out)],
+    )
+    assert result.exit_code == 0
+    assert "Generated 2 ablation variants:" in result.output
+    assert "doc_without_section_one.md" in result.output
+    assert labels_out.is_file()
+    content = labels_out.read_text(encoding="utf-8")
+    assert "section_one: absent" in content
+    assert "section_two: present" in content
+
+
+def test_validate_presence_detected_and_false_alarm(tmp_path, monkeypatch):
+    doc_full = tmp_path / "full.md"
+    doc_full.write_text("Document with sensitive PII", encoding="utf-8")
+    doc_clean = tmp_path / "clean.md"
+    doc_clean.write_text("Clean document without PII", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 3\n"
+        f"criteria:\n"
+        f"  min_detected: 1\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc_full.name}\n"
+        f"    expect: {{has_pii: present}}\n"
+        f"  - path: {doc_clean.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(self, filepath, **kwargs):
+        if "full" in filepath:
+            # Expected present: high probability in all runs
+            return _make_noul_result(filepath, prob=0.92, question_id="has_pii")
+        else:
+            # Expected absent: low probability in all runs (< 0.5)
+            return _make_noul_result(filepath, prob=0.08, question_id="has_pii")
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 0
+    assert "✔ PASS" in result.output
+    assert "has_pii" in result.output
+    assert "1 (100%)" in result.output  # Detected 1/1
+
+
+def test_validate_presence_failure_triggers_exit_1(tmp_path, monkeypatch):
+    doc_clean = tmp_path / "clean.md"
+    doc_clean.write_text("Clean document", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 3\n"
+        f"criteria:\n"
+        f"  min_detected: 1\n"
+        f"documents:\n"
+        f"  - path: {doc_clean.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    # Model returned 0.85 (>= 0.5 threshold) -> missed detection
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_noul_result(str(doc_clean), prob=0.85, question_id="has_pii"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 1
+    assert "✘ FAIL" in result.output
+
+
+def test_validate_score_pairs_mode(tmp_path, monkeypatch):
+    a = tmp_path / "a.md"
+    a.write_text("Original text", encoding="utf-8")
+    a_shuffled = tmp_path / "a_shuffled.md"
+    a_shuffled.write_text("Shuffled degraded text", encoding="utf-8")
+    a_paraphrased = tmp_path / "a_paraphrased.md"
+    a_paraphrased.write_text("Paraphrased text", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: quality\n"
+        f"runs: 3\n"
+        f"criteria:\n"
+        f"  max_neutral_delta: 0.05\n"
+        f"  min_degradation_drop: 0.2\n"
+        f"pairs:\n"
+        f"  - before: {a.name}\n"
+        f"    after: {a_shuffled.name}\n"
+        f"    expect: {{clarity: down}}\n"
+        f"  - before: {a.name}\n"
+        f"    after: {a_paraphrased.name}\n"
+        f"    expect: {{clarity: neutral}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(self, filepath, **kwargs):
+        if "shuffled" in filepath:
+            return _make_score_result(filepath, score_val=0.30, question_id="clarity")
+        elif "paraphrased" in filepath:
+            return _make_score_result(filepath, score_val=0.88, question_id="clarity")
+        else:
+            # original
+            return _make_score_result(filepath, score_val=0.90, question_id="clarity")
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 0
+    assert "clarity" in result.output
+    assert "-0.600" in result.output  # 0.30 - 0.90 = -0.60
+    assert "-0.020" in result.output  # 0.88 - 0.90 = -0.02
+
+
+def test_validate_json_format_stability(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Test content", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 2\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_noul_result(str(doc), prob=0.10, question_id="has_pii"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file), "--format", "json"])
+    assert result.exit_code == 0
+
+    data = json.loads(result.stdout)
+    assert data["preset_name"] == "safety"
+    assert data["runs"] == 2
+    assert "has_pii" in data["question_stats"]
+    assert data["question_stats"]["has_pii"]["detected_count"] == 1
+
+
+def test_validate_markdown_format(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Test content", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 2\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_noul_result(str(doc), prob=0.10, question_id="has_pii"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file), "--format", "markdown"])
+    assert result.exit_code == 0
+    assert "# TypeSafe Validation Report" in result.stdout
+    assert "| `has_pii` |" in result.stdout
+
+
+def test_validate_exit_code_2_usage_and_config_errors():
+    runner = CliRunner()
+    # Missing argument
+    res1 = runner.invoke(main, ["validate"])
+    assert res1.exit_code == 2
+
+    # Nonexistent file
+    res2 = runner.invoke(main, ["validate", "nonexistent_labels.yaml"])
+    assert res2.exit_code == 2
+
+
+def test_validate_exit_code_3_runtime_error(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Test", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("API Network Timeout")),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 3
+
+
+def test_validate_precedence_1_over_3(tmp_path, monkeypatch):
+    doc_fail = tmp_path / "fail.md"
+    doc_fail.write_text("Fail content", encoding="utf-8")
+    doc_err = tmp_path / "err.md"
+    doc_err.write_text("Err content", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"criteria:\n"
+        f"  min_detected: 1\n"
+        f"documents:\n"
+        f"  - path: {doc_fail.name}\n"
+        f"    expect: {{has_pii: absent}}\n"
+        f"  - path: {doc_err.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(self, filepath, **kwargs):
+        if "fail" in filepath:
+            # Returns prob 0.90 -> missed (criterion fails)
+            return _make_noul_result(filepath, prob=0.90, question_id="has_pii")
+        raise RuntimeError("API internal error")
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    # Criterion failed (code 1) takes precedence over runtime error (code 3)
+    assert result.exit_code == 1
+
+
+def test_validate_max_threshold_prob_0_4(tmp_path, monkeypatch):
+    # has_pii has max_threshold 0.3. A probability of 0.4 is > 0.3, so it is considered "present".
+    doc_present = tmp_path / "doc_present.md"
+    doc_present.write_text("Present doc", encoding="utf-8")
+    doc_absent = tmp_path / "doc_absent.md"
+    doc_absent.write_text("Absent doc", encoding="utf-8")
+
+    from typesafe_eval.client import TypeSafeEvaluator
+    monkeypatch.setattr(
+        TypeSafeEvaluator,
+        "evaluate_document",
+        lambda *args, **kwargs: _make_noul_result("dummy", prob=0.4, question_id="has_pii"),
+    )
+
+    # When expected: present -> 0.4 > 0.3 means detected as present -> PASS
+    labels_ok = tmp_path / "labels_ok.yaml"
+    labels_ok.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc_present.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    res_ok = runner.invoke(main, ["validate", str(labels_ok)])
+    assert res_ok.exit_code == 0
+    assert "✔ PASS" in res_ok.output
+
+    # When expected: absent -> 0.4 > 0.3 means not absent -> FAIL (missed)
+    labels_fail = tmp_path / "labels_fail.yaml"
+    labels_fail.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  min_detected: 1\n"
+        f"documents:\n"
+        f"  - path: {doc_absent.name}\n"
+        f"    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+    res_fail = runner.invoke(main, ["validate", str(labels_fail)])
+    assert res_fail.exit_code == 1
+    assert "✘ FAIL" in res_fail.output
+
+
+def test_validate_unknown_question_id_exit_2(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Doc", encoding="utf-8")
+
+    labels_file = tmp_path / "labels_unknown.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: absent, non_existent_q: present}}\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 2
+    assert "unknown question ID(s)" in (result.stderr or result.output)
+    assert "non_existent_q" in (result.stderr or result.output)
+    assert "Available question ID(s) in preset 'safety'" in (result.stderr or result.output)
+
+
+def test_validate_preflight_decided_counts_as_present(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Preflight match", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    # Return noul with probability=None, overridden_by="rule:personal_email"
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={"has_pii": NoulResult(probability=None, overridden_by="rule:personal_email")},
+            passed_thresholds=False,
+            violations=["Preflight personal email detected"],
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 0
+    assert "✔ PASS" in result.output
+
+
+def test_validate_missing_question_causes_runtime_error(tmp_path, monkeypatch):
+    doc = tmp_path / "doc.md"
+    doc.write_text("Doc", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    # Evaluator does NOT return has_pii at all
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={},
+            passed_thresholds=True,
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 3
+    assert "not returned by evaluator" in (result.stderr or result.output)
+
+
+def test_validate_candidate_violation_counts_as_present(tmp_path, monkeypatch):
+    # Tests that when document-level has_pii probability is low (e.g. 0.05),
+    # but a candidate (e.g. personal phone number in phone_05) is a violation,
+    # validate treats has_pii as present rather than triggering a false alarm.
+    doc = tmp_path / "phone_05.md"
+    doc.write_text("Call 090-1234-5678", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"criteria:\n"
+        f"  max_false_alarms: 0\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+    from typesafe_eval.models import PhoneEvaluationResult
+
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={"has_pii": NoulResult(probability=0.05)},
+            phone_evaluations=[
+                PhoneEvaluationResult(
+                    placeholder="[PHONE_1]",
+                    question_id="phone_pii_1",
+                    features={},
+                    outcome="personal",
+                    probability=0.85,
+                    decided_by="model",
+                )
+            ],
+            passed_thresholds=False,
+            violations=["PII Exposure: [PHONE_1] is an individual phone number"],
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 0
+    assert "✔ PASS" in result.output
+
+
+def test_validate_design_doc_labels_structure():
+    # Verify that the design_doc labels_en.yaml and labels_ja.yaml can be parsed and executed in dry-run mode
+    runner = CliRunner()
+    for lang in ("en", "ja"):
+        labels_file = Path(f"tests/fixtures/design_doc/labels_{lang}.yaml")
+        assert labels_file.exists()
+        result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+        assert "Preset: design_doc" in result.output
+        assert "Presence Questions (Noul)" in result.output
+        assert "goal" in result.output
+        assert "owner_ti" in result.output
+
+
+def test_validate_without_api_key_exits_3_with_one_message(tmp_path, monkeypatch):
+    """Verify validate without API key checks once before evaluation and exits 3 with one message."""
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+    labels_file = Path("tests/fixtures/pii_secrets/labels.yaml")
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 3
+    # Check that the error message is printed exactly once, not 120 times
+    assert "No TypeSafe API key provided" in result.output
+    assert result.output.count("No TypeSafe API key provided") == 1
+    # Verify it did not proceed to criteria evaluation or show FAIL report
+    assert "TypeSafe Validation Report" not in result.output
+def test_validate_confidentiality_labels_dry_run_and_no_mask():
+    labels_file = Path("tests/fixtures/confidentiality/labels.yaml")
+    assert labels_file.exists()
+    runner = CliRunner()
+
+    # Default (masked) dry run
+    res_masked = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+    assert res_masked.exit_code == 0
+    assert "Preset: safety" in res_masked.output
+    assert "confiden" in res_masked.output
+    assert "Verdict: N/A (MOCK)" in res_masked.output
+
+    # Unmasked (--no-mask) dry run with json format
+    res_unmasked = runner.invoke(main, ["validate", str(labels_file), "--dry-run", "--no-mask", "-f", "json"])
+    assert res_unmasked.exit_code == 0
+    assert "confidentiality_risk" in res_unmasked.output
+    data = json.loads(res_unmasked.output)
+    assert data["mock"] is True
+    assert data["preset_name"] == "safety"
+
+
+def test_criteria_questions_field_rejected_at_load_time(tmp_path):
+    """S5: criteria.questions is removed and forbidden by extra='forbid'."""
+    labels_file = tmp_path / "labels_forbidden.yaml"
+    labels_file.write_text(
+        "preset: quality\n"
+        "criteria:\n"
+        "  questions:\n"
+        "    clarity:\n"
+        "      min_detected: 1\n",
+        encoding="utf-8",
+    )
+
+    from typesafe_eval.validator import load_labels_file
+    with pytest.raises(ValueError) as excinfo:
+        load_labels_file(labels_file)
+
+    assert "criteria -> questions" in str(excinfo.value)
+    assert "Extra inputs are not permitted" in str(excinfo.value)

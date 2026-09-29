@@ -1,0 +1,32 @@
+# Built by build_pairs.py from labels_tech_spec.yaml (edit that file, not this one). split: tuning.
+# 8 documents, 3 absent / 5 present labels. min_detected = ceil(1.0 x absent).
+preset: tech-spec
+runs: 2
+criteria:
+  min_detected: 3
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/kep-3140/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/en/kep-3325/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/en/rfc-3027/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/en/rfc-3323/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  expect:
+    has_test_plan: present
+- path: design_doc/ja/gyuma-go-rewrite-design/after.md
+  expect:
+    has_test_plan: absent
+- path: design_doc/ja/lecs-terraform-input/after.md
+  expect:
+    has_test_plan: present

@@ -1,3 +1,6 @@
+from pathlib import Path
+import pytest
+
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
 def test_mask_sensitive_data():
@@ -7,7 +10,7 @@ def test_mask_sensitive_data():
     assert "apikey_" not in masked
     assert "user@example.com" not in masked
     assert "[REDACTED_API_KEY]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+    assert "[EMAIL_1]" in masked
 
 def test_mask_sensitive_data_details():
     raw = (
@@ -24,8 +27,13 @@ def test_mask_sensitive_data_details():
     assert details["pii"] == 2
     assert details["pii_role"] == 1
     assert details["pii_personal"] == 1
-    assert "[REDACTED_ROLE_EMAIL]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+    assert "[EMAIL_1]" in masked
+    assert "[EMAIL_2]" in masked
+    assert len(details["redacted_emails"]) == 2
+    assert details["redacted_emails"][0]["placeholder"] == "[EMAIL_1]"
+    assert details["redacted_emails"][0]["domain_type"] == "corporate"
+    assert details["redacted_emails"][1]["placeholder"] == "[EMAIL_2]"
+    assert details["redacted_emails"][1]["domain_type"] == "free_mail"
 
 def test_mask_boundaries_and_placeholder_neutralization():
     # Boundary check: task-... and desk-... must not match sk- pattern
@@ -88,8 +96,8 @@ def test_generic_and_team_role_emails():
     assert count == 1
     assert details["pii_role"] == 1
     assert details["pii_personal"] == 0
-    assert "[REDACTED_ROLE_EMAIL]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" not in masked
+    assert "[EMAIL_1]" in masked
+    assert "hello@company.com" not in masked
 
 def test_example_key_doc_snippet_regression():
     # Issue #17: Example key snippet from README/docs
@@ -150,5 +158,136 @@ def test_custom_role_email_glob_patterns():
     assert details["pii_personal"] == 1
     assert "ops-lead@company.com" not in masked
     assert "john@company.com" not in masked
-    assert "[REDACTED_ROLE_EMAIL]" in masked
-    assert "[REDACTED_PERSONAL_EMAIL]" in masked
+    assert "[EMAIL_1]" in masked
+    assert "[EMAIL_2]" in masked
+
+
+def test_chunk_text_within_limit():
+    from typesafe_eval.sanitizer import chunk_text
+    text = "Short document content."
+    chunks = chunk_text(text, max_chars=100)
+    assert chunks == [text]
+
+
+def test_chunk_text_splits_with_overlap():
+    from typesafe_eval.sanitizer import chunk_text
+    paragraphs = [f"Paragraph {i}: " + ("x" * 100) for i in range(20)]
+    text = "\n\n".join(paragraphs)
+    chunks = chunk_text(text, max_chars=500, overlap=100)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c) <= 500
+    # Verify every paragraph is present in at least one chunk
+    for p in paragraphs:
+        assert any(p in c for c in chunks)
+
+
+def test_chunk_text_no_newlines():
+    from typesafe_eval.sanitizer import chunk_text
+    text = "a" * 1500
+    chunks = chunk_text(text, max_chars=500, overlap=100)
+    assert len(chunks) >= 3
+    for c in chunks:
+        assert len(c) <= 500
+
+
+def test_chunk_text_invalid_max_chars():
+    from typesafe_eval.sanitizer import chunk_text
+    import pytest
+    with pytest.raises(ValueError):
+        chunk_text("some text", max_chars=0)
+
+
+def test_strip_html_comments_single_line():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "Hello <!-- this is a single-line comment --> World"
+    assert strip_html_comments(text) == "Hello  World"
+
+
+def test_strip_html_comments_multi_line():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "Line 1\n<!--\nthis is a\nmulti-line\ncomment\n-->\nLine 2"
+    assert strip_html_comments(text) == "Line 1\n\nLine 2"
+
+
+def test_strip_html_comments_fenced_block_kept():
+    from typesafe_eval.sanitizer import strip_html_comments
+    backtick_fence = "```python\n# <!-- comment in backticks -->\nx = 1\n```"
+    assert strip_html_comments(backtick_fence) == backtick_fence
+
+    tilde_fence = "~~~\n<!-- comment in tildes -->\n~~~"
+    assert strip_html_comments(tilde_fence) == tilde_fence
+
+
+def test_strip_html_comments_inline_code_span_kept():
+    from typesafe_eval.sanitizer import strip_html_comments
+    single_tick = "Here is `<!-- not a comment -->` inline"
+    assert strip_html_comments(single_tick) == single_tick
+
+    double_tick = "Here is ``<!-- not a comment -->`` inline"
+    assert strip_html_comments(double_tick) == double_tick
+
+
+def test_strip_html_comments_unclosed_kept():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "Hello <!-- unclosed comment without end"
+    assert strip_html_comments(text) == text
+
+
+def test_strip_html_comments_no_comments_unchanged():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "# Title\n\nThis is a standard document with no comments."
+    assert strip_html_comments(text) == text
+
+
+def test_consecutive_chunks_overlap():
+    """A4: Consecutive chunks overlap under defaults on long text and with max_chars=500, overlap=100."""
+    from typesafe_eval.sanitizer import chunk_text
+
+    # 1. Defaults on long text
+    long_text = ("Section Heading\n\nParagraph text line.\n" * 2000)
+    chunks_default = chunk_text(long_text)
+    assert len(chunks_default) > 1
+    for i in range(len(chunks_default) - 1):
+        c1, c2 = chunks_default[i], chunks_default[i + 1]
+        assert any(c1[-k:] == c2[:k] for k in range(100, min(len(c1), len(c2))))
+
+    # 2. max_chars=500, overlap=100
+    custom_text = ("a" * 490 + "\n" + "b" * 490 + "\n") * 5
+    chunks_custom = chunk_text(custom_text, max_chars=500, overlap=100)
+    assert len(chunks_custom) > 1
+    for i in range(len(chunks_custom) - 1):
+        c1, c2 = chunks_custom[i], chunks_custom[i + 1]
+        assert any(c1[-k:] == c2[:k] for k in range(10, min(len(c1), len(c2))))
+
+
+def test_default_chunks_start_at_line_boundaries():
+    """A3: With default max_chars/overlap, each subsequent chunk starts at a line start."""
+    from typesafe_eval.sanitizer import chunk_text
+
+    text = "".join(
+        f"line {i:06d} some paragraph words here\n" + ("\n" if i % 7 == 0 else "")
+        for i in range(3000)
+    )
+    chunks = chunk_text(text)
+    assert len(chunks) > 1
+    for c in chunks[1:]:
+        assert c.startswith("line "), c[:30]
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((Path(__file__).parent / "fixtures" / "pii_secrets").glob("*.md")),
+    ids=lambda p: p.name,
+)
+def test_every_redacted_placeholder_has_raw_mapping_when_unmasked(path):
+    """client._item_in_text relies on this: with mask=False every placeholder in redacted_* has raw values."""
+    _, _, details = mask_sensitive_data(path.read_text(encoding="utf-8"), mask=False, return_details=True)
+    raw_mapping = details["_raw_mapping"]
+    for key in ("redacted_emails", "redacted_phones", "redacted_ips", "redacted_urls", "redacted_secrets"):
+        for feat in details[key]:
+            assert raw_mapping.get(feat["placeholder"]), (key, feat["placeholder"])
+
+
+
+

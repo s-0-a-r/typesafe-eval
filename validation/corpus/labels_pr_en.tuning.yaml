@@ -1,0 +1,47 @@
+# Built by build_pairs.py from labels_pr_en.yaml (edit that file, not this one). split: tuning.
+# 7 documents, 10 absent / 15 present labels. min_detected = ceil(0.9 x absent).
+preset: pr-description
+runs: 2
+criteria:
+  min_detected: 9
+  max_false_alarms: 0
+documents:
+- path: pr_description/en/pr-grafana-grafana-111636/after.md
+  expect:
+    summary: present
+    testing: absent
+    impact: absent
+    breaking_changes: absent
+    related_issues: absent
+- path: pr_description/en/pr-grafana-grafana-112058/after.md
+  expect:
+    summary: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-microsoft-vscode-265373/after.md
+  expect:
+    summary: present
+    testing: absent
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-microsoft-vscode-277567/after.md
+  expect:
+    summary: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-python-cpython-140234/after.md
+  expect:
+    testing: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-rust-lang-rust-147803/after.md
+  expect:
+    summary: present
+    impact: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-rust-lang-rust-148190/after.md
+  expect:
+    summary: present
+    impact: present
+    related_issues: present

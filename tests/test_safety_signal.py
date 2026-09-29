@@ -48,9 +48,9 @@ def test_preflight_override_when_model_absent(tmp_path):
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {}
-    mock_resp.nouls = {}  # Jev did not return has_secrets
-    mock_resp.choices = {}
+    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.nouls = {"has_pii": MagicMock(noul=0.01)}  # Jev did not return has_secrets
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -112,6 +112,19 @@ def test_cli_no_mask_flag(tmp_path):
     assert result_no_mask.exit_code == 0
     assert "masked" not in result_no_mask.output
 
+def test_safety_preset_dry_run_exits_0_and_shows_mock(tmp_path):
+    doc = tmp_path / "secret_doc.md"
+    doc.write_text("API token: apikey_1234567890abcdef123456 in production runbook.", encoding="utf-8")
+
+    runner = CliRunner()
+    # Safety preset in dry-run mode must exit 0, display MOCK, and have verdict N/A (Issue #45)
+    result = runner.invoke(main, [str(doc), "--preset", "safety", "--dry-run"])
+    assert result.exit_code == 0
+    assert "MOCK" in result.output
+    assert "N/A" in result.output
+    assert "FAIL" not in result.output
+    assert "PASS" not in result.output
+
 def test_context_free_email_classification_regression(tmp_path):
     doc_personal = tmp_path / "personal.txt"
     doc_personal.write_text("Please forward the contract draft to taro.yamada1987@gmail.com for review.", encoding="utf-8")
@@ -124,7 +137,11 @@ def test_context_free_email_classification_regression(tmp_path):
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
-    mock_resp.nouls = {"has_secrets": MagicMock(noul=0.01), "has_pii": MagicMock(noul=0.15)}
+    mock_resp.nouls = {
+        "has_secrets": MagicMock(noul=0.01),
+        "has_pii": MagicMock(noul=0.15),
+        "email_pii_1": MagicMock(noul=0.1),
+    }
     mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
@@ -134,16 +151,20 @@ def test_context_free_email_classification_regression(tmp_path):
     # Evaluate personal email
     r_pers = evaluator.evaluate_document(str(doc_personal), preset=preset, mask_secrets=True)
     state_pers = mock_client.system_one.call_args.kwargs["state"]
-    assert "[REDACTED_PERSONAL_EMAIL]" in state_pers["document"]
+    assert "[EMAIL_1]" in state_pers["document"]
     assert state_pers["redactions"]["pii_personal"] == 1
     assert state_pers["redactions"]["pii_role"] == 0
+    assert len(r_pers.email_evaluations) == 1
+    assert r_pers.email_evaluations[0].outcome == "personal"
+    assert r_pers.email_evaluations[0].decided_by == "free_mail"
 
     # Evaluate role email
     r_role = evaluator.evaluate_document(str(doc_role), preset=preset, mask_secrets=True)
     state_role = mock_client.system_one.call_args.kwargs["state"]
-    assert "[REDACTED_ROLE_EMAIL]" in state_role["document"]
+    assert "[EMAIL_1]" in state_role["document"]
     assert state_role["redactions"]["pii_personal"] == 0
     assert state_role["redactions"]["pii_role"] == 1
+    assert len(r_role.email_evaluations) == 1
 
 
 def test_example_key_evaluation_regression(tmp_path):
@@ -247,7 +268,7 @@ def test_custom_preset_pii_preflight_override(tmp_path):
     evaluator = TypeSafeEvaluator(api_key="mock-key")
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.nouls = {"pii_gate": MagicMock(noul=0.05)}
+    mock_resp.nouls = {"pii_gate": MagicMock(noul=0.05), "email_pii_1": MagicMock(noul=0.1)}
     mock_resp.scores = {}
     mock_resp.choices = {}
     mock_resp.usage = None
@@ -289,7 +310,11 @@ def test_evaluator_with_preset_custom_role_emails(tmp_path):
     evaluator = TypeSafeEvaluator(api_key="mock-key")
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.nouls = {"check": MagicMock(noul=0.01)}
+    mock_resp.nouls = {
+        "check": MagicMock(noul=0.01),
+        "email_pii_1": MagicMock(noul=0.01),
+        "email_pii_2": MagicMock(noul=0.01),
+    }
     mock_resp.scores = {}
     mock_resp.choices = {}
     mock_resp.usage = None

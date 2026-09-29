@@ -1,0 +1,138 @@
+preset: design_doc
+runs: 2
+criteria:
+  min_detected: 9
+  max_false_alarms: 0
+documents:
+- path: en.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_goal.md
+  expect:
+    goal: absent
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_non_goals.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_alternatives.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: absent
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_risks.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: absent
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_rollback.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: absent
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_metrics.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: absent
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_migration.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: absent
+    impact: present
+    open_questions: present
+    owner_timeline: present
+- path: en_without_impact.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: absent
+    open_questions: present
+    owner_timeline: present
+- path: en_without_open_questions.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: absent
+    owner_timeline: present
+- path: en_without_owner_timeline.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: present
+    risks: present
+    rollback: present
+    metrics: present
+    migration: present
+    impact: present
+    open_questions: present
+    owner_timeline: absent

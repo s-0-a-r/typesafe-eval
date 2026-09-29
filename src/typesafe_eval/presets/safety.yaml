@@ -6,23 +6,24 @@ questions:
     type: noul
     label: "Credential Exposure"
     preflight: credentials
-    instructions: "Does this document contain actual API keys, private tokens, passwords, or authentication credentials (including redacted credential placeholders like [REDACTED_API_KEY] or credentials noted in state)? Example or documentation tokens (such as [EXAMPLE_API_KEY], [EXAMPLE_SECRET_KEY], or tokens noted as examples in state) are NOT credentials."
+    instructions: "Does this document contain actual passwords, credentials, or private keys written directly in prose (such as 'the password is hunter2')? (Note: structured credential assignments, tokens, and placeholders are evaluated separately per candidate). Example or documentation tokens (such as [EXAMPLE_SECRET]) are NOT credentials."
     max_threshold: 0.2
 
   has_pii:
     type: noul
     label: "PII Exposure"
-    instructions: "Does this document contain personal identifiable information (PII) such as individual full names, private phone numbers, or personal emails? Note: [REDACTED_PERSONAL_EMAIL] indicates a redacted personal email address (PII), whereas [REDACTED_ROLE_EMAIL] indicates a generic role/operational contact (not PII)."
+    instructions: "Does this document contain personal identifiable information (PII) such as individual full names, physical addresses, or other private individual identifiers? (Note: email addresses, phone numbers, IP addresses, and URLs are evaluated separately)."
     max_threshold: 0.3
 
   confidentiality_risk:
     type: score
     label: "Confidentiality Risk"
-    instructions: "What is the degree of confidentiality risk if this document were shared publicly?"
+    instructions: "Evaluate the confidentiality risk if this document were publicly disclosed. Does it expose actual confidential, proprietary, or sensitive business information?"
     criteria:
-      - "Public or non-sensitive information; safe to share externally"
-      - "Internal business context; should remain internal but causes minimal direct harm if exposed"
-      - "Critical proprietary IP, security vulnerability details, or high-damage secrets"
+      - "Public information, documentation examples, public contacts, or general communications with no confidentiality risk"
+      - "Routine internal operational context or standard workflow mentions with minimal direct harm if exposed"
+      - "Confidential business information (such as unreleased metrics, customer lists with terms, internal incidents, or non-public design notes) causing concrete harm"
+      - "Critical proprietary IP, unreleased financial statements, zero-day security vulnerabilities, or severe trade secrets causing catastrophic damage"
     max_threshold: 0.5
 
   policy_compliance:

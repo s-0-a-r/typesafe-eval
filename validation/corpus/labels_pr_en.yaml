@@ -1,0 +1,68 @@
+# Labeled by Claude Code on 2026-09-28 from reading the final PR bodies (HTML comments ignored), before any evaluation.
+# Rule: present only with an explicit statement or section; absent only when clearly missing; arguable items are left out.
+# 12 absent / 25 present labels. min_detected = ceil(0.9 x absent), provisional, from #41's EN/JA ratio.
+# 2026-09-28: replaced kubernetes-135573 with electron-49103 (at most 2 per project); new labels written before any evaluation.
+# 2026-09-28: an independent second pass (before any evaluation) marked pr-grafana-grafana-112058:testing, pr-grafana-grafana-112058:impact, pr-python-cpython-140234:summary, pr-rust-lang-rust-148190:breaking_changes as arguable; removed. All other labels of documents by individual authors agreed.
+preset: pr-description
+runs: 2
+criteria:
+  min_detected: 11
+  max_false_alarms: 0
+documents:
+- path: pr_description/en/pr-grafana-grafana-111636/after.md
+  expect:
+    summary: present
+    testing: absent
+    impact: absent
+    breaking_changes: absent
+    related_issues: absent
+- path: pr_description/en/pr-grafana-grafana-112058/after.md
+  expect:
+    summary: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-kubernetes-kubernetes-134660/after.md
+  expect:
+    summary: present
+    testing: present
+    impact: present
+    related_issues: present
+- path: pr_description/en/pr-kubernetes-kubernetes-134947/after.md
+  expect:
+    summary: present
+    testing: absent
+    impact: present
+    breaking_changes: present
+    related_issues: present
+- path: pr_description/en/pr-microsoft-vscode-265373/after.md
+  expect:
+    summary: present
+    testing: absent
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-microsoft-vscode-277567/after.md
+  expect:
+    summary: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-python-cpython-140234/after.md
+  expect:
+    testing: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-rust-lang-rust-147803/after.md
+  expect:
+    summary: present
+    impact: present
+    breaking_changes: absent
+    related_issues: present
+- path: pr_description/en/pr-rust-lang-rust-148190/after.md
+  expect:
+    summary: present
+    impact: present
+    related_issues: present
+- path: pr_description/en/pr-electron-electron-49103/after.md
+  expect:
+    summary: present
+    breaking_changes: absent
+    related_issues: present

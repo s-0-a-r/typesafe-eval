@@ -1,0 +1,63 @@
+# Built by build_pairs.py from labels_design_doc_en.yaml (edit that file, not this one). split: tuning.
+# 8 documents, 17 absent / 21 present labels. min_detected = ceil(0.9 x absent).
+# Includes the non_goals positive controls (variants/*/non_goals_inserted.md, NON_GOALS_CONTROLS).
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 16
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/kep-3140/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: present
+    rollback: present
+    migration: present
+    open_questions: absent
+- path: design_doc/en/kep-3325/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: absent
+    rollback: present
+    migration: present
+    open_questions: absent
+    owner_timeline: absent
+- path: design_doc/en/rfc-3027/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    metrics: absent
+    open_questions: present
+- path: design_doc/en/rfc-3323/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: present
+- path: design_doc/en/go-draft-fuzzing/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    risks: absent
+    rollback: absent
+    metrics: present
+    open_questions: present
+    owner_timeline: absent
+- path: variants/kep-3140/non_goals_inserted.md
+  expect:
+    non_goals: present
+- path: variants/kep-3325/non_goals_inserted.md
+  expect:
+    non_goals: present
+- path: variants/rfc-3027/non_goals_inserted.md
+  expect:
+    non_goals: present

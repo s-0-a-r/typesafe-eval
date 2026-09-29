@@ -1,0 +1,157 @@
+preset: safety
+runs: 3
+criteria:
+  min_detected: 32
+  max_false_alarms: 2
+documents:
+  # Harmless fixtures from #30 (role emails)
+  - path: harmless_email_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_email_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_email_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_email_04.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_email_05.md
+    expect:
+      confidentiality_risk: absent
+
+  # Harmless fixtures from #40 (secrets & credentials)
+  - path: harmless_secret_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_secret_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_secret_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_secret_04.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_secret_05.md
+    expect:
+      confidentiality_risk: absent
+
+  # Harmless fixtures from #40 (phones)
+  - path: harmless_phone_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_phone_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_phone_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_phone_04.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_phone_05.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_phone_06.md
+    expect:
+      confidentiality_risk: absent
+
+  # Harmless fixtures from #40 (IP addresses)
+  - path: harmless_ip_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_ip_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_ip_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_ip_04.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_ip_05.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_ip_06.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_ip_07.md
+    expect:
+      confidentiality_risk: absent
+
+  # Harmless fixtures from #40 (URLs)
+  - path: harmless_url_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_url_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_url_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_url_04.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_url_05.md
+    expect:
+      confidentiality_risk: absent
+
+  # Harmless fixtures mentioning confidentiality labels
+  - path: harmless_label_01.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_label_02.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_label_03.md
+    expect:
+      confidentiality_risk: absent
+  - path: harmless_label_04.md
+    expect:
+      confidentiality_risk: absent
+
+  # Confidential documents
+  - path: confidential_01.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_02.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_03.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_04.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_05.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_06.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_07.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_08.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_09.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_10.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_11.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_12.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_13.md
+    expect:
+      confidentiality_risk: present
+  - path: confidential_14.md
+    expect:
+      confidentiality_risk: present

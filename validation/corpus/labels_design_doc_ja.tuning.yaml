@@ -1,0 +1,43 @@
+# Built by build_pairs.py from labels_design_doc_ja.yaml (edit that file, not this one). split: tuning.
+# 4 documents, 16 absent / 11 present labels. min_detected = ceil(0.8 x absent).
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 13
+  max_false_alarms: 0
+documents:
+- path: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  expect:
+    goal: present
+    non_goals: present
+    alternatives: absent
+    risks: present
+    rollback: absent
+    metrics: present
+    migration: present
+    open_questions: absent
+    owner_timeline: absent
+- path: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+- path: design_doc/ja/gyuma-go-rewrite-design/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    rollback: absent
+    metrics: absent
+    migration: present
+    open_questions: present
+- path: design_doc/ja/lecs-terraform-input/after.md
+  expect:
+    goal: present
+    alternatives: absent
+    risks: absent
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: absent
+    owner_timeline: absent

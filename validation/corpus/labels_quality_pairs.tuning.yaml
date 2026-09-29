@@ -1,0 +1,325 @@
+# Built by build_pairs.py on 2026-09-28. split: tuning (10 base documents, split by project).
+# down = synthetic degradation of the base; neutral = synthetic neutral edit, hand-written paraphrase
+# (Claude, runs 10) or a real correctness-only review pair (report only).
+# Variants over 25000 chars are left out; see manifest_variants.json.
+preset: quality
+runs: 3
+criteria:
+  group_by: kind
+  degradation_ci_upper_max: -0.1
+  neutral_ci_abs_max: 0.05
+  min_group_size: 6
+  pair_guard_neutral_abs_max: 0.1
+  pair_guard_down_tolerance: 0.025
+  report_only_kinds:
+  - real_correctness
+  per_pair_kinds:
+  - paraphrase
+pairs:
+- before: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  after: variants/akaza-numeric-counter-redesign/shuffled.md
+  kind: shuffled
+  doc_id: akaza-numeric-counter-redesign
+  expect:
+    clarity: down
+- before: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  after: variants/akaza-numeric-counter-redesign/no_headings.md
+  kind: no_headings
+  doc_id: akaza-numeric-counter-redesign
+  expect:
+    clarity: down
+- before: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  after: variants/akaza-numeric-counter-redesign/padded.md
+  kind: padded
+  doc_id: akaza-numeric-counter-redesign
+  expect:
+    clarity: down
+- before: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  after: variants/akaza-numeric-counter-redesign/removed_middle.md
+  kind: removed_middle
+  doc_id: akaza-numeric-counter-redesign
+  expect:
+    clarity: down
+- before: design_doc/ja/akaza-numeric-counter-redesign/after.md
+  after: variants/akaza-numeric-counter-redesign/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: akaza-numeric-counter-redesign
+  expect:
+    clarity: neutral
+- before: article/ja/akifumisato-react-team-vision/after.md
+  after: variants/akifumisato-react-team-vision/shuffled.md
+  kind: shuffled
+  doc_id: akifumisato-react-team-vision
+  expect:
+    clarity: down
+- before: article/ja/akifumisato-react-team-vision/after.md
+  after: variants/akifumisato-react-team-vision/no_headings.md
+  kind: no_headings
+  doc_id: akifumisato-react-team-vision
+  expect:
+    clarity: down
+- before: article/ja/akifumisato-react-team-vision/after.md
+  after: variants/akifumisato-react-team-vision/padded.md
+  kind: padded
+  doc_id: akifumisato-react-team-vision
+  expect:
+    clarity: down
+- before: article/ja/akifumisato-react-team-vision/after.md
+  after: variants/akifumisato-react-team-vision/removed_middle.md
+  kind: removed_middle
+  doc_id: akifumisato-react-team-vision
+  expect:
+    clarity: down
+- before: article/ja/akifumisato-react-team-vision/after.md
+  after: variants/akifumisato-react-team-vision/swap_sections.md
+  kind: swap_sections
+  doc_id: akifumisato-react-team-vision
+  expect:
+    clarity: neutral
+- before: article/ja/akifumisato-react-team-vision/after.md
+  after: variants/akifumisato-react-team-vision/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: akifumisato-react-team-vision
+  expect:
+    clarity: neutral
+- before: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  after: variants/ccpocket-fcm-push-notification-plan/shuffled.md
+  kind: shuffled
+  doc_id: ccpocket-fcm-push-notification-plan
+  expect:
+    clarity: down
+- before: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  after: variants/ccpocket-fcm-push-notification-plan/no_headings.md
+  kind: no_headings
+  doc_id: ccpocket-fcm-push-notification-plan
+  expect:
+    clarity: down
+- before: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  after: variants/ccpocket-fcm-push-notification-plan/padded.md
+  kind: padded
+  doc_id: ccpocket-fcm-push-notification-plan
+  expect:
+    clarity: down
+- before: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  after: variants/ccpocket-fcm-push-notification-plan/removed_middle.md
+  kind: removed_middle
+  doc_id: ccpocket-fcm-push-notification-plan
+  expect:
+    clarity: down
+- before: design_doc/ja/ccpocket-fcm-push-notification-plan/after.md
+  after: variants/ccpocket-fcm-push-notification-plan/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: ccpocket-fcm-push-notification-plan
+  expect:
+    clarity: neutral
+- before: design_doc/en/kep-3140/after.md
+  after: variants/kep-3140/shuffled.md
+  kind: shuffled
+  doc_id: kep-3140
+  expect:
+    clarity: down
+- before: design_doc/en/kep-3140/after.md
+  after: variants/kep-3140/no_headings.md
+  kind: no_headings
+  doc_id: kep-3140
+  expect:
+    clarity: down
+- before: design_doc/en/kep-3140/after.md
+  after: variants/kep-3140/removed_middle.md
+  kind: removed_middle
+  doc_id: kep-3140
+  expect:
+    clarity: down
+- before: design_doc/en/kep-3140/after.md
+  after: variants/kep-3140/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: kep-3140
+  expect:
+    clarity: neutral
+- before: design_doc/en/kep-3140/after.md
+  after: variants/kep-3140/paraphrase.md
+  kind: paraphrase
+  doc_id: kep-3140
+  runs: 10
+  expect:
+    clarity: neutral
+- before: pr_description/en/pr-grafana-grafana-112058/after.md
+  after: variants/pr-grafana-grafana-112058/shuffled.md
+  kind: shuffled
+  doc_id: pr-grafana-grafana-112058
+  expect:
+    clarity: down
+- before: pr_description/en/pr-grafana-grafana-112058/after.md
+  after: variants/pr-grafana-grafana-112058/padded.md
+  kind: padded
+  doc_id: pr-grafana-grafana-112058
+  expect:
+    clarity: down
+- before: pr_description/en/pr-grafana-grafana-112058/after.md
+  after: variants/pr-grafana-grafana-112058/removed_middle.md
+  kind: removed_middle
+  doc_id: pr-grafana-grafana-112058
+  expect:
+    clarity: down
+- before: pr_description/en/pr-grafana-grafana-112058/after.md
+  after: variants/pr-grafana-grafana-112058/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: pr-grafana-grafana-112058
+  expect:
+    clarity: neutral
+- before: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  after: variants/pr-misskey-dev-misskey-14375/shuffled.md
+  kind: shuffled
+  doc_id: pr-misskey-dev-misskey-14375
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  after: variants/pr-misskey-dev-misskey-14375/no_headings.md
+  kind: no_headings
+  doc_id: pr-misskey-dev-misskey-14375
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  after: variants/pr-misskey-dev-misskey-14375/padded.md
+  kind: padded
+  doc_id: pr-misskey-dev-misskey-14375
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  after: variants/pr-misskey-dev-misskey-14375/removed_middle.md
+  kind: removed_middle
+  doc_id: pr-misskey-dev-misskey-14375
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  after: variants/pr-misskey-dev-misskey-14375/swap_sections.md
+  kind: swap_sections
+  doc_id: pr-misskey-dev-misskey-14375
+  expect:
+    clarity: neutral
+- before: pr_description/ja/pr-misskey-dev-misskey-14375/after.md
+  after: variants/pr-misskey-dev-misskey-14375/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: pr-misskey-dev-misskey-14375
+  expect:
+    clarity: neutral
+- before: pr_description/en/pr-python-cpython-140234/after.md
+  after: variants/pr-python-cpython-140234/shuffled.md
+  kind: shuffled
+  doc_id: pr-python-cpython-140234
+  expect:
+    clarity: down
+- before: pr_description/en/pr-python-cpython-140234/after.md
+  after: variants/pr-python-cpython-140234/no_headings.md
+  kind: no_headings
+  doc_id: pr-python-cpython-140234
+  expect:
+    clarity: down
+- before: pr_description/en/pr-python-cpython-140234/after.md
+  after: variants/pr-python-cpython-140234/padded.md
+  kind: padded
+  doc_id: pr-python-cpython-140234
+  expect:
+    clarity: down
+- before: pr_description/en/pr-python-cpython-140234/after.md
+  after: variants/pr-python-cpython-140234/removed_middle.md
+  kind: removed_middle
+  doc_id: pr-python-cpython-140234
+  expect:
+    clarity: down
+- before: pr_description/en/pr-python-cpython-140234/after.md
+  after: variants/pr-python-cpython-140234/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: pr-python-cpython-140234
+  expect:
+    clarity: neutral
+- before: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  after: variants/pr-sakura-editor-sakura-2611/shuffled.md
+  kind: shuffled
+  doc_id: pr-sakura-editor-sakura-2611
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  after: variants/pr-sakura-editor-sakura-2611/no_headings.md
+  kind: no_headings
+  doc_id: pr-sakura-editor-sakura-2611
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  after: variants/pr-sakura-editor-sakura-2611/padded.md
+  kind: padded
+  doc_id: pr-sakura-editor-sakura-2611
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  after: variants/pr-sakura-editor-sakura-2611/removed_middle.md
+  kind: removed_middle
+  doc_id: pr-sakura-editor-sakura-2611
+  expect:
+    clarity: down
+- before: pr_description/ja/pr-sakura-editor-sakura-2611/after.md
+  after: variants/pr-sakura-editor-sakura-2611/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: pr-sakura-editor-sakura-2611
+  expect:
+    clarity: neutral
+- before: design_doc/en/rfc-3323/after.md
+  after: variants/rfc-3323/shuffled.md
+  kind: shuffled
+  doc_id: rfc-3323
+  expect:
+    clarity: down
+- before: design_doc/en/rfc-3323/after.md
+  after: variants/rfc-3323/no_headings.md
+  kind: no_headings
+  doc_id: rfc-3323
+  expect:
+    clarity: down
+- before: design_doc/en/rfc-3323/after.md
+  after: variants/rfc-3323/removed_middle.md
+  kind: removed_middle
+  doc_id: rfc-3323
+  expect:
+    clarity: down
+- before: design_doc/en/rfc-3323/after.md
+  after: variants/rfc-3323/swap_sections.md
+  kind: swap_sections
+  doc_id: rfc-3323
+  expect:
+    clarity: neutral
+- before: design_doc/en/rfc-3323/after.md
+  after: variants/rfc-3323/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: rfc-3323
+  expect:
+    clarity: neutral
+- before: article/ja/yutotnh-1577b6dc5ab7d9/after.md
+  after: variants/yutotnh-1577b6dc5ab7d9/shuffled.md
+  kind: shuffled
+  doc_id: yutotnh-1577b6dc5ab7d9
+  expect:
+    clarity: down
+- before: article/ja/yutotnh-1577b6dc5ab7d9/after.md
+  after: variants/yutotnh-1577b6dc5ab7d9/no_headings.md
+  kind: no_headings
+  doc_id: yutotnh-1577b6dc5ab7d9
+  expect:
+    clarity: down
+- before: article/ja/yutotnh-1577b6dc5ab7d9/after.md
+  after: variants/yutotnh-1577b6dc5ab7d9/removed_middle.md
+  kind: removed_middle
+  doc_id: yutotnh-1577b6dc5ab7d9
+  expect:
+    clarity: down
+- before: article/ja/yutotnh-1577b6dc5ab7d9/after.md
+  after: variants/yutotnh-1577b6dc5ab7d9/swap_sections.md
+  kind: swap_sections
+  doc_id: yutotnh-1577b6dc5ab7d9
+  expect:
+    clarity: neutral
+- before: article/ja/yutotnh-1577b6dc5ab7d9/after.md
+  after: variants/yutotnh-1577b6dc5ab7d9/unrelated_addition.md
+  kind: unrelated_addition
+  doc_id: yutotnh-1577b6dc5ab7d9
+  expect:
+    clarity: neutral

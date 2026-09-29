@@ -1,0 +1,42 @@
+# Built by build_pairs.py from labels_design_doc_en.yaml (edit that file, not this one). split: heldout.
+# 5 documents, 14 absent / 9 present labels. min_detected = ceil(0.9 x absent).
+# Includes the non_goals positive controls (variants/*/non_goals_inserted.md, NON_GOALS_CONTROLS).
+preset: design-doc
+runs: 2
+criteria:
+  min_detected: 13
+  max_false_alarms: 0
+documents:
+- path: design_doc/en/pep-0655/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    risks: absent
+    rollback: absent
+    metrics: absent
+    open_questions: absent
+- path: design_doc/en/pep-0709/after.md
+  expect:
+    goal: present
+    non_goals: absent
+    alternatives: present
+    rollback: absent
+    migration: absent
+    impact: present
+    open_questions: absent
+- path: design_doc/en/swift-se-0510/after.md
+  expect:
+    goal: present
+    alternatives: present
+    risks: absent
+    rollback: absent
+    metrics: absent
+    migration: absent
+    open_questions: absent
+- path: variants/pep-0655/non_goals_inserted.md
+  expect:
+    non_goals: present
+- path: variants/pep-0709/non_goals_inserted.md
+  expect:
+    non_goals: present
