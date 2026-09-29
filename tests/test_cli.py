@@ -205,3 +205,15 @@ def test_cli_continue_on_file_error_json_format(tmp_path, monkeypatch):
     assert data[0]["filename"] == "doc1.md"
     # stderr contains doc2 error
     assert f"{doc2}: Disk read error" in (result.stderr or result.output)
+
+
+def test_cli_dry_run_file_read_error_exits_3(tmp_path):
+    """S4: dry-run exits 3 when a file cannot be read (e.g. invalid UTF-8 bytes)."""
+    bad_doc = tmp_path / "bad.md"
+    bad_doc.write_bytes(b"\x80\x81\x82 invalid utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(bad_doc), "--dry-run"])
+    assert result.exit_code == 3
+    assert "codec can't decode byte" in (result.stderr or result.output)
+

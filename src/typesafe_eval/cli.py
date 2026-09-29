@@ -243,8 +243,10 @@ def eval_command(
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
 
-    # 7. Exit code resolution (1 takes precedence over 3; dry-run always exits 0)
+    # 7. Exit code resolution (1 takes precedence over 3; dry-run exits 3 on file errors, 0 otherwise)
     if dry_run:
+        if has_errors:
+            sys.exit(3)
         sys.exit(0)
     elif fail_on_threshold and has_violations:
         sys.exit(1)

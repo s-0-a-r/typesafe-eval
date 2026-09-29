@@ -209,7 +209,7 @@ typesafe-eval docs/*.md --dry-run
 In dry-run mode:
 - Terminal tables and Markdown reports clearly display `(MOCK)` in headers, and status is shown as `Verdict: N/A (MOCK)`.
 - JSON output includes `"mock": true` for every evaluated document, with `violations: []` and `warnings: []`.
-- Exits with code `0` for valid inputs across all presets, without making any external API calls. Usage errors still exit with code `2`.
+- Exits with code `0` for valid inputs across all presets, without making any external API calls. Usage errors still exit with code `2`, and file errors exit with code `3`.
 
 ### 7. Baseline Regression Detection (`--baseline`)
 A fixed absolute threshold cannot reliably catch subtle quality degradation between document edits. `typesafe-eval` provides `--baseline` mode to detect score drops against previous evaluation results:
