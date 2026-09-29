@@ -116,6 +116,17 @@ class TypeSafeEvaluator:
         content, redaction_count, redaction_details = mask_sensitive_data(
             clean_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
         )
+        raw_mapping: Dict[str, List[str]] = (
+            redaction_details.pop("_raw_mapping", {}) if redaction_details else {}
+        )
+
+        def _item_in_text(placeholder: str, text: str) -> bool:
+            if mask_secrets:
+                return placeholder in text
+            raw_occurrences = raw_mapping.get(placeholder, [])
+            if raw_occurrences:
+                return any(raw in text for raw in raw_occurrences)
+            return placeholder in text
 
         # 2. Length check & chunking determination
         is_long = len(content) > max_chars
@@ -306,11 +317,11 @@ class TypeSafeEvaluator:
                 if redacted_secrets:
                     st["redacted_secrets"] = redacted_secrets
             else:
-                chunk_em = [f for f in redacted_emails if f["placeholder"] in doc_text]
-                chunk_ph = [f for f in redacted_phones if f["placeholder"] in doc_text]
-                chunk_ip = [f for f in redacted_ips if f["placeholder"] in doc_text]
-                chunk_ur = [f for f in redacted_urls if f["placeholder"] in doc_text]
-                chunk_sec = [f for f in redacted_secrets if f["placeholder"] in doc_text]
+                chunk_em = [f for f in redacted_emails if _item_in_text(f["placeholder"], doc_text)]
+                chunk_ph = [f for f in redacted_phones if _item_in_text(f["placeholder"], doc_text)]
+                chunk_ip = [f for f in redacted_ips if _item_in_text(f["placeholder"], doc_text)]
+                chunk_ur = [f for f in redacted_urls if _item_in_text(f["placeholder"], doc_text)]
+                chunk_sec = [f for f in redacted_secrets if _item_in_text(f["placeholder"], doc_text)]
                 if chunk_em:
                     st["redacted_emails"] = chunk_em
                 if chunk_ph:
@@ -396,7 +407,7 @@ class TypeSafeEvaluator:
                     chunk_st = _make_state(chunk_text_part, is_full=False)
                     chunk_questions = dict(sdk_preset_noul_questions)
                     for placeholder, q_id, q_obj in candidate_specs:
-                        if placeholder in chunk_text_part:
+                        if _item_in_text(placeholder, chunk_text_part):
                             chunk_questions[q_id] = q_obj
                     if chunk_questions:
                         resp_chk = _call_system_one_with_retry(client, state=chunk_st, questions=chunk_questions)

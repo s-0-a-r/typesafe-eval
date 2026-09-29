@@ -1,5 +1,6 @@
 """Tests for per-candidate Noul evaluation (phone, IP, URL, secrets) and decoupled masking (#40)."""
 
+import json
 from pathlib import Path
 from click.testing import CliRunner
 import pytest
@@ -370,3 +371,106 @@ Legacy note: the password is {raw_secret_prose}
     assert url_feat["is_internal_tld"] is True
     assert url_feat["suffix_class"] == ".internal"
     assert url_feat["is_example_domain"] is False
+
+
+def test_chunking_candidate_questions_per_call_masked_and_unmasked(tmp_path):
+    """B1: Masked behaviour must not change, and unmasked must match question sets per call."""
+    from types import SimpleNamespace as NS
+
+    class RecordingFakeClient:
+        def __init__(self):
+            self.calls = []
+            self.states = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(list(questions.keys())))
+            self.states.append(state)
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {q: NS(noul=0.1) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    doc = tmp_path / "long_doc.md"
+    doc.write_text(
+        "Contact taro.yamada@acme-corp.com or call +1-415-555-2671.\n\n"
+        + "A" * 30000 + "\n\n"
+        + "Visit http://internal-dashboard.corp.acme/metrics for details.\n\n"
+        + "B" * 30000 + "\n\n",
+        encoding="utf-8"
+    )
+
+    safety = load_preset("safety")
+    expected_calls = [
+        ["confidentiality_risk", "policy_compliance"],
+        ["email_pii_1", "has_pii", "has_secrets", "phone_pii_1"],
+        ["has_pii", "has_secrets", "url_pii_1"],
+        ["has_pii", "has_secrets"],
+    ]
+
+    # 1. Masked
+    ev_masked = TypeSafeEvaluator(api_key="mock")
+    fake_masked = RecordingFakeClient()
+    ev_masked._client = fake_masked
+    ev_masked.evaluate_document(str(doc), preset=safety, mask_secrets=True, max_chars=25000)
+    assert fake_masked.calls == expected_calls
+
+    # 2. Unmasked
+    ev_unmasked = TypeSafeEvaluator(api_key="mock")
+    fake_unmasked = RecordingFakeClient()
+    ev_unmasked._client = fake_unmasked
+    ev_unmasked.evaluate_document(str(doc), preset=safety, mask_secrets=False, max_chars=25000)
+    assert fake_unmasked.calls == expected_calls
+
+    # 3. Verify internal raw mapping does not leak into state, and email/phone don't leak outside text
+    for st in fake_unmasked.states:
+        outside_text = {k: v for k, v in st.items() if k != "document"}
+        assert "_raw_mapping" not in outside_text
+        serialized = json.dumps(outside_text)
+        assert "taro.yamada@acme-corp.com" not in serialized
+        assert "taro.yamada" not in serialized
+        assert "+1-415-555-2671" not in serialized
+        assert "415-555-2671" not in serialized
+
+
+def test_long_document_unmasked_candidate_evaluation_email_and_url(tmp_path):
+    """B1: ~50k doc with corporate personal address or internal URL fails with outcome personal/sensitive both masked and unmasked."""
+    from types import SimpleNamespace as NS
+
+    class MockClient:
+        def __init__(self, target_prefix):
+            self.target_prefix = target_prefix
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(list(questions.keys()))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.95 if q.startswith(self.target_prefix) else 0.05)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    safety = load_preset("safety")
+
+    # Email test
+    doc_email = tmp_path / "long_email.md"
+    doc_email.write_text("Contact taro.yamada@acme-corp.com for access.\n\n" + ("filler paragraph text.\n\n" * 2000), encoding="utf-8")
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = MockClient(target_prefix="email_pii")
+        res = ev.evaluate_document(str(doc_email), preset=safety, mask_secrets=mask)
+        assert res.passed_thresholds is False, f"Expected FAIL for mask={mask}"
+        assert len(res.email_evaluations) == 1
+        assert res.email_evaluations[0].outcome == "personal"
+        assert res.email_evaluations[0].probability == 0.95
+
+    # Internal URL test
+    doc_url = tmp_path / "long_url.md"
+    doc_url.write_text("Visit http://internal-dashboard.corp.acme/metrics for access.\n\n" + ("filler paragraph text.\n\n" * 2000), encoding="utf-8")
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = MockClient(target_prefix="url_pii")
+        res = ev.evaluate_document(str(doc_url), preset=safety, mask_secrets=mask)
+        assert res.passed_thresholds is False, f"Expected FAIL for mask={mask}"
+        assert len(res.url_evaluations) == 1
+        assert res.url_evaluations[0].outcome == "sensitive"
+        assert res.url_evaluations[0].probability == 0.95
