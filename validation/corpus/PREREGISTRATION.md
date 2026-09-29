@@ -99,6 +99,16 @@ The one miss is `pep-0709` `non_goals` (0.77 / 0.76). Both non_goals controls sc
 
 Applying the rules above, held-out demotes two questions that were reliable on tuning: `pr_description` `summary` (criterion 3) and `breaking_changes` (a false alarm). It confirms the problems already found for `related_issues` and `non_goals`. Nothing else changes. The README lists every question with its counts.
 
+## quality held-out (written before running it)
+
+The `quality` preset (`clarity` Score, `tone` Choice) has not changed since round 0 (last change 8853c85, 2026-09-28). The tool has: HTML comments are stripped (#67) and down pairs have a tolerance of 0.025 (see the deviation above). The held-out pairs have never been run.
+
+- File: `labels_quality_pairs.heldout.yaml`, 84 pairs over 99 distinct files, runs 3, once, on the release/0.4.0 commit that adds this section.
+- Gates as in the file (#42 criterion 4): each gating degradation kind needs a 95% CI upper bound of Δ below −0.1; each neutral kind needs |CI| ≤ 0.05; paraphrase pairs are judged one by one; the pair guard allows neutral pairs up to 0.10 and down pairs below 0.025; `real_correctness` is reported only; groups smaller than 6 pairs get no verdict.
+- Held-out only confirms. A kind that met its gate on tuning becomes not met if it fails here. `no_headings`, not met on tuning, is not promoted by a pass here. `clarity` is not reworded after seeing the result.
+- `tone` has no labels. Its distribution is recorded and does not gate.
+- The feasibility check of #42 criterion 5 is not run on held-out. On tuning the within-pair gap (+0.013 [−0.036, +0.062]) was not larger than the spread between documents (σ 0.116), so #42 says to stop and write the numbers in the README. The 9 held-out review pairs stay unused.
+
 ## Held-out
 
 Held-out runs once per preset version. If a file fails there, the failing items ship as "not reliable" or are removed; the same held-out set is not run a second time for that version. A later confirmatory claim needs newly collected documents.
