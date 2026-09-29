@@ -109,6 +109,29 @@ The `quality` preset (`clarity` Score, `tone` Choice) has not changed since roun
 - `tone` has no labels. Its distribution is recorded and does not gate.
 - The feasibility check of #42 criterion 5 is not run on held-out. On tuning the within-pair gap (+0.013 [−0.036, +0.062]) was not larger than the spread between documents (σ 0.116), so #42 says to stop and write the numbers in the README. The 9 held-out review pairs stay unused.
 
+## quality held-out result
+
+Run once on 2026-09-29 19:13 (tool 1714a0a, the merge that added the section above at 17:48; `quality.yaml` sha256 3fa23631…), `results/2026-09-29f/`. `clarity`, mean Δ with 95% CI:
+
+| Kind | Expected | Tuning (round 0) | Held-out | Status for v0.4.0 |
+|---|---|---|---|---|
+| shuffled | down | n 10, −0.564 [−0.701, −0.427], pass | n 15, −0.524 [−0.652, −0.395], pass | meets the gate |
+| padded | down | n 7, −0.352 [−0.466, −0.237], pass | n 13, −0.353 [−0.426, −0.279], pass | meets the gate |
+| removed_middle | down | n 10, −0.197 [−0.274, −0.119], pass | n 14, −0.177 [−0.257, −0.096], not met | not met (demoted by held-out) |
+| no_headings | down | n 9, −0.091 [−0.141, −0.041], not met | n 15, −0.061 [−0.093, −0.028], not met | not met |
+| unrelated_addition | neutral | n 10, −0.009 [−0.020, +0.002], pass | n 15, −0.005 [−0.014, +0.004], pass | meets the gate |
+| swap_sections | neutral | n 4, no verdict | n 7, −0.068 [−0.166, +0.031], not met | not met |
+| paraphrase | neutral | kep-3140 +0.030, pass | pep-0655 +0.001, pep-0709 −0.004, swift-se-0510 −0.003, all pass | meets the gate |
+| real_correctness | neutral | – | n 2, +0.012, no verdict (report only) | – |
+
+removed_middle still lowers `clarity` on average, but its CI upper bound (−0.096) is just above the −0.1 gate. By the rule above it becomes not met; the gate is not moved.
+
+The pair guard has one violation: a swap_sections pair from a non-public Japanese article at −0.307. The other six swap_sections pairs are between −0.008 and −0.062. In that pair the moved section is the article's closing summary, so the swap may not have kept the sections independent, as swap_sections assumes. The label is not changed; the pair is counted as it is.
+
+`tone` answered informal 208 / professional 338 over the held-out runs. It has no labels and does not gate.
+
+For v0.4.0, `quality` can claim: reordering sentences, filler and unrelated additions behave as expected on both splits, and paraphrases do not move the score. Removing content and removing headings lower the score but not by enough to meet the gate, and swapping sections is not shown to be neutral.
+
 ## Held-out
 
 Held-out runs once per preset version. If a file fails there, the failing items ship as "not reliable" or are removed; the same held-out set is not run a second time for that version. A later confirmatory claim needs newly collected documents.
@@ -154,7 +177,7 @@ Result, run once on 2026-09-29 16:55 (tool 0a56f28, the merge that removed the S
 
 ## What may be claimed
 
-- Large structural damage to a document (reordering, filler, removed content) lowers `clarity`; neutral edits do not move it. Removing headings alone has a small effect.
+- Large structural damage to a document (reordering, filler, removed content) lowers `clarity`; neutral edits do not move it. Removing headings alone has a small effect. (2026-09-29, after held-out: removed content no longer meets the gate; see "quality held-out result".)
 - The checklists point out missing standard sections, with detection and false-alarm counts from this corpus (give the counts).
 - The tool does not tell whether a real review revision improved a document, and scores are not comparable across documents.
 - A PR description that is still an unfilled template can score higher than the filled-in version.
