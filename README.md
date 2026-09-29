@@ -126,6 +126,8 @@ typesafe-eval specs/*.txt --preset safety
    - Detection, feature extraction, and candidate questions **always run**, even when `--no-mask` is passed.
    - `--no-mask` controls only whether sensitive values are substituted in the document text sent to the API.
    - With `--no-mask`, deterministic rules still apply (e.g. `support@gmail.com` and exposed credentials still fail by rule).
+7. **HTML Comments Stripped**:
+   - HTML comments (`<!-- ... -->`) are removed before evaluation, matching how rendered Markdown displays the document. Comments inside fenced code blocks and inline code spans are preserved.
 
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.

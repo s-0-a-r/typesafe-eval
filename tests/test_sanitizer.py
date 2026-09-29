@@ -194,3 +194,45 @@ def test_chunk_text_invalid_max_chars():
     with pytest.raises(ValueError):
         chunk_text("some text", max_chars=0)
 
+
+def test_strip_html_comments_single_line():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "Hello <!-- this is a single-line comment --> World"
+    assert strip_html_comments(text) == "Hello  World"
+
+
+def test_strip_html_comments_multi_line():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "Line 1\n<!--\nthis is a\nmulti-line\ncomment\n-->\nLine 2"
+    assert strip_html_comments(text) == "Line 1\n\nLine 2"
+
+
+def test_strip_html_comments_fenced_block_kept():
+    from typesafe_eval.sanitizer import strip_html_comments
+    backtick_fence = "```python\n# <!-- comment in backticks -->\nx = 1\n```"
+    assert strip_html_comments(backtick_fence) == backtick_fence
+
+    tilde_fence = "~~~\n<!-- comment in tildes -->\n~~~"
+    assert strip_html_comments(tilde_fence) == tilde_fence
+
+
+def test_strip_html_comments_inline_code_span_kept():
+    from typesafe_eval.sanitizer import strip_html_comments
+    single_tick = "Here is `<!-- not a comment -->` inline"
+    assert strip_html_comments(single_tick) == single_tick
+
+    double_tick = "Here is ``<!-- not a comment -->`` inline"
+    assert strip_html_comments(double_tick) == double_tick
+
+
+def test_strip_html_comments_unclosed_kept():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "Hello <!-- unclosed comment without end"
+    assert strip_html_comments(text) == text
+
+
+def test_strip_html_comments_no_comments_unchanged():
+    from typesafe_eval.sanitizer import strip_html_comments
+    text = "# Title\n\nThis is a standard document with no comments."
+    assert strip_html_comments(text) == text
+

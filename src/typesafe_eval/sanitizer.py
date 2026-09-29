@@ -738,3 +738,26 @@ def chunk_text(
 
     return chunks
 
+
+_HTML_COMMENT_PATTERN = re.compile(
+    r"(?P<fence>^[ ]{0,3}(?P<fence_char>[`~]{3,})[^\n]*\n[\s\S]*?(?:^[ ]{0,3}(?P=fence_char)[`~]*[ ]*(?:\n|\Z)|\Z))"
+    r"|(?P<inline>(?P<tick>`+)(?:(?!\n\s*\n)[\s\S])*?(?P=tick))"
+    r"|(?P<comment><!--[\s\S]*?-->)",
+    re.MULTILINE,
+)
+
+
+def strip_html_comments(text: str) -> str:
+    """Strips HTML comments (<!-- ... -->) outside of code blocks and inline code.
+
+    Comments inside fenced code blocks (``` or ~~~) and inline code spans are left
+    intact because they render literally. Unclosed comments (<!-- without matching -->)
+    are left as is.
+    """
+    def _repl(m: re.Match) -> str:
+        if m.group("comment"):
+            return ""
+        return m.group(0)
+
+    return _HTML_COMMENT_PATTERN.sub(_repl, text)
+
