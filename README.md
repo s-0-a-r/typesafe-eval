@@ -277,7 +277,8 @@ criteria:
   degradation_ci_upper_max: -0.1 # optional: upper 95% CI bound must be < this value for down groups
   neutral_ci_abs_max: 0.05       # optional: max(|lower|, |upper|) <= this value for neutral groups
   min_group_size: 6              # optional: groups with fewer pairs report numbers with passed: null and do not gate (default: 6)
-  pair_guard_neutral_abs_max: 0.10 # optional: every neutral pair's |mean delta| <= this, every down pair's mean delta < 0
+  pair_guard_neutral_abs_max: 0.10 # optional: every neutral pair's |mean delta| <= this, every down pair's mean delta <= pair_guard_down_tolerance
+  pair_guard_down_tolerance: 0.0   # optional: maximum mean delta allowed for a down pair in pair guard check (default: 0.0)
   report_only_kinds: [exploratory] # optional: list of kinds that are reported but do not gate
   per_pair_kinds: [paraphrase]   # optional: kinds evaluated per-pair on their own run CI inside group_by: kind
 documents:

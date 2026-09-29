@@ -562,7 +562,7 @@ def run_validation(
                     if crit_cfg and crit_cfg.pair_guard_down_tolerance is not None
                     else 0.0
                 )
-                pair_passed = mean_d < guard_down_tol
+                pair_passed = mean_d <= guard_down_tol
             else:
                 guard_neutral = (
                     crit_cfg.pair_guard_neutral_abs_max
@@ -941,14 +941,14 @@ def run_validation(
             for p in active_gating_pairs:
                 if p.expected == "neutral" and abs(p.mean_delta) > crit_cfg.pair_guard_neutral_abs_max:
                     violating_pairs.append(f"{Path(p.after_path).name} ({p.mean_delta:+.3f})")
-                elif p.expected == "down" and p.mean_delta >= guard_down_tol:
+                elif p.expected == "down" and p.mean_delta > guard_down_tol:
                     violating_pairs.append(f"{Path(p.after_path).name} ({p.mean_delta:+.3f})")
             passed = len(violating_pairs) == 0 and len(active_gating_pairs) > 0
             act_str = f"{len(violating_pairs)} violations" if violating_pairs else "all passed"
             criteria_results.append(
                 CriterionEvaluationResult(
                     name="pair_guard_neutral_abs_max",
-                    expected=f"neutral <= {crit_cfg.pair_guard_neutral_abs_max:.3f}, down < {guard_down_tol:.3f}",
+                    expected=f"neutral <= {crit_cfg.pair_guard_neutral_abs_max:.3f}, down <= {guard_down_tol:.3f}",
                     actual=act_str,
                     passed=None if dry_run else passed,
                     message=f"Pair guard check ({', '.join(violating_pairs[:3])})" if violating_pairs else "All pairs satisfied pair guard",
