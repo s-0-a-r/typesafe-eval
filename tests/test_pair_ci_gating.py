@@ -739,3 +739,48 @@ def test_feasibility_check_explicit_splits_and_injected_evaluator(tmp_path):
     holdout_ids = {p["doc_id"] for p in res["pairs"] if p["is_holdout"]}
     assert holdout_ids == {"art_3", "art_4", "art_5"}
     assert len(holdout_ids) >= 3
+
+
+def test_feasibility_check_heldout_present_gives_numbers(tmp_path):
+    """When held-out docs exist, held_out_roc_auc and false alarm rate are numeric."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("sample content", encoding="utf-8")
+    pairs_data = [
+        {"id": "p0", "doc_id": "d0", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "tuning"},
+        {"id": "p1", "doc_id": "d1", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "heldout"},
+    ]
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")
+
+    fake_eval = FakeEvaluator()
+    res = run_feasibility(pairs_file=pairs_file, dry_run=True, evaluator=fake_eval)
+
+    assert res["held_out_roc_auc"] is not None
+    assert isinstance(res["held_out_roc_auc"], (int, float))
+    assert res["held_out_published_false_alarm_rate"] is not None
+    assert isinstance(res["held_out_published_false_alarm_rate"], (int, float))
+    assert res["by_doc_type"]["article"]["held_out_roc_auc"] is not None
+    assert res["by_doc_type"]["article"]["held_out_false_alarm_rate"] is not None
+
+
+def test_feasibility_check_no_heldout_gives_nulls(tmp_path):
+    """When no held-out docs exist, held_out_roc_auc and false alarm rate are None (null in JSON)."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("sample content", encoding="utf-8")
+    pairs_data = [
+        {"id": "p0", "doc_id": "d0", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "tuning"},
+        {"id": "p1", "doc_id": "d1", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "tuning"},
+    ]
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")
+
+    fake_eval = FakeEvaluator()
+    res = run_feasibility(pairs_file=pairs_file, dry_run=True, evaluator=fake_eval)
+
+    assert res["held_out_roc_auc"] is None
+    assert res["held_out_published_false_alarm_rate"] is None
+    assert res["absolute_gate_feasible"] is False
+    assert res["by_doc_type"]["article"]["held_out_roc_auc"] is None
+    assert res["by_doc_type"]["article"]["held_out_false_alarm_rate"] is None
+    assert res["by_doc_type"]["article"]["feasible"] is False
+
