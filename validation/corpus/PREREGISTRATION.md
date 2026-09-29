@@ -84,6 +84,21 @@ The three non_goals positive controls stay at 0.99. Misses fell from 8 to 4, fal
 - `design_doc_ja` held-out checks recognition of present items only.
 - Present probabilities fell by 0.03 to 0.10 from round 0b to round 1 (for example `pr_en` `summary`), so held-out may show criterion 3 failures on questions that are reliable on tuning. They are reported as they come.
 
+## Held-out result
+
+Run once on 2026-09-29 15:26 (tool d0efa2a, after this file's round 1 section was pushed at 15:25), `results/2026-09-29d/`.
+
+| File | Absent flagged | False alarms | Near 0.5 (present) |
+|---|---|---|---|
+| design_doc_en | 13/14 | 0 | 0 |
+| design_doc_ja | no absent label | 0 | 0 |
+| pr_en | 2/2 | 0 | 1: `kubernetes-134947` `related_issues` 0.57 / 0.55 |
+| pr_ja | 5/5 | 2: `smarthr-ui-5622` `related_issues` 0.45 / 0.45, `pixiv-charcoal-300` `breaking_changes` 0.48 / 0.45 | 1: `pixiv-charcoal-300` `summary` 0.65 / 0.62 |
+
+The one miss is `pep-0709` `non_goals` (0.77 / 0.76). Both non_goals controls score 0.99.
+
+Applying the rules above, held-out demotes two questions that were reliable on tuning: `pr_description` `summary` (criterion 3) and `breaking_changes` (a false alarm). It confirms the problems already found for `related_issues` and `non_goals`. Nothing else changes. The README lists every question with its counts.
+
 ## Held-out
 
 Held-out runs once per preset version. If a file fails there, the failing items ship as "not reliable" or are removed; the same held-out set is not run a second time for that version. A later confirmatory claim needs newly collected documents.

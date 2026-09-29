@@ -16,7 +16,7 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **Context-Aware Masking & Candidate Evaluation**: Deterministic regex rules combined with candidate-level feature extraction (for emails, phone numbers, IP addresses, internal URLs, and secrets). Detection and feature extraction always run even when `--no-mask` is passed.
 - **Validation & Calibration Harness (`validate`)**: Built-in test runner for evaluating presets against ground-truth document sets and ablation variants (`labels.yaml`) to verify calibration, detection rates, and regression directions.
 - **Baseline Regression Detection (`--baseline`)**: Flags score drops larger than the measured noise between revisions, detecting subtle quality degradation against previous runs.
-- **Measured Built-in Checklists**: Objective presence-based checklists (`design-doc`) checked on fixtures (not real documents yet).
+- **Measured Built-in Checklists**: Presence checklists (`design-doc`, `pr-description`) measured on a corpus of public design documents and pull requests, with counts per question and the questions that are not reliable listed.
 - **Long Document Chunking**: Overlapping window chunking for presence questions (`Noul`) to prevent middle-truncation false degradation while keeping token budgets safe.
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
@@ -40,11 +40,37 @@ The underlying evaluation engine is powered by the [TypeSafe System One API](htt
 
 | Preset | Purpose | Questions | Calibration / Measurement Status |
 | :--- | :--- | :--- | :--- |
-| `design-doc` | Review checklist for system design docs | 10 presence Nouls (`goal`, `rollback`, `metrics`, etc.) | Fixtures only, not yet measured on the corpus (#41 open). EN 7/10, JA 6/10, 0/100 false alarms ([labels_en.yaml](tests/fixtures/design_doc/labels_en.yaml), [labels_ja.yaml](tests/fixtures/design_doc/labels_ja.yaml)). `goal`, `risks`, `migration` (and `rollback` in Japanese) are not reliable: a missing section can be inferred from other sections, so a pass is not a guarantee; a flag is reliable. |
+| `design-doc` | Review checklist for system design docs | 10 presence Nouls (`goal`, `rollback`, `metrics`, etc.) | Measured on public design documents, EN and JA (tuning 12, held-out 6, [counts](#checklist-counts)). Reliable: `alternatives`, `rollback`, `open_questions`; `goal` for recognizing a stated goal only; `owner_timeline` for flagging a missing one only. **Not reliable**: `non_goals`, `risks`, `migration`, `metrics`. `impact` is not measured. |
 | `safety` | Content safety, PII, credentials, confidentiality | `has_secrets`, `has_pii`, `confidentiality_risk`, `policy_compliance` | Measured on fixtures ([pii_secrets](tests/fixtures/pii_secrets/labels.yaml), [confidentiality](tests/fixtures/confidentiality/labels.yaml)):<br>• `pii_secrets` (40 docs, #40): all 40 document verdicts correct, masked and `--no-mask`, 3 runs (validate: min_detected 23, max_false_alarms 0 met).<br>• `confidentiality` (46 docs, #53): 32/32 harmless below the threshold (max 0.31) and 14/14 confidential above (min 0.66), masked and `--no-mask`, 3 runs. |
-| `pr-description` | Checklist for pull request descriptions | 5 presence Nouls (`summary`, `testing`, `impact`, etc.) | **Not measured yet** (waits for real PR corpus). |
+| `pr-description` | Checklist for pull request descriptions | 5 presence Nouls (`summary`, `testing`, `impact`, etc.) | Measured on public pull requests, EN and JA (tuning 12, held-out 6, [counts](#checklist-counts)). Reliable: `testing`. **Not reliable**: `summary`, `impact`, `breaking_changes`, `related_issues`. |
 | `quality` | Readability & structure regression detection | `clarity` (Score), `tone` (Choice) | **Not measured yet** (waits for real corpus); thresholds act as warnings, use with `--baseline`. |
 | `tech-spec` | Architecture depth, edge cases, test planning | `technical_depth`, `edge_case_coverage`, `has_test_plan`, `readiness` | **Not measured yet** (waits for real corpus). |
+
+### Checklist counts
+
+Measured with the v0.4.0 wording (preset files as of commit d0efa2a). The corpus, its labels and the rules the numbers were read by are in [validation/corpus](validation/corpus/README.md) and [PREREGISTRATION.md](validation/corpus/PREREGISTRATION.md). The tuning set was used to choose the wording; the held-out set was run once afterwards. Each document was evaluated twice.
+
+"Missing flagged" counts documents without the item that scored below 0.5 in both runs. "False alarms" counts documents with the item that scored below 0.5 in at least one run. "Near 0.5" counts documents with the item that passed but scored within 0.5 ± 0.15, where a rerun can flip the result. A question is not reliable when any of the three shows up in either set. The counts are small, so a reliable question has only passed a small test, not shown that it cannot fail.
+
+| Preset | Question | Tuning: missing flagged | Tuning: false alarms | Held-out: missing flagged | Held-out: false alarms | Near 0.5 (tuning / held-out) | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `design-doc` | `goal` | no label | 0/9 | no label | 0/4 | 0 / 0 | recognizes a stated goal |
+| `design-doc` | `non_goals` | 4/7 | 0/4 | 1/2 | 0/3 | 0 / 0 | not reliable |
+| `design-doc` | `alternatives` | 2/2 | 0/5 | no label | 0/3 | 0 / 0 | reliable |
+| `design-doc` | `risks` | 2/3 | 0/2 | 2/2 | 0/1 | 0 / 0 | not reliable |
+| `design-doc` | `rollback` | 7/7 | 0/2 | 3/3 | no label | 0 / 0 | reliable |
+| `design-doc` | `metrics` | 4/4 | 0/2 | 2/2 | 0/1 | 1 / 0 | not reliable |
+| `design-doc` | `migration` | 2/2 | 0/4 | 2/2 | no label | 1 / 0 | not reliable |
+| `design-doc` | `impact` | no label | no label | no label | 0/1 | 0 / 0 | not measured |
+| `design-doc` | `open_questions` | 4/4 | 0/4 | 3/3 | 0/1 | 0 / 0 | reliable |
+| `design-doc` | `owner_timeline` | 4/4 | no label | no label | no label | 0 / 0 | flags a missing one |
+| `pr-description` | `summary` | no label | 0/10 | no label | 0/6 | 0 / 1 | not reliable |
+| `pr-description` | `testing` | 3/3 | 0/4 | 2/2 | 0/2 | 0 / 0 | reliable |
+| `pr-description` | `impact` | 1/1 | 0/6 | no label | 0/2 | 1 / 0 | not reliable |
+| `pr-description` | `breaking_changes` | 8/8 | 0/2 | 3/3 | 1/2 | 0 / 0 | not reliable |
+| `pr-description` | `related_issues` | 1/1 | 1/11 | 2/2 | 1/4 | 0 / 1 | not reliable |
+
+The `non_goals` rows include hand-written Non-goals sections inserted into public specifications as positive controls (3 tuning, 2 held-out); all scored 0.99. The tuning `related_issues` false alarm is a pull request whose only reference is a link to another pull request; the question names issues, tickets, design docs and discussions, not pull requests.
 
 ### Language Support & Non-English Accuracy
 
@@ -52,8 +78,10 @@ TypeSafe System One is trained primarily on English. As noted in TypeSafe's docu
 
 In our measured Japanese fixtures compared to English:
 - **Design Doc Checklist (`design-doc`)**:
-  - Tested on single-section ablation fixtures (11 documents each): EN caught 7/10 removed sections, JA caught 6/10 removed sections (0/100 false alarms in both).
-  - Missing `goal`, `risks`, and `migration` were not reliably flagged in either language (and `rollback` in Japanese) because the model inferred their topics from surrounding context.
+  - On the corpus, the Japanese tuning documents (4) flagged 15 of 16 missing items with no false alarm, and the English ones flagged 14 of 17. The Japanese held-out set has one document and no missing item, so this is not a claim about Japanese in particular.
+  - On the earlier single-section ablation fixtures (11 documents each), EN caught 7/10 removed sections and JA 6/10, with 0/100 false alarms in both.
+- **PR Description Checklist (`pr-description`)**:
+  - Three of the four held-out failures are on Japanese pull requests, two of them on the same one.
 - **PII & Confidentiality (`safety`)**:
   - Only 1 of the 40 `pii_secrets` fixtures and 3 of the 46 `confidentiality` fixtures are Japanese, so there is no Japanese accuracy figure for PII.
 - **Long Document Truncation & Chunking**:
