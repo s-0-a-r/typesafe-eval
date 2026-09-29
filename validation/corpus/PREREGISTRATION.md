@@ -38,7 +38,7 @@ Considered and not used:
 - "list item" and "link": bare links and "Fixes #N" already score 0.90 to 0.98 for `related_issues` in round 0b, and "list item" would make one bullet in a list of design decisions easier to take as a non-goal.
 
 **How round 1 is read.**
-- Files: `labels_{pr_en,pr_ja,design_doc_en,design_doc_ja}.tuning.yaml`, once each. `tech_spec` and `quality` are not rerun; their questions do not change.
+- Files: `labels_{pr_en,pr_ja,design_doc_en,design_doc_ja}.tuning.yaml`, once each. `tech_spec` and `quality` are not rerun; their questions do not change. (2026-09-29, later: the two tech-spec Scores were removed; see "Deviation: tech-spec Scores removed".)
 - Criterion 4 compares with round 0b (`results/2026-09-29b/`, the same tool after the fixes above), not round 0. It counts misses and false alarms per (file, question). A lower probability without a changed verdict is not worse. A question with no items in a file cannot be worse there.
 - A present item that fails criterion 3 makes its question "not met" in that preset version.
 - Criterion 3 already fails in round 0b for four present items: pr_en tuning doc A `related_issues` 0.56 / 0.59, pr_ja tuning doc A `testing` 0.61 / 0.61, `kep-3325` `migration` 0.60 / 0.59, `go-draft-fuzzing` `metrics` 0.61 / 0.56. Round 1 is read against these.
@@ -118,10 +118,24 @@ Measured on 2026-09-29 (tool 2cdcc75, HTML comments stripped), 10 runs each, cla
 
 Largest SD 0.0071, times 3 is 0.0212, rounded up to **0.025**.
 
+## Deviation: tech-spec Scores removed
+
+Written after the tech-spec tuning pairs were measured and before any tech-spec held-out run. This is a change after seeing results and is reported as such.
+
+On the tuning pairs, removing content (removed_middle) is the one edit that should lower `technical_depth` and `edge_case_coverage`. Neither met the degradation gate (CI upper < −0.1): `technical_depth` −0.107 [−0.167, −0.048], `edge_case_coverage` −0.037 [−0.072, −0.002]. Presentation changes barely moved them and neutral edits passed, so the scores are stable but do not track what they claim to measure. Both are removed from the preset in v0.4.0. No held-out data exists for them.
+
+What is left in `tech-spec`: `has_test_plan` (Noul, wording unchanged since round 0; the round 1 suffix was applied to `design_doc` and `pr_description` only) and `readiness` (Choice, no labels, reported as unmeasured with its distribution over the round 0b tech-spec pair runs, four-question preset: ready 162, needs_revision 158, blocked 0).
+
+The API evaluates all questions of a preset in one request, so removing two questions may change the `has_test_plan` probabilities measured with four. The reduced preset is therefore measured once on `labels_tech_spec.tuning.yaml` (8 documents, 3 absent / 5 present) and once on `labels_tech_spec.heldout.yaml` (4 documents, 3 absent / 1 present), after the commit that removes the Scores and adds this section:
+
+- The four criteria of the rounds apply, with min_detected = ceil(1.0 × absent): 3/3 on both splits, no false alarm, every present item at least 0.15 away from 0.5. Criterion 4 compares tuning with round 0b (3/3, 0/5).
+- This is a confirmation, not a rewording round. If `has_test_plan` fails, its wording is not changed; it ships as not reliable.
+- Held-out runs once, as for the other presets. It only confirms or demotes.
+
 ## Added before the rounds
 
 - **non_goals positive controls.** The corpus had only 2 documents whose `non_goals` label is present, so a stricter wording could not show new false alarms. `build_pairs.py` inserts a short hand-written Non-goals section into public specifications (tuning: kep-3140, kep-3325, rfc-3027; held-out: pep-0655, pep-0709), labeled `non_goals: present`. `risks` still has few present labels (tuning 2, held-out 1); that is a disclosed limitation.
-- **tech-spec Scores (#43).** `labels_tech_spec_pairs.{tuning,heldout}.yaml` use the same pairs as `quality`. Only removed_middle is a degradation of depth or edge-case coverage; shuffled, no_headings and padded change presentation, not content, and are reported without gating.
+- **tech-spec Scores (#43).** `labels_tech_spec_pairs.{tuning,heldout}.yaml` use the same pairs as `quality`. Only removed_middle is a degradation of depth or edge-case coverage; shuffled, no_headings and padded change presentation, not content, and are reported without gating. (2026-09-29, later: both Scores failed this and were removed; see "Deviation: tech-spec Scores removed".)
 - **HTML comments.** The labels were written with HTML comments ignored, but the tool sent them to the model. The tool now strips them, as a rendered page would. This is a tool fix, not a rewording round. The affected tuning cells are re-measured once to see its effect.
 - **A tuning paraphrase.** The paraphrase pairs are all in held-out, so the per-pair gate has never run. One hand-written paraphrase of a tuning public specification (kep-3140, Apache-2.0, listed in `NOTICE.md`) is run once with runs 10 to check the gate works before held-out. It is not rerun or rewritten after seeing its result.
 - **Baseline.** A heading regex plus length heuristic is run on the same tuning data, without the API, so the tables show what an LLM adds.

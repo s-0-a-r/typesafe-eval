@@ -44,7 +44,7 @@ The underlying evaluation engine is powered by the [TypeSafe System One API](htt
 | `safety` | Content safety, PII, credentials, confidentiality | `has_secrets`, `has_pii`, `confidentiality_risk`, `policy_compliance` | Measured on fixtures ([pii_secrets](tests/fixtures/pii_secrets/labels.yaml), [confidentiality](tests/fixtures/confidentiality/labels.yaml)):<br>• `pii_secrets` (40 docs, #40): all 40 document verdicts correct, masked and `--no-mask`, 3 runs (validate: min_detected 23, max_false_alarms 0 met).<br>• `confidentiality` (46 docs, #53): 32/32 harmless below the threshold (max 0.31) and 14/14 confidential above (min 0.66), masked and `--no-mask`, 3 runs. |
 | `pr-description` | Checklist for pull request descriptions | 5 presence Nouls (`summary`, `testing`, `impact`, etc.) | Measured on public pull requests, EN and JA (tuning 12, held-out 6, [counts](#checklist-counts)). Reliable: `testing`. **Not reliable**: `summary`, `impact`, `breaking_changes`, `related_issues`. |
 | `quality` | Readability & structure regression detection | `clarity` (Score), `tone` (Choice) | **Not measured yet** (waits for real corpus); thresholds act as warnings, use with `--baseline`. |
-| `tech-spec` | Architecture depth, edge cases, test planning | `technical_depth`, `edge_case_coverage`, `has_test_plan`, `readiness` | **Not measured yet** (waits for real corpus). |
+| `tech-spec` | Test / verification plan check for technical specs | `has_test_plan` (Noul), `readiness` (Choice) | `has_test_plan`: measurement of the reduced preset pending. `readiness`: no labels, **not measured**; over the corpus runs it answered ready 162 / needs_revision 158 / blocked 0. The Scores `technical_depth` and `edge_case_coverage` were removed in v0.4.0: removing content from a spec did not lower them enough (−0.107 and −0.037 against a gate of −0.1 at the CI upper bound). With one Noul left, the composite score equals `has_test_plan`. |
 
 ### Checklist counts
 
@@ -160,7 +160,7 @@ typesafe-eval specs/*.txt --preset safety
 #### Known Limitations
 - **Context-Free Isolated Addresses**: When an address appears without surrounding context (e.g. `Forward to yamada@acme-corp.com`), the model relies solely on structural features. Accuracy may vary when neither role keywords nor individual context are present.
 
-### 3. Evaluate Architecture Specs / PR Descriptions (`tech-spec`)
+### 3. Evaluate Technical Specs (`tech-spec`)
 ```bash
 typesafe-eval rfc/*.md --preset tech-spec --format markdown --out eval_report.md
 ```
@@ -225,7 +225,7 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 - **Empirical Noise Calibration**: In noise measurements across 3 documents × 10 runs on each built-in preset (90 evaluations, 1,215 pairwise comparisons; measured on v0.3.x presets; re-measure pending):
   - `quality`: 99th percentile |Δ| = `0.020`, max = `0.020`
   - `safety`: 99th percentile |Δ| = `0.030`, max = `0.040`
-  - `tech-spec`: 99th percentile |Δ| = `0.030`, max = `0.050`
+  - `tech-spec`: 99th percentile |Δ| = `0.030`, max = `0.050` (measured before the two Score questions were removed)
   - Overall 99th percentile was `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
