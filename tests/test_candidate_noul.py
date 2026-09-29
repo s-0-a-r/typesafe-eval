@@ -181,6 +181,8 @@ def test_decoupled_masking_no_mask_flag(tmp_path):
     assert len(details["redacted_urls"]) == 1
     assert len(details["redacted_emails"]) == 1
     assert len(details["redacted_secrets"]) == 1
+    assert "_raw_mapping" not in details
+    assert "hunter2" not in json.dumps(details, default=str)
 
     # Unmasked (--no-mask): raw text is preserved, count is 0, but details are fully extracted
     unmasked, count_unmasked, details_unmasked = mask_sensitive_data(raw, mask=False, return_details=True)
@@ -751,4 +753,154 @@ def test_raw_mapping_not_in_result(tmp_path, mask):
     assert "_raw_mapping" not in res.redaction_details
     if mask:
         assert "taro.yamada@acme-corp.com" not in json.dumps(res.redaction_details, default=str)
+
+
+@pytest.mark.parametrize("text", [
+    "Owners: hanako@acme-corp.com/taro.yamada@acme-corp.com today.",
+    "Owner (cc/taro.yamada@acme-corp.com) today.",
+    "owner -taro.yamada@acme-corp.com",
+    "GET /users/taro.yamada@acme-corp.com/settings",
+    "link x/http://internal-dashboard.corp.acme/metrics",
+    "Prod DB subnet 10.1.2.3/24 internal.",
+    "Start with --password=Xk9vLq2Tz8Wm now.",
+])
+def test_unmasked_delimiter_regression(tmp_path, text):
+    """3a: Unmasked chunk matching accepts raw values adjacent to / or -."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text(FILL + text + "\n\n" + FILL, encoding="utf-8")
+
+    class RecordingFakeClient:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(list(questions.keys())))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.95 if any(q.startswith(p) for p in ("email_pii", "ip_pii", "url_pii", "secret")) else 0.05)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    results = {}
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        client = RecordingFakeClient()
+        ev._client = client
+        res = ev.evaluate_document(str(d), preset=preset, mask_secrets=mask)
+        evs = [
+            (e.placeholder, e.outcome, e.probability)
+            for attr in ("email_evaluations", "ip_evaluations", "url_evaluations", "secret_evaluations")
+            for e in getattr(res, attr)
+        ]
+        results[mask] = (client.calls, res.passed_thresholds, evs)
+
+    assert results[True] == results[False]
+    assert results[False][1] is False
+
+
+@pytest.mark.parametrize("val_a,val_b", [
+    ("taro@acme.co", "taro@acme.co.jp"),
+    ("taro@acme.com", "x.taro@acme.com"),
+    ("taro@acme.com", "dev-taro@acme.com"),
+])
+def test_substring_discrimination_across_chunks(tmp_path, val_a, val_b):
+    """3b: Substring discrimination across chunks: masked and unmasked per-call question lists are equal."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 1500
+    d = tmp_path / "sub.md"
+    d.write_text(f"Contact {val_a}\n\n{FILL}Alternative {val_b}\n", encoding="utf-8")
+
+    class RecordingFakeClient:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(list(questions.keys())))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {q: NS(noul=0.1) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    calls = {}
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        client = RecordingFakeClient()
+        ev._client = client
+        ev.evaluate_document(str(d), preset=preset, mask_secrets=mask)
+        calls[mask] = client.calls
+
+    assert calls[True] == calls[False]
+
+
+def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
+    """3c: Candidate never asked in any chunk raises RuntimeError matching 'not asked in any of'."""
+    from typesafe_eval import client as client_mod
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "doc.md"
+    d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
+
+    orig_mask = client_mod.mask_sensitive_data
+    call_count = 0
+
+    def patched_mask(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        text, count, details = orig_mask(*args, **kwargs)
+        if call_count > 1 and details and "_raw_mapping" in details:
+            details = dict(details)
+            details["_raw_mapping"] = {}
+        return text, count, details
+
+    monkeypatch.setattr(client_mod, "mask_sensitive_data", patched_mask)
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {q: NS(noul=0.05) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = FakeClient()
+    with pytest.raises(RuntimeError, match="not asked in any of"):
+        ev.evaluate_document(str(d), preset=preset, mask_secrets=False)
+
+
+def test_chunked_pii_override_when_model_omits(tmp_path):
+    """Chunked preflight exemption for a preflight: pii question omitted in every chunk."""
+    from types import SimpleNamespace as NS
+    from typesafe_eval.models import PresetConfig, QuestionConfig
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("Contact hanako.suzuki@gmail.com\n\n" + FILL, encoding="utf-8")
+    preset = PresetConfig(
+        name="custom_pii_guard",
+        questions={
+            "pii_gate": QuestionConfig(
+                type="noul", label="PII Check", instructions="Check for PII", preflight="pii", max_threshold=0.3
+            )
+        },
+    )
+
+    class DropPiiGateClient:
+        def system_one(self, state, questions):
+            no = {k: NS(noul=0.05) for k in questions if k != "pii_gate"}
+            return NS(usage=None, model="f", scores={}, choices={}, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropPiiGateClient()
+    res = ev.evaluate_document(str(d), preset=preset)
+    assert res.nouls["pii_gate"].overridden_by == "preflight_scan"
+    assert res.passed_thresholds is False
+
 

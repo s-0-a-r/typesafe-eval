@@ -120,15 +120,25 @@ class TypeSafeEvaluator:
             redaction_details.pop("_raw_mapping", {}) if redaction_details else {}
         )
 
+        _raw_token_cache: Dict[str, set] = {}
+
+        def _raw_tokens_in(text: str) -> set:
+            # Re-run the same detector on the chunk so a raw value matches only as a whole detected token.
+            if text not in _raw_token_cache:
+                _, _, chunk_details = mask_sensitive_data(
+                    text, mask=False, return_details=True, custom_role_patterns=custom_roles
+                )
+                _raw_token_cache[text] = {
+                    raw for vals in chunk_details.get("_raw_mapping", {}).values() for raw in vals
+                }
+            return _raw_token_cache[text]
+
         def _item_in_text(placeholder: str, text: str) -> bool:
             if mask_secrets:
                 return placeholder in text
             raw_occurrences = raw_mapping.get(placeholder, [])
             if raw_occurrences:
-                return any(
-                    bool(re.search(r"(?<![\w.@/-])" + re.escape(raw) + r"(?![\w@/-]|\.\w)", text))
-                    for raw in raw_occurrences
-                )
+                return any(raw in _raw_tokens_in(text) for raw in raw_occurrences)
             return placeholder in text
 
         # 2. Length check & chunking determination
@@ -488,6 +498,11 @@ class TypeSafeEvaluator:
                         for _, q_id, _ in candidate_specs:
                             if q_id in resp_chk.nouls:
                                 candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
+
+                never_asked = [q_id for _, q_id, _ in candidate_specs if q_id not in candidate_prob_map]
+                if never_asked:
+                    q_names = ", ".join(f"'{q}'" for q in never_asked)
+                    raise RuntimeError(f"Candidate question(s) {q_names} were not asked in any of {n_chunks} chunks")
 
                 for q_id in sdk_preset_noul_questions:
                     probs = preset_noul_probs.get(q_id, [])
