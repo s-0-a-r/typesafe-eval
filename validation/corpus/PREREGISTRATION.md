@@ -132,6 +132,12 @@ The pair guard has one violation: a swap_sections pair from a non-public Japanes
 
 For v0.4.0, `quality` can claim: reordering sentences, filler and unrelated additions behave as expected on both splits, and paraphrases do not move the score. Removing content and removing headings lower the score but not by enough to meet the gate, and swapping sections is not shown to be neutral.
 
+## Tool changes after the recorded runs (2026-09-29)
+
+Added after all runs above; nothing here was re-run. #78 changed four things in the tool after the measurements: which candidate questions each chunk gets with `--no-mask`, what happens when an answer is missing from the API response (now an error, exit 3), the `--dry-run` exit code on file errors, and the pair guard boundary. None of the recorded runs took those paths: they were masked, no document was chunked for candidates without masking, and no answer was missing in `results/2026-09-29c` to `2026-09-29f`.
+
+The pair guard now fails a down pair only when its mean delta is above the tolerance, as the deviation below says. The gate line for the quality held-out run says "below 0.025"; a down pair of exactly 0.025 now passes. No recorded down pair is exactly 0.025, so no verdict changes.
+
 ## Held-out
 
 Held-out runs once per preset version. If a file fails there, the failing items ship as "not reliable" or are removed; the same held-out set is not run a second time for that version. A later confirmatory claim needs newly collected documents.
