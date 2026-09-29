@@ -8,7 +8,7 @@ import pytest
 from typesafe_eval.cli import main
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
-from typesafe_eval.models import DocumentEvalResult, BaselineDiff
+from typesafe_eval.models import DocumentEvalResult, BaselineDiff, PresetConfig, QuestionConfig
 from typesafe_eval.baseline import compare_document_with_baseline
 from typesafe_eval.reporter import render_table, render_markdown, render_json
 
@@ -48,7 +48,27 @@ def test_dry_run_mixed_preset_long_doc(tmp_path):
     doc.write_text("\n\n".join([f"## Section {i}\nSome body text here for section {i}." for i in range(15)]), encoding="utf-8")
 
     evaluator = TypeSafeEvaluator()
-    preset = load_preset("tech-spec")
+    preset = PresetConfig(
+        name="mixed-preset",
+        title="Mixed Preset",
+        description="Synthetic preset with score and noul questions",
+        questions={
+            "clarity": QuestionConfig(
+                type="score",
+                label="Clarity",
+                instructions="Score clarity",
+                criteria=["Low", "High"],
+                weight=0.5,
+            ),
+            "has_tests": QuestionConfig(
+                type="noul",
+                label="Has Tests",
+                instructions="Check test plan",
+                min_threshold=0.8,
+                weight=0.5,
+            ),
+        },
+    )
     res = evaluator.evaluate_document(str(doc), preset=preset, max_chars=300, dry_run=True)
 
     assert res.api_calls > 1

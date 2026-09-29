@@ -6,7 +6,6 @@ Outputs (next to this script):
   lines are under 5% of the longer version are left out (the edit is too small to say which is clearer)
 - labels_quality_pairs.{heldout,tuning}.yaml: validate pairs (synthetic degradations: down; synthetic neutral
   edits, hand-written paraphrases and real correctness-only pairs: neutral). tuning uses 2 documents per cell
-- labels_tech_spec_pairs.{heldout,tuning}.yaml: the same pairs for the tech-spec Scores (#43)
 - variants/: the synthetic variant files
 - labels_<name>.{tuning,heldout}.yaml: the presence labels (labels_<name>.yaml) split the same way, so
   #41 keeps a held-out set too. min_detected is recomputed per file. labels_design_doc_en also gets the
@@ -360,19 +359,6 @@ def main():
         (ROOT / f"labels_quality_pairs.{split}.yaml").write_text(
             hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
     (ROOT / "labels_quality_pairs.yaml").unlink(missing_ok=True)
-
-    # tech-spec Scores (#43) on the same pairs. Only removing content is a degradation of depth or edge-case
-    # coverage; reordering, dropping headings and filler change presentation, not content, so they are reported
-    # but do not gate. Neutral edits keep the same expectation as for clarity.
-    ts_criteria = dict(criteria, report_only_kinds=["real_correctness", "shuffled", "no_headings", "padded"])
-    for split, (vpairs, _, bases) in outputs.items():
-        ts_pairs = [dict(v, expect={q: ("down" if v["kind"] == "removed_middle" else v["expect"]["clarity"])
-                                    for q in ("technical_depth", "edge_case_coverage")}) for v in vpairs]
-        hdr = (f"# Built by build_pairs.py. split: {split} ({len(bases)} base documents). tech-spec Scores on the\n"
-               "# labels_quality_pairs pairs: removed_middle is down; shuffled, no_headings and padded are report only.\n")
-        doc = {"preset": "tech-spec", "runs": 3, "criteria": ts_criteria, "pairs": ts_pairs}
-        (ROOT / f"labels_tech_spec_pairs.{split}.yaml").write_text(
-            hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     split_of = {f"{r['folder']}/after.md": r["split"] for r in rows}
     by_doc = {r["source_doc"]: r for r in rows if not r["excluded"]}
