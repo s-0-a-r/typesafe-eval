@@ -365,12 +365,15 @@ def run_feasibility(
     candidate_threshold = statistics.median(tuning_worse_scores) if tuning_worse_scores else 0.5
 
     # Report AUC and published false-alarm rate on held-out
-    held_out_better = [p["better_score"] for p in holdout_pairs]
-    held_out_worse = [p["worse_score"] for p in holdout_pairs]
-    held_out_auc = compute_roc_auc(held_out_better, held_out_worse)
-
-    false_alarms = sum(1 for s in held_out_better if s <= candidate_threshold)
-    held_out_fa_rate = round(false_alarms / len(held_out_better), 4) if held_out_better else 0.0
+    if holdout_pairs:
+        held_out_better = [p["better_score"] for p in holdout_pairs]
+        held_out_worse = [p["worse_score"] for p in holdout_pairs]
+        held_out_auc = compute_roc_auc(held_out_better, held_out_worse)
+        false_alarms = sum(1 for s in held_out_better if s <= candidate_threshold)
+        held_out_fa_rate = round(false_alarms / len(held_out_better), 4) if held_out_better else None
+    else:
+        held_out_auc = None
+        held_out_fa_rate = None
 
     # Group by document type
     by_doc_type = {}
@@ -388,11 +391,17 @@ def run_feasibility(
             if dt_tuning
             else candidate_threshold
         )
-        dt_ho_better = [p["better_score"] for p in dt_holdout]
-        dt_ho_worse = [p["worse_score"] for p in dt_holdout]
-        dt_auc = compute_roc_auc(dt_ho_better, dt_ho_worse) if dt_holdout else 0.5
-        dt_fa = sum(1 for s in dt_ho_better if s <= dt_thresh)
-        dt_fa_rate = round(dt_fa / len(dt_ho_better), 4) if dt_ho_better else 0.0
+        if dt_holdout:
+            dt_ho_better = [p["better_score"] for p in dt_holdout]
+            dt_ho_worse = [p["worse_score"] for p in dt_holdout]
+            dt_auc = compute_roc_auc(dt_ho_better, dt_ho_worse)
+            dt_fa = sum(1 for s in dt_ho_better if s <= dt_thresh)
+            dt_fa_rate = round(dt_fa / len(dt_ho_better), 4) if dt_ho_better else None
+            dt_feasible = bool(dt_auc is not None and dt_fa_rate is not None and dt_auc >= 0.75 and dt_fa_rate <= 0.10)
+        else:
+            dt_auc = None
+            dt_fa_rate = None
+            dt_feasible = False
 
         by_doc_type[dt] = {
             "num_pairs": len(dt_pairs),
@@ -402,7 +411,7 @@ def run_feasibility(
             "candidate_threshold": round(dt_thresh, 4),
             "held_out_roc_auc": dt_auc,
             "held_out_false_alarm_rate": dt_fa_rate,
-            "feasible": (dt_auc >= 0.75 and dt_fa_rate <= 0.10),
+            "feasible": dt_feasible,
         }
 
     return {
@@ -424,7 +433,13 @@ def run_feasibility(
         "tuning_candidate_threshold": round(candidate_threshold, 4),
         "held_out_roc_auc": held_out_auc,
         "held_out_published_false_alarm_rate": held_out_fa_rate,
-        "absolute_gate_feasible": (held_out_auc >= 0.75 and held_out_fa_rate <= 0.10 and within_pair_clearly_larger),
+        "absolute_gate_feasible": bool(
+            held_out_auc is not None
+            and held_out_fa_rate is not None
+            and held_out_auc >= 0.75
+            and held_out_fa_rate <= 0.10
+            and within_pair_clearly_larger
+        ),
         "by_doc_type": by_doc_type,
         "pairs": evaluated_pairs,
     }
@@ -470,15 +485,17 @@ def main():
     print("=== Feasibility Check Summary (Issue #42) ===")
     print(f"Evaluated Pairs: {report['num_pairs']} (across {report['num_distinct_docs']} distinct documents)")
     print(f"Tuning Docs: {len(report['tuning_docs'])}, Held-out Docs: {len(report['holdout_docs'])}")
-    print(f"Mean Δ (within-pair): {report['within_pair_gap']['mean_delta']} "
+    print(f"Mean Δ (worse − better): {report['within_pair_gap']['mean_delta']} "
           f"[95% CI: {report['within_pair_gap']['ci95_lower']}, {report['within_pair_gap']['ci95_upper']}]")
     print(f"Between-document spread (σ): {report['between_doc_spread']}")
     ratio_str = f"{report['gap_to_spread_ratio']}" if report['gap_to_spread_ratio'] is not None else "N/A"
     print(f"Gap / Spread Ratio: {ratio_str} "
           f"({'Clearly larger (≥1.5)' if report['within_pair_clearly_larger'] else 'Not clearly larger (<1.5)'})")
     print(f"Tuning Candidate Threshold: {report['tuning_candidate_threshold']}")
-    print(f"Held-out ROC-AUC (better vs worse): {report['held_out_roc_auc']} (Target: ≥ 0.75)")
-    print(f"Held-out Published False Alarm Rate: {report['held_out_published_false_alarm_rate'] * 100:.1f}% (Target: ≤ 10%)")
+    auc_str = f"{report['held_out_roc_auc']}" if report["held_out_roc_auc"] is not None else "n/a"
+    print(f"Held-out ROC-AUC (better vs worse): {auc_str} (Target: ≥ 0.75)")
+    fa_str = f"{report['held_out_published_false_alarm_rate'] * 100:.1f}%" if report["held_out_published_false_alarm_rate"] is not None else "n/a"
+    print(f"Held-out Published False Alarm Rate: {fa_str} (Target: ≤ 10%)")
     print(f"Absolute Gate Feasible: {'YES' if report['absolute_gate_feasible'] else 'NO (Spotting regressions only)'}")
 
     if len(report['holdout_docs']) < 5:
@@ -488,11 +505,13 @@ def main():
     if report["by_doc_type"]:
         print("\n--- By Document Type ---")
         for dt, dt_stats in report["by_doc_type"].items():
+            dt_auc_str = f"{dt_stats['held_out_roc_auc']}" if dt_stats['held_out_roc_auc'] is not None else "n/a"
+            dt_fa_str = f"{dt_stats['held_out_false_alarm_rate'] * 100:.1f}%" if dt_stats['held_out_false_alarm_rate'] is not None else "n/a"
             print(f"• {dt} ({dt_stats['num_pairs']} pairs): "
                   f"Mean Δ: {dt_stats['mean_delta']} [95% CI: {dt_stats['ci95_lower']}, {dt_stats['ci95_upper']}] | "
                   f"Threshold: {dt_stats['candidate_threshold']} | "
-                  f"Held-out AUC: {dt_stats['held_out_roc_auc']} | "
-                  f"False Alarm: {dt_stats['held_out_false_alarm_rate'] * 100:.1f}% | "
+                  f"Held-out AUC: {dt_auc_str} | "
+                  f"False Alarm: {dt_fa_str} | "
                   f"Feasible: {'YES' if dt_stats['feasible'] else 'NO'}")
 
     if args.out:

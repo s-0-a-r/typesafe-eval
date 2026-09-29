@@ -21,7 +21,12 @@ from typesafe_eval.models import (
     NEAR_THRESHOLD_MARGIN,
     CANDIDATE_DECISION_THRESHOLD,
 )
-from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length, chunk_text
+from typesafe_eval.sanitizer import (
+    mask_sensitive_data,
+    guard_document_length,
+    chunk_text,
+    strip_html_comments,
+)
 
 def _is_candidate_near_threshold(decided_by: str, prob: Optional[float]) -> bool:
     """Returns True if candidate outcome was model-decided and within margin of decision threshold."""
@@ -104,11 +109,12 @@ class TypeSafeEvaluator:
         """Evaluates a single document against the specified preset."""
         path = Path(filepath)
         raw_content = path.read_text(encoding="utf-8")
+        clean_content = strip_html_comments(raw_content)
 
         # 1. Sanitize (detection & feature extraction always run; mask controls substitution)
         custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
         content, redaction_count, redaction_details = mask_sensitive_data(
-            raw_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
+            clean_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
         )
 
         # 2. Length check & chunking determination
@@ -827,7 +833,7 @@ class TypeSafeEvaluator:
         nouls = {}
         choices = {}
         path = Path(filepath)
-        content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        content = strip_html_comments(path.read_text(encoding="utf-8")) if path.is_file() else ""
 
         for q_id, q_cfg in preset.questions.items():
             if q_cfg.type == "score":
