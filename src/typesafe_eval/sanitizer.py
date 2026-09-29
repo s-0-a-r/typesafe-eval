@@ -472,6 +472,7 @@ def mask_sensitive_data(
             feat["outcome"] = "safe"
             feat["decided_by"] = "rule"
             add_span(s, e, f"{key_name}{delim}{placeholder}")
+            raw_mapping.setdefault(placeholder, []).append(matched_str)
         else:
             total_redactions += 1
             details["by_type"]["ambiguous_secret"] = details["by_type"].get("ambiguous_secret", 0) + 1

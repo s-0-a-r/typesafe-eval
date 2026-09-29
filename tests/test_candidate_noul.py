@@ -950,4 +950,36 @@ def test_tiny_max_chars_masked_unplaced_candidate(tmp_path):
     assert "email_pii_1" in asked_questions
 
 
+def test_unmasked_chunk_state_placeholder_syntax_secret(tmp_path):
+    """A2: password=${DB_PASS} is included in chunk state redacted_secrets equally in masked and unmasked modes."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    p = tmp_path / "doc.md"
+    p.write_text("password=${DB_PASS}\n\n" + FILL, encoding="utf-8")
+
+    class CaptureClient:
+        def __init__(self):
+            self.states = []
+        def system_one(self, state, questions):
+            self.states.append(state)
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in sc and k not in ch}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    preset = load_preset("safety")
+    counts = {}
+    for mask in (True, False):
+        client = CaptureClient()
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = client
+        ev.evaluate_document(str(p), preset=preset, mask_secrets=mask)
+        counts[mask] = [len(st.get("redacted_secrets", [])) for st in client.states]
+
+    assert counts[True] == counts[False]
+    assert any(c > 0 for c in counts[True])
+
+
+
 
