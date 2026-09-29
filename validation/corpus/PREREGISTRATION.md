@@ -29,6 +29,17 @@ Held-out runs once per preset version. If a file fails there, the failing items 
 
 The pair guard fails a down pair whose mean delta is ≥ 0, so a +0.005 (one scoring step) fails the whole file. Before measuring anything else, the tolerance is fixed as follows: evaluate 4 tuning documents from different score levels (including the one with the +0.005 pair) 10 times each, take the largest per-document standard deviation, multiply by 3 and round up to a multiple of 0.005. That value becomes `pair_guard_down_tolerance` for `quality` and `tech-spec`, and a down pair fails only when its mean delta is above it. This is a change after seeing results and is reported as such.
 
+Measured on 2026-09-29 (tool 2cdcc75, HTML comments stripped), 10 runs each, clarity normalized score:
+
+| Document | Mean | SD | Range |
+|---|---|---|---|
+| akaza-numeric-counter-redesign | 1.000 | 0.0000 | 1.000–1.000 |
+| pr-misskey-dev-misskey-14375 | 0.878 | 0.0054 | 0.870–0.890 |
+| pr-python-cpython-140234 | 0.597 | 0.0048 | 0.590–0.605 |
+| pr-voicevox-voicevox-1374 | 0.619 | 0.0071 | 0.610–0.630 |
+
+Largest SD 0.0071, times 3 is 0.0212, rounded up to **0.025**.
+
 ## Added before the rounds
 
 - **non_goals positive controls.** The corpus had only 2 documents whose `non_goals` label is present, so a stricter wording could not show new false alarms. `build_pairs.py` inserts a short hand-written Non-goals section into public specifications (tuning: kep-3140, kep-3325, rfc-3027; held-out: pep-0655, pep-0709), labeled `non_goals: present`. `risks` still has few present labels (tuning 2, held-out 1); that is a disclosed limitation.

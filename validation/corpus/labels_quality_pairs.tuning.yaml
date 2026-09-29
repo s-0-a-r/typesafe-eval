@@ -10,6 +10,7 @@ criteria:
   neutral_ci_abs_max: 0.05
   min_group_size: 6
   pair_guard_neutral_abs_max: 0.1
+  pair_guard_down_tolerance: 0.025
   report_only_kinds:
   - real_correctness
   per_pair_kinds:
