@@ -343,6 +343,8 @@ def main():
         "neutral_ci_abs_max": 0.05,
         "min_group_size": 6,
         "pair_guard_neutral_abs_max": 0.10,
+        # 3 x the largest per-document sd over 10 repeat runs, rounded up to 0.005 (PREREGISTRATION.md)
+        "pair_guard_down_tolerance": 0.025,
         "report_only_kinds": ["real_correctness"],
         "per_pair_kinds": ["paraphrase"],  # n=3, runs=10, each pair gated on its own run CI
     }
