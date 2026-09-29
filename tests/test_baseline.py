@@ -17,6 +17,7 @@ from typesafe_eval.baseline import (
     load_baseline,
     compare_document_with_baseline,
 )
+from typesafe_eval.presets import load_preset
 
 
 def _make_eval_result(
@@ -377,5 +378,41 @@ def test_baseline_with_mismatched_preset_rejected(tmp_path):
     assert result.exit_code == 2
     assert "preset" in result.output.lower()
     assert "safety" in result.output.lower()
+
+
+def test_compare_rejects_mock_prev():
+    """B: compare_document_with_baseline rejects a mock baseline entry when called directly."""
+    preset = load_preset("quality")
+    cur = DocumentEvalResult(filepath="d.md", filename="d.md", preset_name="quality")
+    prev = DocumentEvalResult(filepath="d.md", filename="d.md", preset_name="quality", mock=True)
+    with pytest.raises(ValueError, match="mock"):
+        compare_document_with_baseline(cur, {"d.md": prev}, preset)
+
+
+def test_compare_rejects_other_preset_prev():
+    """B: compare_document_with_baseline rejects a baseline entry from another preset when called directly."""
+    preset = load_preset("quality")
+    cur = DocumentEvalResult(filepath="d.md", filename="d.md", preset_name="quality")
+    prev = DocumentEvalResult(filepath="d.md", filename="d.md", preset_name="safety")
+    with pytest.raises(ValueError, match="preset"):
+        compare_document_with_baseline(cur, {"d.md": prev}, preset)
+
+
+def test_baseline_v030_dry_run_without_mock_key_rejected(tmp_path):
+    """B: a v0.3.0 dry-run JSON has no mock key but model 'mock-jev'; it is rejected too."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc", encoding="utf-8")
+
+    res = _make_eval_result(str(doc), score_val=0.90)
+    data = res.model_dump()
+    data.pop("mock", None)
+    data["model"] = "mock-jev"
+
+    baseline_file = tmp_path / "baseline_v030.json"
+    baseline_file.write_text(json.dumps([data]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="mock"):
+        load_baseline(baseline_file, expected_preset="quality")
+
 
 

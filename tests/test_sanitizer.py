@@ -1,3 +1,6 @@
+from pathlib import Path
+import pytest
+
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
 def test_mask_sensitive_data():
@@ -256,5 +259,35 @@ def test_consecutive_chunks_overlap():
     for i in range(len(chunks_custom) - 1):
         c1, c2 = chunks_custom[i], chunks_custom[i + 1]
         assert any(c1[-k:] == c2[:k] for k in range(10, min(len(c1), len(c2))))
+
+
+def test_default_chunks_start_at_line_boundaries():
+    """A3: With default max_chars/overlap, each subsequent chunk starts at a line start."""
+    from typesafe_eval.sanitizer import chunk_text
+
+    text = "".join(
+        f"line {i:06d} some paragraph words here\n" + ("\n" if i % 7 == 0 else "")
+        for i in range(3000)
+    )
+    chunks = chunk_text(text)
+    assert len(chunks) > 1
+    for c in chunks[1:]:
+        assert c.startswith("line "), c[:30]
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((Path(__file__).parent / "fixtures" / "pii_secrets").glob("*.md")),
+    ids=lambda p: p.name,
+)
+def test_every_redacted_placeholder_has_raw_mapping_when_unmasked(path):
+    """client._item_in_text relies on this: with mask=False every placeholder in redacted_* has raw values."""
+    _, _, details = mask_sensitive_data(path.read_text(encoding="utf-8"), mask=False, return_details=True)
+    raw_mapping = details["_raw_mapping"]
+    for key in ("redacted_emails", "redacted_phones", "redacted_ips", "redacted_urls", "redacted_secrets"):
+        for feat in details[key]:
+            assert raw_mapping.get(feat["placeholder"]), (key, feat["placeholder"])
+
+
 
 

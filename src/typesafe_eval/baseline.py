@@ -14,6 +14,22 @@ def _norm_preset(name: Optional[str]) -> str:
     return name.lower().replace("-", "_") if name else ""
 
 
+def _check_comparable(doc: DocumentEvalResult, preset_name: Optional[str]) -> None:
+    """Raises ValueError if a baseline document cannot be compared with a run of preset_name.
+
+    preset_name=None skips the preset check (the dry-run check always applies).
+    """
+    if doc.mock or doc.model == "mock-jev":
+        raise ValueError(
+            f"Baseline contains dry-run document '{doc.filepath}' (mock=true); cannot compare against dry-run baseline."
+        )
+    if preset_name is not None and _norm_preset(doc.preset_name) != _norm_preset(preset_name):
+        raise ValueError(
+            f"Baseline document '{doc.filepath}' has preset '{doc.preset_name}', "
+            f"differing from current run preset '{preset_name}'."
+        )
+
+
 def load_baseline(
     baseline_path: Union[str, Path],
     expected_preset: Optional[str] = None,
@@ -43,16 +59,7 @@ def load_baseline(
         except Exception as e:
             raise ValueError(f"Invalid document result in baseline {path}: {e}")
 
-        if doc_res.mock:
-            raise ValueError(
-                f"Baseline contains dry-run document '{doc_res.filepath}' (mock=true); cannot compare against dry-run baseline."
-            )
-
-        if expected_preset is not None and _norm_preset(doc_res.preset_name) != _norm_preset(expected_preset):
-            raise ValueError(
-                f"Baseline document '{doc_res.filepath}' has preset '{doc_res.preset_name}', "
-                f"differing from current run preset '{expected_preset}'."
-            )
+        _check_comparable(doc_res, expected_preset)
 
         # Index by filepath and resolved path only (do not index by filename to prevent collision)
         lookup[doc_res.filepath] = doc_res
@@ -88,16 +95,7 @@ def compare_document_with_baseline(
         result.baseline_diff = BaselineDiff(status="new")
         return result, False, None
 
-    if prev.mock:
-        raise ValueError(
-            f"Baseline contains dry-run document '{prev.filepath}' (mock=true); cannot compare against dry-run baseline."
-        )
-
-    if _norm_preset(prev.preset_name) != _norm_preset(preset.name):
-        raise ValueError(
-            f"Baseline document '{prev.filepath}' has preset '{prev.preset_name}', "
-            f"differing from current run preset '{preset.name}'."
-        )
+    _check_comparable(prev, preset.name)
 
     # Check truncation mismatch
     trunc_mismatch = (prev.was_truncated != result.was_truncated)
