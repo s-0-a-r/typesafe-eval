@@ -867,3 +867,74 @@ def test_group_by_kind_two_questions(tmp_path):
     assert grp_edge.passed is True
     assert pytest.approx(grp_edge.mean_delta, abs=1e-4) == -0.2
 
+
+def test_pair_guard_down_tolerance_default(tmp_path):
+    """Default tolerance 0.0 fails down pair with delta = +0.005."""
+    pairs_data = [
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.505),  # delta = +0.005
+    ]
+    report = _setup_group_scenario(
+        tmp_path,
+        pairs_data,
+        {"pair_guard_neutral_abs_max": 0.10, "min_group_size": 6},
+    )
+    slight_up_p = next(p for p in report.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005)
+    assert slight_up_p.passed is False
+    crit = next(c for c in report.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    assert crit.passed is False
+    assert "down < 0.000" in crit.expected
+    assert report.all_passed is False
+
+
+def test_pair_guard_down_tolerance_custom(tmp_path):
+    """Tolerance 0.02 passes down pair with delta = +0.005 and fails delta = +0.020."""
+    # Passes with delta = +0.005
+    pairs_data_pass = [
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.505),  # delta = +0.005 (< 0.02)
+    ]
+    dir_pass = tmp_path / "pass"
+    dir_pass.mkdir()
+    report_pass = _setup_group_scenario(
+        dir_pass,
+        pairs_data_pass,
+        {"pair_guard_neutral_abs_max": 0.10, "pair_guard_down_tolerance": 0.02, "min_group_size": 6},
+    )
+    p_pass = next(p for p in report_pass.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005)
+    assert p_pass.passed is True
+    crit_pass = next(c for c in report_pass.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    assert crit_pass.passed is True
+    assert "down < 0.020" in crit_pass.expected
+    assert report_pass.all_passed is True
+
+    # Fails with delta = +0.020
+    pairs_data_fail = [
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.30),
+        ("shuffled", "down", 0.50, 0.520),  # delta = +0.020 (>= 0.02)
+    ]
+    dir_fail = tmp_path / "fail"
+    dir_fail.mkdir()
+    report_fail = _setup_group_scenario(
+        dir_fail,
+        pairs_data_fail,
+        {"pair_guard_neutral_abs_max": 0.10, "pair_guard_down_tolerance": 0.02, "min_group_size": 6},
+    )
+    p_fail = next(p for p in report_fail.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.02)
+    assert p_fail.passed is False
+    crit_fail = next(c for c in report_fail.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    assert crit_fail.passed is False
+    assert report_fail.all_passed is False
+
