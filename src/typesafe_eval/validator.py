@@ -122,7 +122,6 @@ class QuestionCriteria(BaseModel):
 
 class ValidationCriteria(QuestionCriteria):
     model_config = ConfigDict(extra="forbid")
-    questions: Optional[Dict[str, QuestionCriteria]] = None
     group_by: Literal["kind", "pair"] = "pair"
     degradation_ci_upper_max: Optional[float] = None
     neutral_ci_abs_max: Optional[float] = None
