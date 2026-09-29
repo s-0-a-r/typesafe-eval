@@ -47,6 +47,43 @@ Considered and not used:
 
 **If a round 2 is needed.** The change again applies to every Noul question in both presets, all four files are rerun, and criterion 4 still compares with round 0b. A file that passed in round 1 is not frozen while the others are reworded.
 
+## Round 1 result, and the held-out run (written before running it)
+
+Round 1 ran once on 2026-09-29 (tool d0efa2a, `results/2026-09-29c/`). Against round 0b:
+
+| File | 1. min_detected | 2. False alarms | 3. Margin 0.15 | 4. Not worse | Result |
+|---|---|---|---|---|---|
+| design_doc_ja | 15/16 (13) | 0 | met | met | met |
+| pr_ja | 3/3 (3) | 0 | `voicevox_engine-1261` `impact` 0.65 / 0.63 | met | not met |
+| pr_en | 10/10 (9) | 1: `rust-147803` `related_issues` 0.53 / 0.48 | not met | not met | not met |
+| design_doc_en | 14/17 (16) | 0 | `kep-3325` `migration`, `go-draft-fuzzing` `metrics` | `kep-3325` `risks` became a miss (0.64 / 0.65) | not met |
+
+The three non_goals positive controls stay at 0.99. Misses fell from 8 to 4, false alarms rose from 0 to 1.
+
+**No round 2.** The rules allow one more round, but it has to be one uniform change to every question. The remaining failures need opposite changes: `rust-147803` needs a looser reading (its only reference is a line linking another pull request, and the `related_issues` question lists issues, tickets, design docs and discussions but not pull requests), while `design_doc_en` needs two of its three misses to go below 0.5 at once. Round 1 moved them by 0.02 to 0.09, and one moved the wrong way. A stricter change could not do that, and a looser one would undo `design_doc_ja`. Fixing `related_issues` means changing that one question, which these rules do not allow; it goes to v0.5. The preset version shipped in v0.4.0 is d0efa2a.
+
+**From files to questions.** The four criteria decide whether a file passed. What the README says about each question comes from all tuning files of its preset together, because a preset ships one wording for both languages: a question is reliable when it has no miss, no false alarm and no present item inside 0.5 ± 0.15 in any of them. On round 1:
+
+- `design_doc`: reliable `alternatives`, `rollback`, `open_questions`; `goal` recognizes a stated goal but has no absent label; `owner_timeline` flags a missing owner or timeline but has no present label; not reliable `non_goals` (3 of 7 missed), `risks` (1 of 3), `migration`, `metrics` (criterion 3); `impact` has no tuning label and is not evaluated.
+- `pr_description`: reliable `testing`, `breaking_changes`; `summary` recognizes a summary but has no absent label; not reliable `related_issues` (1 false alarm), `impact` (criterion 3).
+
+`design_doc_ja` passing is reported as counts (4 documents, 15 of 16 absent items flagged, no false alarm). It licenses no Japanese-specific claim: its held-out set has no absent label.
+
+**The held-out run.** Once, on d0efa2a, for `labels_{design_doc_en,design_doc_ja,pr_en,pr_ja}.heldout.yaml`. What they contain:
+
+| File | Documents | Absent | Present |
+|---|---|---|---|
+| design_doc_en | 5 | 14 | 9 (2 non_goals controls) |
+| design_doc_ja | 1 | 0 | 5 |
+| pr_en | 3 | 2 | 10 |
+| pr_ja | 3 | 5 | 6 |
+
+- Held-out only confirms. A question that is reliable on tuning becomes not reliable if held-out shows a miss, a false alarm or a present item inside 0.5 ± 0.15. A question that is not reliable on tuning is not promoted by held-out.
+- The wording of v0.4.0 does not change after held-out. What it shows goes to v0.5.
+- The README gives counts, not "confirmed": documents, absent items flagged, false alarms, present items inside 0.5 ± 0.15, per question and split.
+- `design_doc_ja` held-out checks recognition of present items only.
+- Present probabilities fell by 0.03 to 0.10 from round 0b to round 1 (for example `pr_en` `summary`), so held-out may show criterion 3 failures on questions that are reliable on tuning. They are reported as they come.
+
 ## Held-out
 
 Held-out runs once per preset version. If a file fails there, the failing items ship as "not reliable" or are removed; the same held-out set is not run a second time for that version. A later confirmatory claim needs newly collected documents.
