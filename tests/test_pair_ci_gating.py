@@ -354,7 +354,7 @@ def test_retry_transient_api_errors(monkeypatch):
             mock_ans.probabilities = {}
             mock_resp = MagicMock()
             mock_resp.scores = {"clarity": mock_ans}
-            mock_resp.nouls = {}
+            mock_resp.nouls = {q: MagicMock(noul=0.1) for q in questions if q != "clarity"}
             mock_resp.choices = {}
             mock_resp.usage = None
             mock_resp.model = "test-model"

@@ -229,3 +229,23 @@ def test_cli_max_chars_range(tmp_path):
         assert res.exit_code == 2
         assert "is not in the range" in (res.stderr or res.output)
 
+
+def test_validate_dry_run_file_read_error_exits_3(tmp_path):
+    """validate --dry-run exits 3 when a document cannot be read (e.g. invalid UTF-8 bytes)."""
+    bad_doc = tmp_path / "bad.md"
+    bad_doc.write_bytes(b"\x80\x81\x82 invalid utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_content = f"""preset: quality
+documents:
+  - path: {bad_doc.name}
+    expect:
+      clarity: present
+"""
+    labels_file.write_text(labels_content, encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
+    assert result.exit_code == 3
+
+

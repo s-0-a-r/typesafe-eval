@@ -125,7 +125,10 @@ class TypeSafeEvaluator:
                 return placeholder in text
             raw_occurrences = raw_mapping.get(placeholder, [])
             if raw_occurrences:
-                return any(raw in text for raw in raw_occurrences)
+                return any(
+                    bool(re.search(r"(?<![\w.@/-])" + re.escape(raw) + r"(?![\w@/-]|\.\w)", text))
+                    for raw in raw_occurrences
+                )
             return placeholder in text
 
         # 2. Length check & chunking determination
@@ -393,14 +396,25 @@ class TypeSafeEvaluator:
                         )
                     else:
                         missing_questions.append(q_id)
-            if missing_questions:
-                q_names = ", ".join(f"'{q}'" for q in missing_questions)
-                raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
 
             for _, q_id, _ in candidate_specs:
                 if q_id in response.nouls:
                     candidate_prob_map[q_id] = [response.nouls[q_id].noul]
+                else:
+                    missing_questions.append(q_id)
+
+            if missing_questions:
+                q_names = ", ".join(f"'{q}'" for q in missing_questions)
+                raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
         else:
+            cred_q_id = _find_preflight_question(preset, "credentials")
+            cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+            is_cred_override = cred_count > 0 and cred_q_id
+
+            pii_q_id = _find_preflight_question(preset, "pii")
+            pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+            is_pii_override = pii_count > 0 and pii_q_id
+
             if has_scores_or_choices:
                 st_trunc = _make_state(content_truncated, is_full=True)
                 resp_sc = _call_system_one_with_retry(client, state=st_trunc, questions=sdk_score_choice_questions)
@@ -440,7 +454,8 @@ class TypeSafeEvaluator:
                     q_names = ", ".join(f"'{q}'" for q in missing_score_choice)
                     raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
             if chunks:
-                for chunk_text_part in chunks:
+                n_chunks = len(chunks)
+                for chunk_idx, chunk_text_part in enumerate(chunks, start=1):
                     chunk_st = _make_state(chunk_text_part, is_full=False)
                     chunk_questions = dict(sdk_preset_noul_questions)
                     for placeholder, q_id, q_obj in candidate_specs:
@@ -453,6 +468,20 @@ class TypeSafeEvaluator:
                             total_output_tokens += resp_chk.usage.output_tokens
                         if resp_chk.model:
                             model_name = resp_chk.model
+
+                        missing_chunk_questions = []
+                        for q_id in chunk_questions:
+                            if (is_cred_override and q_id == cred_q_id) or (is_pii_override and q_id == pii_q_id):
+                                continue
+                            if q_id not in resp_chk.nouls:
+                                missing_chunk_questions.append(q_id)
+
+                        if missing_chunk_questions:
+                            q_names = ", ".join(f"'{q}'" for q in missing_chunk_questions)
+                            raise RuntimeError(
+                                f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
+                            )
+
                         for q_id in sdk_preset_noul_questions:
                             if q_id in resp_chk.nouls:
                                 preset_noul_probs[q_id].append(resp_chk.nouls[q_id].noul)
@@ -460,15 +489,6 @@ class TypeSafeEvaluator:
                             if q_id in resp_chk.nouls:
                                 candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
 
-                cred_q_id = _find_preflight_question(preset, "credentials")
-                cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
-                is_cred_override = cred_count > 0 and cred_q_id
-
-                pii_q_id = _find_preflight_question(preset, "pii")
-                pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
-                is_pii_override = pii_count > 0 and pii_q_id
-
-                missing_noul_questions = []
                 for q_id in sdk_preset_noul_questions:
                     probs = preset_noul_probs.get(q_id, [])
                     if probs:
@@ -477,11 +497,6 @@ class TypeSafeEvaluator:
                         nouls[q_id] = NoulResult(probability=None, overridden_by="preflight_scan")
                     else:
                         nouls[q_id] = NoulResult(probability=None)
-                        missing_noul_questions.append(q_id)
-
-                if missing_noul_questions:
-                    q_names = ", ".join(f"'{q}'" for q in missing_noul_questions)
-                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names} across all chunks")
 
         email_violations: List[str] = []
         phone_violations: List[str] = []

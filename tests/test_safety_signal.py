@@ -137,7 +137,11 @@ def test_context_free_email_classification_regression(tmp_path):
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
-    mock_resp.nouls = {"has_secrets": MagicMock(noul=0.01), "has_pii": MagicMock(noul=0.15)}
+    mock_resp.nouls = {
+        "has_secrets": MagicMock(noul=0.01),
+        "has_pii": MagicMock(noul=0.15),
+        "email_pii_1": MagicMock(noul=0.1),
+    }
     mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
@@ -264,7 +268,7 @@ def test_custom_preset_pii_preflight_override(tmp_path):
     evaluator = TypeSafeEvaluator(api_key="mock-key")
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.nouls = {"pii_gate": MagicMock(noul=0.05)}
+    mock_resp.nouls = {"pii_gate": MagicMock(noul=0.05), "email_pii_1": MagicMock(noul=0.1)}
     mock_resp.scores = {}
     mock_resp.choices = {}
     mock_resp.usage = None
@@ -306,7 +310,11 @@ def test_evaluator_with_preset_custom_role_emails(tmp_path):
     evaluator = TypeSafeEvaluator(api_key="mock-key")
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.nouls = {"check": MagicMock(noul=0.01)}
+    mock_resp.nouls = {
+        "check": MagicMock(noul=0.01),
+        "email_pii_1": MagicMock(noul=0.01),
+        "email_pii_2": MagicMock(noul=0.01),
+    }
     mock_resp.scores = {}
     mock_resp.choices = {}
     mock_resp.usage = None

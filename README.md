@@ -185,7 +185,7 @@ When exporting results with `--format json`, each document evaluation result con
 - `was_truncated`: Boolean indicating whether the document text was truncated due to length.
 - `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, `threshold`, `passed`, and `near_threshold`.
 - `nouls`: Map of noul questions with calibrated probability, override transparency, threshold, `passed`, and `near_threshold`:
-  - `probability`: Calibrated probability returned by the model (`null` if overridden by preflight scan; a question missing from the API response raises an error).
+  - `probability`: Calibrated probability returned by the model (`null` only when the model did not return a question that the preflight scan overrode, so `overridden_by` is also set; any other question missing from the API response raises an error).
   - `overridden_by`: Set to `"preflight_scan"` when deterministic rules caught credentials or personal PII.
   - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
 - `choices`: Map of choice questions with selected `choice`, `confidence`, and `passed`.
@@ -311,7 +311,7 @@ pairs:
 | `0` | All evaluated documents passed (also returned when threshold violations exist but `--no-fail-on-threshold` is set, and no runtime errors occurred). |
 | `1` | At least one threshold violation occurred across evaluated documents (with `--fail-on-threshold`, which is enabled by default). |
 | `2` | Usage or configuration error: no files specified, no files matched pattern, preset/config loading failure, or invalid CLI options. |
-| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, missing evaluation result across chunks, or file read error during evaluation. |
+| `3` | Runtime error: TypeSafe API failure, network issue, missing or invalid `TYPESAFE_API_KEY`, question missing from API response, or file read error during evaluation. |
 
 #### Precedence Rule (1 over 3)
 When evaluating multiple files, evaluation continues across all remaining files even if an individual file encounters a runtime error. Errored files are reported on `stderr` (`<file>: <error>`), while successfully evaluated files are included in the normal output (table, JSON, or Markdown).

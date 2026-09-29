@@ -478,8 +478,6 @@ def mask_sensitive_data(
             feat["decided_by"] = "model"
             add_span(s, e, f"{key_name}{delim}{placeholder}")
             raw_mapping.setdefault(placeholder, []).append(matched_str)
-            if val and val != matched_str:
-                raw_mapping[placeholder].append(val)
 
         distinct_secrets.append(feat)
 
@@ -656,7 +654,8 @@ def mask_sensitive_data(
     details["redacted_urls"] = [v["features"] for v in distinct_urls.values()]
     details["redacted_secrets"] = distinct_secrets
     details["rule_violations"] = rule_violations
-    details["_raw_mapping"] = raw_mapping
+    if not mask:
+        details["_raw_mapping"] = raw_mapping
 
     if return_details:
         return sanitized, total_redactions, details

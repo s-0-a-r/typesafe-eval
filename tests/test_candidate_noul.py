@@ -410,20 +410,22 @@ def test_chunking_candidate_questions_per_call_masked_and_unmasked(tmp_path):
     ev_masked = TypeSafeEvaluator(api_key="mock")
     fake_masked = RecordingFakeClient()
     ev_masked._client = fake_masked
-    ev_masked.evaluate_document(str(doc), preset=safety, mask_secrets=True, max_chars=25000)
+    res_masked = ev_masked.evaluate_document(str(doc), preset=safety, mask_secrets=True, max_chars=25000)
     assert fake_masked.calls == expected_calls
 
     # 2. Unmasked
     ev_unmasked = TypeSafeEvaluator(api_key="mock")
     fake_unmasked = RecordingFakeClient()
     ev_unmasked._client = fake_unmasked
-    ev_unmasked.evaluate_document(str(doc), preset=safety, mask_secrets=False, max_chars=25000)
+    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=safety, mask_secrets=False, max_chars=25000)
     assert fake_unmasked.calls == expected_calls
 
-    # 3. Verify internal raw mapping does not leak into state, and email/phone don't leak outside text
+    # 3. Verify internal raw mapping does not leak into redaction_details or state, and email/phone don't leak outside text
+    assert "_raw_mapping" not in res_masked.redaction_details
+    assert "_raw_mapping" not in res_unmasked.redaction_details
+    assert "taro.yamada@acme-corp.com" not in json.dumps(res_masked.redaction_details, default=str)
     for st in fake_unmasked.states:
         outside_text = {k: v for k, v in st.items() if k != "document"}
-        assert "_raw_mapping" not in outside_text
         serialized = json.dumps(outside_text)
         assert "taro.yamada@acme-corp.com" not in serialized
         assert "taro.yamada" not in serialized
@@ -474,3 +476,279 @@ def test_long_document_unmasked_candidate_evaluation_email_and_url(tmp_path):
         assert len(res.url_evaluations) == 1
         assert res.url_evaluations[0].outcome == "sensitive"
         assert res.url_evaluations[0].probability == 0.95
+
+
+def test_delimiter_matching_ip_substring_unmasked(tmp_path):
+    """(a) 10.0.0.1 in the first chunk and 10.0.0.15 in a later chunk:
+    per-call question sets and IP outcomes are identical masked and unmasked.
+    """
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500
+    doc = tmp_path / "ip_test.md"
+    doc.write_text(f"Doc sample IP 10.0.0.1 in example.\n\n{FILL}Prod DB at 10.0.0.15.\n", encoding="utf-8")
+
+    class RecordingFake:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(questions.keys()))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.9 if (q.startswith("ip_") and "Prod DB" in state.get("document", "")) else 0.1)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+
+    fake_masked = RecordingFake()
+    ev_masked = TypeSafeEvaluator(api_key="mock")
+    ev_masked._client = fake_masked
+    res_masked = ev_masked.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    fake_unmasked = RecordingFake()
+    ev_unmasked = TypeSafeEvaluator(api_key="mock")
+    ev_unmasked._client = fake_unmasked
+    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=preset, mask_secrets=False)
+
+    assert fake_masked.calls == fake_unmasked.calls
+    masked_outcomes = [(e.placeholder, e.outcome, e.probability) for e in res_masked.ip_evaluations]
+    unmasked_outcomes = [(e.placeholder, e.outcome, e.probability) for e in res_unmasked.ip_evaluations]
+    assert masked_outcomes == unmasked_outcomes
+    assert masked_outcomes == [("[IP_1]", "safe", 0.1), ("[IP_2]", "sensitive", 0.9)]
+
+
+def test_delimiter_matching_secret_substring_unmasked(tmp_path):
+    """(b) password=1 early and Version 1 in a later chunk:
+    per-call question sets and secret outcomes are identical masked and unmasked.
+    """
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500
+    doc = tmp_path / "secret_test.md"
+    doc.write_text(f"Config: password=1 in setup.\n\n{FILL}Release Version 1 notes.\n", encoding="utf-8")
+
+    class RecordingFake:
+        def __init__(self):
+            self.calls = []
+        def system_one(self, state, questions):
+            self.calls.append(sorted(questions.keys()))
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.9 if (q.startswith("secret_") and "Version 1" in state.get("document", "")) else 0.1)
+                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+
+    fake_masked = RecordingFake()
+    ev_masked = TypeSafeEvaluator(api_key="mock")
+    ev_masked._client = fake_masked
+    res_masked = ev_masked.evaluate_document(str(doc), preset=preset, mask_secrets=True)
+
+    fake_unmasked = RecordingFake()
+    ev_unmasked = TypeSafeEvaluator(api_key="mock")
+    ev_unmasked._client = fake_unmasked
+    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=preset, mask_secrets=False)
+
+    assert fake_masked.calls == fake_unmasked.calls
+    masked_outcomes = [(s.placeholder, s.outcome, s.probability) for s in res_masked.secret_evaluations]
+    unmasked_outcomes = [(s.placeholder, s.outcome, s.probability) for s in res_unmasked.secret_evaluations]
+    assert masked_outcomes == unmasked_outcomes
+    assert len(masked_outcomes) == 1
+    assert masked_outcomes[0] == ("[SECRET_1]", "safe", 0.1)
+
+
+@pytest.mark.parametrize("long", [False, True])
+@pytest.mark.parametrize("mask", [False, True])
+def test_candidate_omitted_raises(tmp_path, long, mask):
+    """Candidate question omitted from response raises RuntimeError in both short and long, masked and unmasked."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500 if long else ""
+    doc = tmp_path / "em.md"
+    doc.write_text(f"Send it to taro.yamada@acme-corp.com.\n\n{FILL}", encoding="utf-8")
+
+    class DropCandidateClient:
+        def system_one(self, state, questions):
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            nouls = {
+                q: NS(noul=0.05)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance") and not q.startswith("email_pii")
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropCandidateClient()
+    with pytest.raises(RuntimeError, match="email_pii_1"):
+        ev.evaluate_document(str(doc), preset=preset, mask_secrets=mask)
+
+
+def test_chunk_single_omitted_question_raises(tmp_path):
+    """Long document where only one chunk omits has_pii raises RuntimeError with chunk index."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler text here.\n\n" * 1500
+    doc = tmp_path / "long_doc.md"
+    doc.write_text(f"Heading\n\n{FILL}Middle\n\n{FILL}End\n", encoding="utf-8")
+
+    class DropInSecondChunkClient:
+        def __init__(self):
+            self.call_count = 0
+        def system_one(self, state, questions):
+            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
+            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            if "has_pii" in questions:
+                self.call_count += 1
+            # If chunk 2, omit has_pii
+            drop = {"has_pii"} if self.call_count == 2 else set()
+            nouls = {
+                q: NS(noul=0.05)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance") and q not in drop
+            }
+            return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropInSecondChunkClient()
+    with pytest.raises(RuntimeError, match=r"has_pii.*in chunk 2/"):
+        ev.evaluate_document(str(doc), preset=preset)
+
+
+@pytest.mark.parametrize("long", [False, True])
+@pytest.mark.parametrize("q", ["confidentiality_risk", "policy_compliance"])
+def test_missing_score_choice_raises(tmp_path, q, long):
+    """Score and choice missing from response raise RuntimeError in short and long documents."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("hello\n\n" + (FILL if long else ""), encoding="utf-8")
+
+    class DropClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk" and k != q}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance" and k != q}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance") and k != q}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropClient()
+    with pytest.raises(RuntimeError, match=q):
+        ev.evaluate_document(str(d), preset=load_preset("safety"))
+
+
+def test_chunked_cred_override_when_model_omits(tmp_path):
+    """Chunked preflight exemption when every chunk omits has_secrets (overridden_by == 'preflight_scan', FAIL)."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("key sk-abcdef1234567890abcdef123456\n\n" + FILL, encoding="utf-8")
+
+    class DropSecretsClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance") and k != "has_secrets"}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = DropSecretsClient()
+    res = ev.evaluate_document(str(d), preset=load_preset("safety"))
+    assert res.nouls["has_secrets"].overridden_by == "preflight_scan"
+    assert res.passed_thresholds is False
+
+
+def test_unmasked_chunk_state_has_features(tmp_path):
+    """Unmasked chunk state carries redacted_emails for the chunk with the address."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
+
+    class CaptureClient:
+        def __init__(self):
+            self.states = []
+            self.calls = []
+        def system_one(self, state, questions):
+            self.states.append(state)
+            self.calls.append(list(questions.keys()))
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    c = CaptureClient()
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = c
+    ev.evaluate_document(str(d), preset=load_preset("safety"), mask_secrets=False)
+    chunk_states = [s for s, calls in zip(c.states, c.calls) if "email_pii_1" in calls]
+    assert chunk_states and all(
+        [e["placeholder"] for e in s.get("redacted_emails", [])] == ["[EMAIL_1]"]
+        for s in chunk_states
+    )
+
+
+@pytest.mark.parametrize("text,prefix,attr", [
+    ("Server at 10.1.2.3 internal host.\n\n", "ip_pii", "ip_evaluations"),
+    ("db_password=Xk9vLq2Tz8Wm\n\n", "secret", "secret_evaluations"),
+])
+def test_unmasked_long_ip_secret_candidates(tmp_path, text, prefix, attr):
+    """IP and key=val secret candidates in a long unmasked document get the model probability."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    d = tmp_path / "a.md"
+    d.write_text(FILL + text + FILL, encoding="utf-8")
+
+    class TargetHiClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {
+                k: NS(noul=0.95 if k.startswith(prefix) else 0.05)
+                for k in questions if k not in ("confidentiality_risk", "policy_compliance")
+            }
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = TargetHiClient()
+        res = ev.evaluate_document(str(d), preset=load_preset("safety"), mask_secrets=mask)
+        evs = getattr(res, attr)
+        assert evs, f"No evaluations found for {attr}"
+        assert any(e.probability == 0.95 for e in evs), (mask, evs)
+
+
+@pytest.mark.parametrize("mask", [True, False])
+def test_raw_mapping_not_in_result(tmp_path, mask):
+    """_raw_mapping is never in res.redaction_details, and raw address is not in serialized details when masking."""
+    from types import SimpleNamespace as NS
+
+    d = tmp_path / "a.md"
+    d.write_text("Contact taro.yamada@acme-corp.com\n", encoding="utf-8")
+
+    class SimpleClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance")}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = SimpleClient()
+    res = ev.evaluate_document(str(d), preset=load_preset("safety"), mask_secrets=mask)
+    assert "_raw_mapping" not in res.redaction_details
+    if mask:
+        assert "taro.yamada@acme-corp.com" not in json.dumps(res.redaction_details, default=str)
+
