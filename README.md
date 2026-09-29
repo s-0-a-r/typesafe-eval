@@ -184,7 +184,7 @@ When exporting results with `--format json`, each document evaluation result con
 - `was_truncated`: Boolean indicating whether the document text was truncated due to length.
 - `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, `threshold`, `passed`, and `near_threshold`.
 - `nouls`: Map of noul questions with calibrated probability, override transparency, threshold, `passed`, and `near_threshold`:
-  - `probability`: Calibrated probability returned by the model (`null` if omitted or uncalled).
+  - `probability`: Calibrated probability returned by the model (`null` if overridden by preflight scan; a question missing from the API response raises an error).
   - `overridden_by`: Set to `"preflight_scan"` when deterministic rules caught credentials or personal PII.
   - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
 - `choices`: Map of choice questions with selected `choice`, `confidence`, and `passed`.

@@ -346,30 +346,57 @@ class TypeSafeEvaluator:
             if response.model:
                 model_name = response.model
 
+            cred_q_id = _find_preflight_question(preset, "credentials")
+            cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+            is_cred_override = cred_count > 0 and cred_q_id
+
+            pii_q_id = _find_preflight_question(preset, "pii")
+            pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+            is_pii_override = pii_count > 0 and pii_q_id
+
+            missing_questions = []
             for q_id, q_cfg in preset.questions.items():
-                if q_cfg.type == "score" and q_id in response.scores:
-                    ans = response.scores[q_id]
-                    num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
-                    max_score = float(max(num_levels - 1, 1))
-                    norm_score = min(max(ans.score / max_score, 0.0), 1.0)
-                    scores[q_id] = ScoreResult(
-                        score=ans.score,
-                        max_score=max_score,
-                        normalized_score=norm_score,
-                        confidence=ans.confidence,
-                        probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                    )
-                elif q_cfg.type == "noul" and q_id in response.nouls:
-                    nouls[q_id] = NoulResult(
-                        probability=response.nouls[q_id].noul,
-                    )
-                elif q_cfg.type == "choice" and q_id in response.choices:
-                    ans = response.choices[q_id]
-                    choices[q_id] = ChoiceResult(
-                        choice=ans.choice,
-                        confidence=ans.confidence,
-                        probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                    )
+                if q_cfg.type == "score":
+                    if q_id in response.scores:
+                        ans = response.scores[q_id]
+                        num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
+                        max_score = float(max(num_levels - 1, 1))
+                        norm_score = min(max(ans.score / max_score, 0.0), 1.0)
+                        scores[q_id] = ScoreResult(
+                            score=ans.score,
+                            max_score=max_score,
+                            normalized_score=norm_score,
+                            confidence=ans.confidence,
+                            probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                        )
+                    else:
+                        missing_questions.append(q_id)
+                elif q_cfg.type == "noul":
+                    if q_id in response.nouls:
+                        nouls[q_id] = NoulResult(
+                            probability=response.nouls[q_id].noul,
+                        )
+                    elif (is_cred_override and q_id == cred_q_id) or (is_pii_override and q_id == pii_q_id):
+                        nouls[q_id] = NoulResult(
+                            probability=None,
+                            overridden_by="preflight_scan",
+                        )
+                    else:
+                        missing_questions.append(q_id)
+                elif q_cfg.type == "choice":
+                    if q_id in response.choices:
+                        ans = response.choices[q_id]
+                        choices[q_id] = ChoiceResult(
+                            choice=ans.choice,
+                            confidence=ans.confidence,
+                            probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                        )
+                    else:
+                        missing_questions.append(q_id)
+            if missing_questions:
+                q_names = ", ".join(f"'{q}'" for q in missing_questions)
+                raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
+
             for _, q_id, _ in candidate_specs:
                 if q_id in response.nouls:
                     candidate_prob_map[q_id] = [response.nouls[q_id].noul]
@@ -382,26 +409,36 @@ class TypeSafeEvaluator:
                     total_output_tokens += resp_sc.usage.output_tokens
                 if resp_sc.model:
                     model_name = resp_sc.model
+                missing_score_choice = []
                 for q_id, q_cfg in preset.questions.items():
-                    if q_cfg.type == "score" and q_id in resp_sc.scores:
-                        ans = resp_sc.scores[q_id]
-                        num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
-                        max_score = float(max(num_levels - 1, 1))
-                        norm_score = min(max(ans.score / max_score, 0.0), 1.0)
-                        scores[q_id] = ScoreResult(
-                            score=ans.score,
-                            max_score=max_score,
-                            normalized_score=norm_score,
-                            confidence=ans.confidence,
-                            probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                        )
-                    elif q_cfg.type == "choice" and q_id in resp_sc.choices:
-                        ans = resp_sc.choices[q_id]
-                        choices[q_id] = ChoiceResult(
-                            choice=ans.choice,
-                            confidence=ans.confidence,
-                            probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
-                        )
+                    if q_cfg.type == "score":
+                        if q_id in resp_sc.scores:
+                            ans = resp_sc.scores[q_id]
+                            num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
+                            max_score = float(max(num_levels - 1, 1))
+                            norm_score = min(max(ans.score / max_score, 0.0), 1.0)
+                            scores[q_id] = ScoreResult(
+                                score=ans.score,
+                                max_score=max_score,
+                                normalized_score=norm_score,
+                                confidence=ans.confidence,
+                                probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                            )
+                        else:
+                            missing_score_choice.append(q_id)
+                    elif q_cfg.type == "choice":
+                        if q_id in resp_sc.choices:
+                            ans = resp_sc.choices[q_id]
+                            choices[q_id] = ChoiceResult(
+                                choice=ans.choice,
+                                confidence=ans.confidence,
+                                probabilities={str(k): v for k, v in ans.probabilities.items()} if ans.probabilities else {},
+                            )
+                        else:
+                            missing_score_choice.append(q_id)
+                if missing_score_choice:
+                    q_names = ", ".join(f"'{q}'" for q in missing_score_choice)
+                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
             if chunks:
                 for chunk_text_part in chunks:
                     chunk_st = _make_state(chunk_text_part, is_full=False)
@@ -423,11 +460,21 @@ class TypeSafeEvaluator:
                             if q_id in resp_chk.nouls:
                                 candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
 
+                cred_q_id = _find_preflight_question(preset, "credentials")
+                cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+                is_cred_override = cred_count > 0 and cred_q_id
+
+                pii_q_id = _find_preflight_question(preset, "pii")
+                pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+                is_pii_override = pii_count > 0 and pii_q_id
+
                 missing_noul_questions = []
                 for q_id in sdk_preset_noul_questions:
                     probs = preset_noul_probs.get(q_id, [])
                     if probs:
                         nouls[q_id] = NoulResult(probability=max(probs))
+                    elif (is_cred_override and q_id == cred_q_id) or (is_pii_override and q_id == pii_q_id):
+                        nouls[q_id] = NoulResult(probability=None, overridden_by="preflight_scan")
                     else:
                         nouls[q_id] = NoulResult(probability=None)
                         missing_noul_questions.append(q_id)

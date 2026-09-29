@@ -319,7 +319,7 @@ Legacy note: the password is {raw_secret_prose}
         "url_pii_1": MagicMock(noul=0.8),
         "secret_1": MagicMock(noul=0.8),
     }
-    mock_resp.choices = {}
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp

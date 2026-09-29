@@ -48,9 +48,9 @@ def test_preflight_override_when_model_absent(tmp_path):
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {}
-    mock_resp.nouls = {}  # Jev did not return has_secrets
-    mock_resp.choices = {}
+    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.nouls = {"has_pii": MagicMock(noul=0.01)}  # Jev did not return has_secrets
+    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
