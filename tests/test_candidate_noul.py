@@ -847,19 +847,7 @@ def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
     d = tmp_path / "doc.md"
     d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
 
-    orig_mask = client_mod.mask_sensitive_data
-    call_count = 0
-
-    def patched_mask(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        text, count, details = orig_mask(*args, **kwargs)
-        if call_count > 1 and details and "_raw_mapping" in details:
-            details = dict(details)
-            details["_raw_mapping"] = {}
-        return text, count, details
-
-    monkeypatch.setattr(client_mod, "mask_sensitive_data", patched_mask)
+    monkeypatch.setattr(client_mod, "_in_chunk_helper", lambda placeholder, text, unplaced, item_in_text_fn: False)
 
     class FakeClient:
         def system_one(self, state, questions):
@@ -902,5 +890,64 @@ def test_chunked_pii_override_when_model_omits(tmp_path):
     res = ev.evaluate_document(str(d), preset=preset)
     assert res.nouls["pii_gate"].overridden_by == "preflight_scan"
     assert res.passed_thresholds is False
+
+
+def test_long_quoted_secret_unplaced_candidate(tmp_path):
+    """A1: Long quoted secret straddling chunk boundaries gives FAIL with probability 0.95 masked and unmasked."""
+    from types import SimpleNamespace as NS
+
+    body = (
+        ("filler paragraph text.\n\n" * 900)[:21000]
+        + '\n\npassword: "'
+        + ("長い値の行です\n" * 600)
+        + '"\n\n'
+        + "filler paragraph text.\n\n" * 2000
+    )
+    p = tmp_path / "long_secret.md"
+    p.write_text(body, encoding="utf-8")
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {
+                k: NS(noul=0.95 if any(k.startswith(p) for p in ("ip", "secret", "email", "phone", "url")) else 0.05)
+                for k in questions if k not in sc and k not in ch
+            }
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    preset = load_preset("safety")
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = FakeClient()
+        res = ev.evaluate_document(str(p), preset=preset, mask_secrets=mask)
+        assert res.passed_thresholds is False
+        secret_evs = [(e.outcome, e.probability) for e in res.secret_evaluations]
+        assert secret_evs == [("secret", 0.95)]
+
+
+def test_tiny_max_chars_masked_unplaced_candidate(tmp_path):
+    """A1: In masked mode with max_chars=6, corporate email evaluates without exception and email_pii_1 is asked."""
+    from types import SimpleNamespace as NS
+
+    p = tmp_path / "tiny.md"
+    p.write_text("Send it to taro.yamada@acme-corp.com.", encoding="utf-8")
+
+    asked_questions = []
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            asked_questions.extend(questions.keys())
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in sc and k not in ch}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = FakeClient()
+    res = ev.evaluate_document(str(p), preset=preset, mask_secrets=True, max_chars=6)
+    assert "email_pii_1" in asked_questions
+
 
 
