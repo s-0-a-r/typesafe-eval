@@ -1,5 +1,6 @@
 # Built by build_pairs.py from labels_design_doc_en.yaml (edit that file, not this one). split: tuning.
-# 5 documents, 17 absent / 18 present labels. min_detected = ceil(0.9 x absent).
+# 8 documents, 17 absent / 21 present labels. min_detected = ceil(0.9 x absent).
+# Includes the non_goals positive controls (variants/*/non_goals_inserted.md, NON_GOALS_CONTROLS).
 preset: design-doc
 runs: 2
 criteria:
@@ -51,3 +52,12 @@ documents:
     metrics: present
     open_questions: present
     owner_timeline: absent
+- path: variants/kep-3140/non_goals_inserted.md
+  expect:
+    non_goals: present
+- path: variants/kep-3325/non_goals_inserted.md
+  expect:
+    non_goals: present
+- path: variants/rfc-3027/non_goals_inserted.md
+  expect:
+    non_goals: present

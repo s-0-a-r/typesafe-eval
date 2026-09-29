@@ -6,9 +6,11 @@ Outputs (next to this script):
   lines are under 5% of the longer version are left out (the edit is too small to say which is clearer)
 - labels_quality_pairs.{heldout,tuning}.yaml: validate pairs (synthetic degradations: down; synthetic neutral
   edits, hand-written paraphrases and real correctness-only pairs: neutral). tuning uses 2 documents per cell
+- labels_tech_spec_pairs.{heldout,tuning}.yaml: the same pairs for the tech-spec Scores (#43)
 - variants/: the synthetic variant files
 - labels_<name>.{tuning,heldout}.yaml: the presence labels (labels_<name>.yaml) split the same way, so
-  #41 keeps a held-out set too. min_detected is recomputed per file
+  #41 keeps a held-out set too. min_detected is recomputed per file. labels_design_doc_en also gets the
+  non_goals positive controls (NON_GOALS_CONTROLS)
 """
 
 import difflib
@@ -204,6 +206,43 @@ def unrelated_addition(body, lang):
     return body.rstrip("\n") + "\n\n" + UNRELATED[lang] + "\n"
 
 
+# Positive controls for the design-doc non_goals question (#41). The corpus has only 2 documents whose
+# non_goals label is present, so a rewording that makes the question stricter could not show new false alarms.
+# Each control is a public specification with a short hand-written Non-goals section inserted (text written for
+# this corpus, consistent with the document's own scope). Labeled non_goals: present before any evaluation of it.
+# (pattern, insert "before" / "after" the match, text)
+NON_GOALS_CONTROLS = {
+    "kep-3140": (r"^### Non-Goals\n", "after",
+                 "\n- Changing the behavior of CronJobs that do not set `.spec.timeZone`; they keep using the time zone\n"
+                 "  of kube-controller-manager.\n"
+                 "- Shipping or updating a time zone database outside the one embedded in the Go binary.\n"),
+    "kep-3325": (r"^### Non-Goals\n", "after",
+                 "\n- Adding a resource that stores users or groups in the cluster.\n"
+                 "- Changing how authenticators produce user attributes; the endpoint only reports what authentication\n"
+                 "  already returned.\n"),
+    "rfc-3027": (r"^## Guide-level explanation\n", "before",
+                 "## Non-goals\n\n"
+                 "- Changing lifetime extension for expressions that are not promoted.\n"
+                 "- Adding new syntax for requesting promotion explicitly.\n\n"),
+    "pep-0655": (r"^Rationale\n=+\n", "before",
+                 "Non-goals\n=========\n\n"
+                 "- Enforcing required keys at runtime; checking stays the job of static type checkers.\n"
+                 "- Changing the meaning of ``total`` for TypedDicts that do not use the new qualifiers.\n\n\n"),
+    "pep-0709": (r"^Rationale\n=+\n", "before",
+                 "Non-goals\n=========\n\n"
+                 "- Inlining generator expressions; they keep their own frame.\n"
+                 "- Changing the scoping rules of comprehensions as seen by Python code.\n\n\n"),
+}
+
+
+def insert_non_goals(text, pattern, where, section):
+    m = re.search(pattern, text, re.M)
+    if not m:
+        raise SystemExit(f"non_goals control: pattern {pattern!r} not found")
+    at = m.end() if where == "after" else m.start()
+    return text[:at] + section + text[at:]
+
+
 DOWN = {"shuffled": shuffled, "no_headings": no_headings, "padded": padded, "removed_middle": removed_middle}
 NEUTRAL = {"swap_sections": swap_sections, "unrelated_addition": unrelated_addition}
 
@@ -320,9 +359,35 @@ def main():
             hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
     (ROOT / "labels_quality_pairs.yaml").unlink(missing_ok=True)
 
+    # tech-spec Scores (#43) on the same pairs. Only removing content is a degradation of depth or edge-case
+    # coverage; reordering, dropping headings and filler change presentation, not content, so they are reported
+    # but do not gate. Neutral edits keep the same expectation as for clarity.
+    ts_criteria = dict(criteria, report_only_kinds=["real_correctness", "shuffled", "no_headings", "padded"])
+    for split, (vpairs, _, bases) in outputs.items():
+        ts_pairs = [dict(v, expect={q: ("down" if v["kind"] == "removed_middle" else v["expect"]["clarity"])
+                                    for q in ("technical_depth", "edge_case_coverage")}) for v in vpairs]
+        hdr = (f"# Built by build_pairs.py. split: {split} ({len(bases)} base documents). tech-spec Scores on the\n"
+               "# labels_quality_pairs pairs: removed_middle is down; shuffled, no_headings and padded are report only.\n")
+        doc = {"preset": "tech-spec", "runs": 3, "criteria": ts_criteria, "pairs": ts_pairs}
+        (ROOT / f"labels_tech_spec_pairs.{split}.yaml").write_text(
+            hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
     split_of = {f"{r['folder']}/after.md": r["split"] for r in rows}
+    by_doc = {r["source_doc"]: r for r in rows if not r["excluded"]}
+    controls = []
+    for src, (pattern, where, section) in NON_GOALS_CONTROLS.items():
+        r = by_doc[src]
+        after = ROOT / r["folder"] / "after.md"
+        p = ROOT / "variants" / src / "non_goals_inserted.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(insert_non_goals(after.read_text(encoding="utf-8"), pattern, where, section), encoding="utf-8")
+        path = str(p.relative_to(ROOT))
+        split_of[path] = r["split"]
+        controls.append({"path": path, "expect": {"non_goals": "present"}})
     for name, ratio in PRESENCE_LABELS.items():
         src = yaml.safe_load((ROOT / f"{name}.yaml").read_text(encoding="utf-8"))
+        if name == "labels_design_doc_en":
+            src["documents"] = src["documents"] + controls
         for split in ("tuning", "heldout"):
             docs = [d for d in src["documents"] if split_of[d["path"]] == split]
             absent = sum(v == "absent" for d in docs for v in d["expect"].values())
@@ -331,7 +396,9 @@ def main():
             doc["criteria"] = dict(src["criteria"], min_detected=math.ceil(ratio * absent))
             hdr = (f"# Built by build_pairs.py from {name}.yaml (edit that file, not this one). split: {split}.\n"
                    f"# {len(docs)} documents, {absent} absent / {present} present labels. "
-                   f"min_detected = ceil({ratio} x absent).\n")
+                   f"min_detected = ceil({ratio} x absent).\n"
+                   + ("# Includes the non_goals positive controls (variants/*/non_goals_inserted.md, NON_GOALS_CONTROLS).\n"
+                      if name == "labels_design_doc_en" else ""))
             (ROOT / f"{name}.{split}.yaml").write_text(
                 hdr + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
 

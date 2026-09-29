@@ -90,24 +90,29 @@ def validator_section(name, rep, public):
 
 
 def feasibility_section(name, rep, public):
+    # feasibility_check.py reports Δ as worse − better, so a tool that ranks the pairs correctly gives Δ < 0.
+    # With no held-out documents it still writes AUC 0.5 and false-alarm rate 0; show those as n/a.
     g = rep["within_pair_gap"]
+    ho = bool(rep["holdout_docs"])
+    held = lambda x, sign=False: (fmt(x) if sign else f"{x:.3f}") if ho else "n/a"
     out = [f"## {name} (feasibility, preset `{rep['preset']}`, runs {rep['runs']})", "",
            f"Review pairs: {rep['num_pairs']} (tuning documents {len(rep['tuning_docs'])}, "
-           f"held-out {len(rep['holdout_docs'])}).",
-           f"Within-pair gap: {fmt(g['mean_delta'])} {ci(g['ci95_lower'], g['ci95_upper'])}. "
-           f"Between-document spread: {fmt(rep['between_doc_spread'])}.",
-           f"Held-out ROC-AUC {fmt(rep['held_out_roc_auc'])}, false-alarm rate "
-           f"{fmt(rep['held_out_published_false_alarm_rate'])}. Absolute gate feasible: "
+           f"held-out {len(rep['holdout_docs'])}). Δ is worse − better; it is negative when the tool "
+           f"scores the better version higher.",
+           f"Within-pair Δ: {fmt(g['mean_delta'])} {ci(g['ci95_lower'], g['ci95_upper'])}. "
+           f"Between-document spread (σ): {rep['between_doc_spread']:.3f}.",
+           f"Held-out ROC-AUC {held(rep['held_out_roc_auc'])}, false-alarm rate "
+           f"{held(rep['held_out_published_false_alarm_rate'])}. Absolute gate feasible: "
            f"{'yes' if rep['absolute_gate_feasible'] else 'no'}.", "",
            "| Document type | Pairs | Mean Δ | 95% CI | Held-out AUC | False alarms | Feasible |",
            "|---|---|---|---|---|---|---|"]
     for dt, d in rep["by_doc_type"].items():
         out.append(f"| {dt} | {d['num_pairs']} | {fmt(d['mean_delta'])} | {ci(d['ci95_lower'], d['ci95_upper'])} | "
-                   f"{fmt(d['held_out_roc_auc'])} | {fmt(d['held_out_false_alarm_rate'])} | "
+                   f"{held(d['held_out_roc_auc'])} | {held(d['held_out_false_alarm_rate'])} | "
                    f"{'yes' if d['feasible'] else 'no'} |")
     rows = [p for p in rep["pairs"] if p["doc_id"] in public]
     if rows:
-        out += ["", "Public specifications, per pair:", "", "| Document | Held-out | Δ (better − worse) |", "|---|---|---|"]
+        out += ["", "Public specifications, per pair:", "", "| Document | Held-out | Δ (worse − better) |", "|---|---|---|"]
         out += [f"| {p['doc_id']} | {'yes' if p['is_holdout'] else 'no'} | {fmt(p['degradation_delta'])} |" for p in rows]
     return out
 
