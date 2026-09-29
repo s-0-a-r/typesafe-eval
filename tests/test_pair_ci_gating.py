@@ -727,6 +727,22 @@ def test_feasibility_check_missing_relative_file_exits_2(tmp_path):
     assert exc_info.value.code == 2
 
 
+def test_feasibility_check_pairs_and_doc_mutual_exclusion():
+    """C: Passing --pairs together with --doc prints message to stderr and exits with code 2."""
+    import subprocess
+    import sys
+    cmd = [
+        sys.executable,
+        "scripts/feasibility_check.py",
+        "--pairs", "dummy_pairs.json",
+        "--doc", "dummy_doc.md",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    assert "error" in res.stderr.lower()
+    assert "--pairs" in res.stderr and "--doc" in res.stderr
+
+
 def test_feasibility_check_explicit_splits_and_injected_evaluator(tmp_path):
     """When every pair has explicit split ('tuning'/'heldout'), skip SEED shuffle and use injected evaluator."""
     b_file = tmp_path / "doc.md"
