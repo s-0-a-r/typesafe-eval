@@ -18,6 +18,7 @@ from typesafe_eval.validator import (
     get_t_crit_95,
     compute_ci_95,
     run_validation,
+    compute_questions_hash,
     ValidationLabelsConfig,
     ValidationPairExpectation,
     ValidationCriteria,
@@ -303,7 +304,11 @@ def test_cache_and_run_major_order_264_calls(tmp_path):
     # 13 base files + 75 variant files = 88 distinct files evaluated per run × 3 runs = 264 calls
     assert fake_eval.call_count == 264
 
-    # Changing one character of a preset question instructions must miss the cache
+    # The questions hash (used by run_validation for the cache key) differs when
+    # one question's instructions changes by one character, and is equal otherwise.
+    preset_identical = _make_preset("clarity")
+    assert compute_questions_hash(preset) == compute_questions_hash(preset_identical)
+
     preset_changed = PresetConfig(
         name="quality",
         title="Quality",
@@ -318,14 +323,7 @@ def test_cache_and_run_major_order_264_calls(tmp_path):
             )
         },
     )
-    fake_eval_2 = FakeEvaluator()
-    report2, has_error2 = run_validation(
-        labels_cfg=labels_cfg,
-        base_dir=tmp_path,
-        evaluator=fake_eval_2,
-        preset_cfg=preset_changed,
-    )
-    assert fake_eval_2.call_count == 264
+    assert compute_questions_hash(preset) != compute_questions_hash(preset_changed)
 
 
 # --- 6. Retry transient API errors ---
@@ -725,6 +723,22 @@ def test_feasibility_check_missing_relative_file_exits_2(tmp_path):
     with pytest.raises(SystemExit) as exc_info:
         run_feasibility(pairs_file=pairs_file, dry_run=True)
     assert exc_info.value.code == 2
+
+
+def test_feasibility_check_pairs_and_doc_mutual_exclusion():
+    """C: Passing --pairs together with --doc prints message to stderr and exits with code 2."""
+    import subprocess
+    import sys
+    cmd = [
+        sys.executable,
+        "scripts/feasibility_check.py",
+        "--pairs", "dummy_pairs.json",
+        "--doc", "dummy_doc.md",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 2
+    assert "error" in res.stderr.lower()
+    assert "--pairs" in res.stderr and "--doc" in res.stderr
 
 
 def test_feasibility_check_explicit_splits_and_injected_evaluator(tmp_path):

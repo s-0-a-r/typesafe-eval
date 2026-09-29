@@ -3,7 +3,7 @@
 import os
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal, Tuple
+from typing import Dict, Any, Optional, List, Literal, Tuple, AbstractSet, Callable, FrozenSet
 
 from typesafe_sdk import TypeSafeClient, Choice, Noul, Score, TypeSafeError
 
@@ -53,6 +53,15 @@ def _is_transient_error(exc: Exception) -> bool:
         if code in err_str:
             return True
     return False
+
+def _in_chunk_helper(
+    placeholder: str,
+    text: str,
+    unplaced: AbstractSet[str],
+    item_in_text_fn: Callable[[str, str], bool],
+) -> bool:
+    """True if the placeholder is in text, or found in no chunk (then treated as present in every chunk)."""
+    return placeholder in unplaced or item_in_text_fn(placeholder, text)
 
 def _call_system_one_with_retry(
     client: Any,
@@ -305,6 +314,12 @@ class TypeSafeEvaluator:
         candidate_prob_map: Dict[str, List[float]] = {}
         preset_noul_probs: Dict[str, List[float]] = {q_id: [] for q_id in sdk_preset_noul_questions}
 
+        # Placeholders found in no chunk; filled once before the chunk loop, then treated as present in every chunk.
+        unplaced: FrozenSet[str] = frozenset()
+
+        def _in_chunk(placeholder: str, text: str) -> bool:
+            return _in_chunk_helper(placeholder, text, unplaced, _item_in_text)
+
         def _make_state(doc_text: str, is_full: bool = True) -> Dict[str, Any]:
             st: Dict[str, Any] = {
                 "document": doc_text,
@@ -330,11 +345,11 @@ class TypeSafeEvaluator:
                 if redacted_secrets:
                     st["redacted_secrets"] = redacted_secrets
             else:
-                chunk_em = [f for f in redacted_emails if _item_in_text(f["placeholder"], doc_text)]
-                chunk_ph = [f for f in redacted_phones if _item_in_text(f["placeholder"], doc_text)]
-                chunk_ip = [f for f in redacted_ips if _item_in_text(f["placeholder"], doc_text)]
-                chunk_ur = [f for f in redacted_urls if _item_in_text(f["placeholder"], doc_text)]
-                chunk_sec = [f for f in redacted_secrets if _item_in_text(f["placeholder"], doc_text)]
+                chunk_em = [f for f in redacted_emails if _in_chunk(f["placeholder"], doc_text)]
+                chunk_ph = [f for f in redacted_phones if _in_chunk(f["placeholder"], doc_text)]
+                chunk_ip = [f for f in redacted_ips if _in_chunk(f["placeholder"], doc_text)]
+                chunk_ur = [f for f in redacted_urls if _in_chunk(f["placeholder"], doc_text)]
+                chunk_sec = [f for f in redacted_secrets if _in_chunk(f["placeholder"], doc_text)]
                 if chunk_em:
                     st["redacted_emails"] = chunk_em
                 if chunk_ph:
@@ -464,12 +479,21 @@ class TypeSafeEvaluator:
                     q_names = ", ".join(f"'{q}'" for q in missing_score_choice)
                     raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
             if chunks:
+                all_redacted = (
+                    redacted_emails + redacted_phones + redacted_ips + redacted_urls + redacted_secrets
+                )
+                unplaced = frozenset(
+                    p
+                    for p in (item.get("placeholder") for item in all_redacted)
+                    if p and not any(_item_in_text(p, chk) for chk in chunks)
+                )
+
                 n_chunks = len(chunks)
                 for chunk_idx, chunk_text_part in enumerate(chunks, start=1):
                     chunk_st = _make_state(chunk_text_part, is_full=False)
                     chunk_questions = dict(sdk_preset_noul_questions)
                     for placeholder, q_id, q_obj in candidate_specs:
-                        if _item_in_text(placeholder, chunk_text_part):
+                        if _in_chunk(placeholder, chunk_text_part):
                             chunk_questions[q_id] = q_obj
                     if chunk_questions:
                         resp_chk = _call_system_one_with_retry(client, state=chunk_st, questions=chunk_questions)
@@ -781,6 +805,13 @@ class TypeSafeEvaluator:
             choices=choices,
             redaction_details=redaction_details,
         )
+
+        if unplaced:
+            warnings.append(
+                f"{len(unplaced)} redacted item(s) ({', '.join(sorted(unplaced))}) were not found in any of "
+                f"{len(chunks)} chunks and were treated as present in every chunk; "
+                f"any candidate probabilities for them may be less reliable."
+            )
 
         has_sec_check = bool(_find_preflight_question(preset, "credentials") or "has_secrets" in preset.questions)
         has_pii_check = bool(_find_preflight_question(preset, "pii") or "has_pii" in preset.questions)

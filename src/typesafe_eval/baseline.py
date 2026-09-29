@@ -10,7 +10,31 @@ from typing import Dict, List, Optional, Tuple, Union
 from typesafe_eval.models import DocumentEvalResult, PresetConfig, BaselineDiff, QuestionDiff
 
 
-def load_baseline(baseline_path: Union[str, Path]) -> Dict[str, DocumentEvalResult]:
+def _norm_preset(name: Optional[str]) -> str:
+    return name.lower().replace("-", "_") if name else ""
+
+
+def _check_comparable(doc: DocumentEvalResult, preset_name: Optional[str]) -> None:
+    """Raises ValueError if a baseline document cannot be compared with a run of preset_name.
+
+    preset_name=None skips the preset check (the dry-run check always applies).
+    """
+    if doc.mock or doc.model == "mock-jev":
+        raise ValueError(
+            f"Baseline contains dry-run document '{doc.filepath}' (mock=true or model 'mock-jev'); "
+            "cannot compare against dry-run baseline."
+        )
+    if preset_name is not None and _norm_preset(doc.preset_name) != _norm_preset(preset_name):
+        raise ValueError(
+            f"Baseline document '{doc.filepath}' has preset '{doc.preset_name}', "
+            f"differing from current run preset '{preset_name}'."
+        )
+
+
+def load_baseline(
+    baseline_path: Union[str, Path],
+    expected_preset: Optional[str] = None,
+) -> Dict[str, DocumentEvalResult]:
     """Loads a previous evaluation report JSON and returns an indexed lookup map."""
     path = Path(baseline_path)
     if not path.is_file():
@@ -33,15 +57,18 @@ def load_baseline(baseline_path: Union[str, Path]) -> Dict[str, DocumentEvalResu
     for item in items:
         try:
             doc_res = DocumentEvalResult(**item)
-            # Index by filepath and resolved path only (do not index by filename to prevent collision)
-            lookup[doc_res.filepath] = doc_res
-            try:
-                resolved_key = str(Path(doc_res.filepath).resolve())
-                lookup[resolved_key] = doc_res
-            except Exception:
-                pass
         except Exception as e:
             raise ValueError(f"Invalid document result in baseline {path}: {e}")
+
+        _check_comparable(doc_res, expected_preset)
+
+        # Index by filepath and resolved path only (do not index by filename to prevent collision)
+        lookup[doc_res.filepath] = doc_res
+        try:
+            resolved_key = str(Path(doc_res.filepath).resolve())
+            lookup[resolved_key] = doc_res
+        except Exception:
+            pass
 
     return lookup
 
@@ -68,6 +95,8 @@ def compare_document_with_baseline(
     if prev is None:
         result.baseline_diff = BaselineDiff(status="new")
         return result, False, None
+
+    _check_comparable(prev, preset.name)
 
     # Check truncation mismatch
     trunc_mismatch = (prev.was_truncated != result.was_truncated)

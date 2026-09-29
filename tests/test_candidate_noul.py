@@ -230,8 +230,12 @@ def test_support_gmail_personal_by_rule_with_no_mask(tmp_path):
     assert res_dry.email_evaluations[0].decided_by == "free_mail"
 
 
-def test_all_40_fixtures_masked_and_unmasked(tmp_path):
-    # All 40 fixtures in tests/fixtures/pii_secrets match expected verdicts masked and with --no-mask
+def test_all_40_fixtures_match_dry_run_mock_rules(tmp_path):
+    """Checks that all 40 fixtures in tests/fixtures/pii_secrets match expected verdicts.
+
+    Runs with dry_run=True, so it checks the fixtures against the mock rules in
+    _build_mock_result, not the model. The README figure comes from the validate runs.
+    """
     fixtures_dir = Path("tests/fixtures/pii_secrets")
     import yaml
     labels = yaml.safe_load((fixtures_dir / "labels.yaml").read_text(encoding="utf-8"))
@@ -839,7 +843,12 @@ def test_substring_discrimination_across_chunks(tmp_path, val_a, val_b):
 
 
 def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
-    """3c: Candidate never asked in any chunk raises RuntimeError matching 'not asked in any of'."""
+    """3c: Candidate never asked in any chunk raises RuntimeError matching 'not asked in any of'.
+
+    After A1 no real input reaches this guard (every candidate is either matched in
+    some chunk or unplaced). The test forces it by patching `_in_chunk_helper`; the
+    guard stays as a defensive check.
+    """
     from typesafe_eval import client as client_mod
     from types import SimpleNamespace as NS
 
@@ -847,19 +856,7 @@ def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
     d = tmp_path / "doc.md"
     d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
 
-    orig_mask = client_mod.mask_sensitive_data
-    call_count = 0
-
-    def patched_mask(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        text, count, details = orig_mask(*args, **kwargs)
-        if call_count > 1 and details and "_raw_mapping" in details:
-            details = dict(details)
-            details["_raw_mapping"] = {}
-        return text, count, details
-
-    monkeypatch.setattr(client_mod, "mask_sensitive_data", patched_mask)
+    monkeypatch.setattr(client_mod, "_in_chunk_helper", lambda placeholder, text, unplaced, item_in_text_fn: False)
 
     class FakeClient:
         def system_one(self, state, questions):
@@ -902,5 +899,132 @@ def test_chunked_pii_override_when_model_omits(tmp_path):
     res = ev.evaluate_document(str(d), preset=preset)
     assert res.nouls["pii_gate"].overridden_by == "preflight_scan"
     assert res.passed_thresholds is False
+
+
+def test_long_quoted_secret_unplaced_candidate(tmp_path):
+    """A1: Long quoted secret straddling chunk boundaries gives FAIL with probability 0.95 masked and unmasked."""
+    from types import SimpleNamespace as NS
+
+    body = (
+        ("filler paragraph text.\n\n" * 900)[:21000]
+        + '\n\npassword: "'
+        + ("長い値の行です\n" * 600)
+        + '"\n\n'
+        + "filler paragraph text.\n\n" * 2000
+    )
+    p = tmp_path / "long_secret.md"
+    p.write_text(body, encoding="utf-8")
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {
+                k: NS(noul=0.95 if any(k.startswith(p) for p in ("ip", "secret", "email", "phone", "url")) else 0.05)
+                for k in questions if k not in sc and k not in ch
+            }
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    preset = load_preset("safety")
+    for mask in (True, False):
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = FakeClient()
+        res = ev.evaluate_document(str(p), preset=preset, mask_secrets=mask)
+        assert res.passed_thresholds is False
+        secret_evs = [(e.outcome, e.probability) for e in res.secret_evaluations]
+        assert secret_evs == [("secret", 0.95)]
+        if not mask:
+            assert any("[SECRET_1]" in w for w in res.warnings)
+
+
+def test_tiny_max_chars_masked_unplaced_candidate(tmp_path):
+    """A1: In masked mode with max_chars=6, corporate email evaluates without exception and email_pii_1 is asked."""
+    from types import SimpleNamespace as NS
+
+    p = tmp_path / "tiny.md"
+    p.write_text("Send it to taro.yamada@acme-corp.com.", encoding="utf-8")
+
+    asked_questions = []
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            asked_questions.extend(questions.keys())
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in sc and k not in ch}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    preset = load_preset("safety")
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = FakeClient()
+    res = ev.evaluate_document(str(p), preset=preset, mask_secrets=True, max_chars=6)
+    assert "email_pii_1" in asked_questions
+    assert any("[EMAIL_1]" in w for w in res.warnings)
+
+
+def test_unplaced_candidate_asked_and_in_state_for_every_chunk(tmp_path):
+    """A1: An unplaced candidate is asked in every chunk call, and each chunk state carries its feature."""
+    from types import SimpleNamespace as NS
+
+    body = (
+        ("filler paragraph text.\n\n" * 900)[:21000]
+        + '\n\npassword: "'
+        + ("長い値の行です\n" * 600)
+        + '"\n\n'
+        + "filler paragraph text.\n\n" * 2000
+    )
+    p = tmp_path / "long_secret.md"
+    p.write_text(body, encoding="utf-8")
+    calls = []
+
+    class FakeClient:
+        def system_one(self, state, questions):
+            calls.append((state, set(questions)))
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.95) for k in questions if k not in sc and k not in ch}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    ev = TypeSafeEvaluator(api_key="mock")
+    ev._client = FakeClient()
+    ev.evaluate_document(str(p), preset=load_preset("safety"), mask_secrets=False)
+    chunk_calls = [(st, qs) for st, qs in calls if "confidentiality_risk" not in qs]
+    assert len(chunk_calls) >= 2
+    for st, qs in chunk_calls:
+        assert "secret_1" in qs
+        assert [f["placeholder"] for f in st.get("redacted_secrets", [])] == ["[SECRET_1]"]
+
+
+def test_unmasked_chunk_state_placeholder_syntax_secret(tmp_path):
+    """A2: password=${DB_PASS} is included in chunk state redacted_secrets equally in masked and unmasked modes."""
+    from types import SimpleNamespace as NS
+
+    FILL = "filler paragraph text.\n\n" * 2000
+    p = tmp_path / "doc.md"
+    p.write_text("password=${DB_PASS}\n\n" + FILL, encoding="utf-8")
+
+    class CaptureClient:
+        def __init__(self):
+            self.states = []
+        def system_one(self, state, questions):
+            self.states.append(state)
+            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
+            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            no = {k: NS(noul=0.05) for k in questions if k not in sc and k not in ch}
+            return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
+
+    preset = load_preset("safety")
+    counts = {}
+    for mask in (True, False):
+        client = CaptureClient()
+        ev = TypeSafeEvaluator(api_key="mock")
+        ev._client = client
+        ev.evaluate_document(str(p), preset=preset, mask_secrets=mask)
+        counts[mask] = [len(st.get("redacted_secrets", [])) for st in client.states]
+
+    assert counts[True] == counts[False]
+    assert any(c > 0 for c in counts[True])
+
+
 
 

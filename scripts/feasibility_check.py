@@ -133,7 +133,7 @@ def evaluate_text(
     question_id: str,
 ) -> float:
     """Evaluates text across runs and returns median score for target question."""
-    with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False) as tf:
+    with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False, encoding="utf-8") as tf:
         tf.write(text)
         temp_path = tf.name
 
@@ -460,6 +460,10 @@ def main():
     args = parser.parse_args()
 
     doc_paths = args.doc or []
+    if args.pairs and doc_paths:
+        print("Error: --pairs and --doc cannot be used together.", file=sys.stderr)
+        sys.exit(2)
+
     if not args.pairs and not doc_paths:
         default_doc = Path("tests/fixtures/design_doc/en.md")
         if default_doc.is_file():

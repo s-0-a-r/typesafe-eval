@@ -1,3 +1,6 @@
+from pathlib import Path
+import pytest
+
 from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
 
 def test_mask_sensitive_data():
@@ -235,4 +238,56 @@ def test_strip_html_comments_no_comments_unchanged():
     from typesafe_eval.sanitizer import strip_html_comments
     text = "# Title\n\nThis is a standard document with no comments."
     assert strip_html_comments(text) == text
+
+
+def test_consecutive_chunks_overlap():
+    """A4: Consecutive chunks overlap under defaults on long text and with max_chars=500, overlap=100."""
+    from typesafe_eval.sanitizer import chunk_text
+
+    # 1. Defaults on long text
+    long_text = ("Section Heading\n\nParagraph text line.\n" * 2000)
+    chunks_default = chunk_text(long_text)
+    assert len(chunks_default) > 1
+    for i in range(len(chunks_default) - 1):
+        c1, c2 = chunks_default[i], chunks_default[i + 1]
+        assert any(c1[-k:] == c2[:k] for k in range(100, min(len(c1), len(c2))))
+
+    # 2. max_chars=500, overlap=100
+    custom_text = ("a" * 490 + "\n" + "b" * 490 + "\n") * 5
+    chunks_custom = chunk_text(custom_text, max_chars=500, overlap=100)
+    assert len(chunks_custom) > 1
+    for i in range(len(chunks_custom) - 1):
+        c1, c2 = chunks_custom[i], chunks_custom[i + 1]
+        assert any(c1[-k:] == c2[:k] for k in range(10, min(len(c1), len(c2))))
+
+
+def test_default_chunks_start_at_line_boundaries():
+    """A3: With default max_chars/overlap, each subsequent chunk starts at a line start."""
+    from typesafe_eval.sanitizer import chunk_text
+
+    text = "".join(
+        f"line {i:06d} some paragraph words here\n" + ("\n" if i % 7 == 0 else "")
+        for i in range(3000)
+    )
+    chunks = chunk_text(text)
+    assert len(chunks) > 1
+    for c in chunks[1:]:
+        assert c.startswith("line "), c[:30]
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((Path(__file__).parent / "fixtures" / "pii_secrets").glob("*.md")),
+    ids=lambda p: p.name,
+)
+def test_every_redacted_placeholder_has_raw_mapping_when_unmasked(path):
+    """client._item_in_text relies on this: with mask=False every placeholder in redacted_* has raw values."""
+    _, _, details = mask_sensitive_data(path.read_text(encoding="utf-8"), mask=False, return_details=True)
+    raw_mapping = details["_raw_mapping"]
+    for key in ("redacted_emails", "redacted_phones", "redacted_ips", "redacted_urls", "redacted_secrets"):
+        for feat in details[key]:
+            assert raw_mapping.get(feat["placeholder"]), (key, feat["placeholder"])
+
+
+
 
