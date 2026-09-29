@@ -799,8 +799,9 @@ def test_feasibility_check_no_heldout_gives_nulls(tmp_path):
 
 def test_group_by_kind_two_questions(tmp_path):
     """When a pair expectation specifies two score questions, kind grouping splits them into separate groups with correct n."""
+    # Synthetic two-question config to test grouping by kind across multiple score questions.
     preset = PresetConfig(
-        name="tech-spec",
+        name="two-score",
         title="Tech Spec",
         description="Tech Spec preset",
         questions={
@@ -840,7 +841,7 @@ def test_group_by_kind_two_questions(tmp_path):
         )
 
     labels_cfg = ValidationLabelsConfig(
-        preset="tech-spec",
+        preset="two-score",
         runs=3,
         criteria=ValidationCriteria(
             group_by="kind",

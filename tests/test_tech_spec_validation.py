@@ -21,14 +21,13 @@ from scripts.feasibility_check import run_feasibility
 def test_tech_spec_preset_definition():
     preset = load_preset("tech-spec")
     assert preset.name == "tech-spec"
-    assert "technical_depth" in preset.questions
-    assert preset.questions["technical_depth"].type == "score"
-    assert "edge_case_coverage" in preset.questions
-    assert preset.questions["edge_case_coverage"].type == "score"
     assert "has_test_plan" in preset.questions
     assert preset.questions["has_test_plan"].type == "noul"
+    assert preset.questions["has_test_plan"].weight == 1.0
     assert "readiness" in preset.questions
     assert preset.questions["readiness"].type == "choice"
+    score_questions = [q for q in preset.questions.values() if q.type == "score"]
+    assert len(score_questions) == 0
 
 
 def test_validate_with_tech_spec_preset(tmp_path):
@@ -65,16 +64,6 @@ def test_validate_with_tech_spec_preset(tmp_path):
                 "expect": {"has_test_plan": "absent"},
             },
         ],
-        "pairs": [
-            {
-                "before": str(doc_full),
-                "after": str(doc_degraded),
-                "expect": {
-                    "technical_depth": "down",
-                    "edge_case_coverage": "down",
-                },
-            }
-        ],
     }
 
     labels_file = tmp_path / "labels.yaml"
@@ -94,7 +83,7 @@ def test_validate_with_tech_spec_preset(tmp_path):
     assert not has_error
     assert report.preset_name == "tech-spec"
     assert len(report.presence_results) == 2
-    assert len(report.pair_results) == 2
+    assert len(report.pair_results) == 0
 
     # Verify readiness distribution was recorded (non-gating)
     assert "readiness" in report.choice_distributions
@@ -133,19 +122,19 @@ def test_cli_validate_tech_spec_dry_run(tmp_path):
     assert "Choice Question Distributions" in result.output
 
 
-def test_feasibility_check_with_tech_spec_preset(tmp_path):
+def test_feasibility_check_with_quality_preset(tmp_path):
     doc1 = tmp_path / "doc1.md"
     doc1.write_text("# Tech Spec\nSystem design details.", encoding="utf-8")
 
     report = run_feasibility(
         doc_paths=[doc1],
-        preset_name="tech-spec",
-        question_id="technical_depth",
+        preset_name="quality",
+        question_id="clarity",
         runs=1,
         dry_run=True,
     )
 
-    assert report["preset"] == "tech-spec"
+    assert report["preset"] == "quality"
     assert report["num_pairs"] == 3
     assert len(report["pairs"]) == 3
 
@@ -207,25 +196,52 @@ def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
     with pytest.raises(ValueError) as excinfo_typo:
         run_feasibility(
             doc_paths=[doc],
-            preset_name="tech-spec",
-            question_id="tehcnical_depth",
+            preset_name="quality",
+            question_id="calrity",
             dry_run=True,
         )
-    assert "Question 'tehcnical_depth' is not a valid score question in preset 'tech-spec'" in str(excinfo_typo.value)
-    assert "edge_case_coverage, technical_depth" in str(excinfo_typo.value)
+    assert "Question 'calrity' is not a valid score question in preset 'quality'" in str(excinfo_typo.value)
+    assert "Available score question(s): clarity" in str(excinfo_typo.value)
 
-    # Noul question_id
+    # Noul question_id passed as score
     with pytest.raises(ValueError) as excinfo_noul:
+        run_feasibility(
+            doc_paths=[doc],
+            preset_name="safety",
+            question_id="has_secrets",
+            dry_run=True,
+        )
+    assert "Question 'has_secrets' is not a valid score question in preset 'safety'" in str(excinfo_noul.value)
+    assert "Available score question(s): confidentiality_risk" in str(excinfo_noul.value)
+
+    # Preset without clarity and no question specified
+    with pytest.raises(ValueError) as excinfo_no_q:
+        run_feasibility(
+            doc_paths=[doc],
+            preset_name="safety",
+            question_id=None,
+            dry_run=True,
+        )
+    assert "Preset 'safety' has no 'clarity' question. Specify a score question with --question." in str(excinfo_no_q.value)
+    assert "Available score question(s): confidentiality_risk" in str(excinfo_no_q.value)
+
+
+def test_feasibility_check_with_tech_spec_no_score_questions(tmp_path):
+    doc = tmp_path / "spec.md"
+    doc.write_text("# Spec\nContent", encoding="utf-8")
+
+    # When --question is used with tech-spec (which has no score questions)
+    with pytest.raises(ValueError) as excinfo_q:
         run_feasibility(
             doc_paths=[doc],
             preset_name="tech-spec",
             question_id="has_test_plan",
             dry_run=True,
         )
-    assert "Question 'has_test_plan' is not a valid score question in preset 'tech-spec'" in str(excinfo_noul.value)
-    assert "edge_case_coverage, technical_depth" in str(excinfo_noul.value)
+    assert "Question 'has_test_plan' is not a valid score question in preset 'tech-spec'." in str(excinfo_q.value)
+    assert "Available score question(s): none" in str(excinfo_q.value)
 
-    # Preset without clarity and no question specified
+    # When question_id is omitted with tech-spec
     with pytest.raises(ValueError) as excinfo_no_q:
         run_feasibility(
             doc_paths=[doc],
@@ -234,4 +250,5 @@ def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
             dry_run=True,
         )
     assert "Preset 'tech-spec' has no 'clarity' question. Specify a score question with --question." in str(excinfo_no_q.value)
+    assert "Available score question(s): none" in str(excinfo_no_q.value)
 

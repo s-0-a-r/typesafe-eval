@@ -451,7 +451,7 @@ def main():
     parser.add_argument("--doc", action="append", type=Path, help="Document(s) to generate degradations for")
     parser.add_argument("--doc-type", default="generic", help="Default doc_type for documents (default: generic)")
     parser.add_argument("--preset", default="quality", help="Preset name (default: quality)")
-    parser.add_argument("--question", type=str, default=None, help="Question ID to evaluate (e.g. clarity, technical_depth)")
+    parser.add_argument("--question", type=str, default=None, help="Question ID to evaluate (e.g. clarity)")
     parser.add_argument("--runs", type=int, default=3, help="Number of runs per doc (default: 3)")
     parser.add_argument("--holdout-fraction", type=float, default=0.3, help="Fraction of documents in holdout set")
     parser.add_argument("--dry-run", action="store_true", help="Use mock evaluation without API calls")
