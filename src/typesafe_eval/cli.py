@@ -400,6 +400,10 @@ def validate_command(
         err_console.print(f"[bold red]Validation setup error:[/bold red] {e}")
         sys.exit(2)
 
+    # Output unplaced warnings to stderr
+    for w in report.unplaced_warnings:
+        click.echo(f"Warning: {w}", err=True)
+
     # Output handling
     if output_format == "table":
         render_validation_table(report)

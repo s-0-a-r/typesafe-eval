@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from rich.markup import escape
 
 from typesafe_eval.presets import load_preset, PresetConfig
 from typesafe_eval.client import TypeSafeEvaluator
@@ -24,6 +25,19 @@ from typesafe_eval.models import DocumentEvalResult
 
 err_console = Console(stderr=True)
 console = Console()
+
+
+def is_unplaced_warning(msg: str) -> bool:
+    """Matches unplaced warnings specifically containing 'were not found in any of the chunks',
+    'were not found in any of <N> chunks', or similar unplaced warning signature.
+    """
+    if "not found in any of the chunks" in msg:
+        return True
+    if "were not found in any of" in msg and "chunk" in msg:
+        return True
+    if "not found in any" in msg and "chunk" in msg:
+        return True
+    return False
 
 
 def get_t_crit_95(df: int) -> float:
@@ -222,6 +236,7 @@ class ValidationReport(BaseModel):
     question_stats: Dict[str, QuestionValidationStats] = Field(default_factory=dict)
     criteria_results: List[CriterionEvaluationResult] = Field(default_factory=list)
     choice_distributions: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    unplaced_warnings: List[str] = Field(default_factory=list)
     mock: bool = False
 
 
@@ -352,7 +367,22 @@ def run_validation(
     presence_results: List[DocumentPresenceResult] = []
     pair_results: List[PairScoreResult] = []
     choice_distributions: Dict[str, Dict[str, int]] = {}
+    unplaced_warnings: List[str] = []
     has_runtime_error = False
+
+    def _check_unplaced(res_obj: DocumentEvalResult, doc_label: str, r_idx: int, n_runs: int) -> None:
+        nonlocal has_runtime_error
+        for w in res_obj.warnings:
+            if is_unplaced_warning(w):
+                formatted = f"{doc_label}: {w}" if not w.startswith(f"{doc_label}:") else w
+                if formatted not in unplaced_warnings:
+                    unplaced_warnings.append(formatted)
+                if mask_secrets:
+                    click.echo(
+                        f"{doc_label} (run {r_idx+1}/{n_runs}): Unplaced item in masked mode: {w}",
+                        err=True,
+                    )
+                    has_runtime_error = True
 
     # Cache for unchanged file evaluations within this validate run
     # Key: (resolved_path, file_sha256, questions_hash, mask_secrets, run_index)
@@ -403,6 +433,7 @@ def run_validation(
                     for ch_qid, ch_obj in res.choices.items():
                         q_dist = choice_distributions.setdefault(ch_qid, {})
                         q_dist[ch_obj.choice] = q_dist.get(ch_obj.choice, 0) + 1
+                    _check_unplaced(res, str(doc_item.path), r, runs)
                 except Exception as e:
                     click.echo(f"{doc_path} (run {r+1}/{runs}): {e}", err=True)
                     has_runtime_error = True
@@ -421,6 +452,8 @@ def run_validation(
                         for ch_qid, ch_obj in res_item.choices.items():
                             q_dist = choice_distributions.setdefault(ch_qid, {})
                             q_dist[ch_obj.choice] = q_dist.get(ch_obj.choice, 0) + 1
+                    _check_unplaced(res_b, str(pair_item.before), r, p_runs)
+                    _check_unplaced(res_a, str(pair_item.after), r, p_runs)
                 except Exception as e:
                     click.echo(f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{p_runs}): {e}", err=True)
                     has_runtime_error = True
@@ -1007,6 +1040,7 @@ def run_validation(
         question_stats=question_stats,
         criteria_results=criteria_results,
         choice_distributions=choice_distributions,
+        unplaced_warnings=unplaced_warnings,
         mock=dry_run,
     )
 
@@ -1190,6 +1224,18 @@ def render_validation_table(report: ValidationReport) -> None:
         )
         console.print()
 
+    # 6. Unplaced Warnings
+    if report.unplaced_warnings:
+        warning_texts = [f"• {escape(w)}" for w in report.unplaced_warnings]
+        console.print(
+            Panel(
+                "\n".join(warning_texts),
+                title="[bold yellow]Unplaced Warnings[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+        console.print()
+
     if report.mock:
         console.print("[dim]Mode: MOCK (dry-run, no API calls made)[/dim]")
         console.print()
@@ -1299,6 +1345,13 @@ def render_validation_markdown(report: ValidationReport) -> str:
             total = sum(counts.values())
             parts = [f"`{choice}`: {c} ({(c/total*100):.1f}%)" for choice, c in sorted(counts.items())]
             lines.append(f"- **`{q_id}`**: " + ", ".join(parts))
+        lines.append("")
+
+    if report.unplaced_warnings:
+        lines.append("## Unplaced Warnings")
+        lines.append("")
+        for w in report.unplaced_warnings:
+            lines.append(f"- {w}")
         lines.append("")
 
     return "\n".join(lines)
