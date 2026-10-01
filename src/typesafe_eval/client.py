@@ -118,13 +118,13 @@ class TypeSafeEvaluator:
         """Evaluates a single document against the specified preset."""
         path = Path(filepath)
         raw_content = path.read_text(encoding="utf-8")
-        clean_content = strip_html_comments(raw_content)
 
-        # 1. Sanitize (detection & feature extraction always run; mask controls substitution)
+        # 1. Sanitize (detection & feature extraction run on raw_content before stripping HTML comments)
         custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
-        content, redaction_count, redaction_details = mask_sensitive_data(
-            clean_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
+        sanitized_content, redaction_count, redaction_details = mask_sensitive_data(
+            raw_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
         )
+        content = strip_html_comments(sanitized_content)
         raw_mapping: Dict[str, List[str]] = (
             redaction_details.pop("_raw_mapping", {}) if redaction_details else {}
         )
@@ -149,6 +149,23 @@ class TypeSafeEvaluator:
             if raw_occurrences:
                 return any(raw in _raw_tokens_in(text) for raw in raw_occurrences)
             return placeholder in text
+
+        all_detected_placeholders = [
+            item["placeholder"]
+            for item in (
+                (redaction_details.get("redacted_emails", []) if redaction_details else [])
+                + (redaction_details.get("redacted_phones", []) if redaction_details else [])
+                + (redaction_details.get("redacted_ips", []) if redaction_details else [])
+                + (redaction_details.get("redacted_urls", []) if redaction_details else [])
+                + (redaction_details.get("redacted_secrets", []) if redaction_details else [])
+            )
+            if item.get("placeholder")
+        ]
+
+        comment_stripped_placeholders = frozenset(
+            p for p in all_detected_placeholders
+            if _item_in_text(p, sanitized_content) and not _item_in_text(p, content)
+        )
 
         # 2. Length check & chunking determination
         is_long = len(content) > max_chars
@@ -318,7 +335,7 @@ class TypeSafeEvaluator:
         unplaced: FrozenSet[str] = frozenset()
 
         def _in_chunk(placeholder: str, text: str) -> bool:
-            return _in_chunk_helper(placeholder, text, unplaced, _item_in_text)
+            return _in_chunk_helper(placeholder, text, unplaced | comment_stripped_placeholders, _item_in_text)
 
         def _make_state(doc_text: str, is_full: bool = True) -> Dict[str, Any]:
             st: Dict[str, Any] = {
@@ -806,9 +823,10 @@ class TypeSafeEvaluator:
             redaction_details=redaction_details,
         )
 
-        if unplaced:
+        boundary_unplaced = unplaced - comment_stripped_placeholders
+        if boundary_unplaced:
             warnings.append(
-                f"{len(unplaced)} redacted item(s) ({', '.join(sorted(unplaced))}) were not found in any of "
+                f"{len(boundary_unplaced)} redacted item(s) ({', '.join(sorted(boundary_unplaced))}) were not found in any of "
                 f"{len(chunks)} chunks and were treated as present in every chunk; "
                 f"any candidate probabilities for them may be less reliable."
             )
@@ -952,7 +970,8 @@ class TypeSafeEvaluator:
         nouls = {}
         choices = {}
         path = Path(filepath)
-        content = strip_html_comments(path.read_text(encoding="utf-8")) if path.is_file() else ""
+        raw_content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        content = strip_html_comments(raw_content)
 
         for q_id, q_cfg in preset.questions.items():
             if q_cfg.type == "score":
@@ -1168,7 +1187,7 @@ class TypeSafeEvaluator:
                 )
 
         # Secrets
-        has_prose_secret = bool(re.search(r"password\s+is\s+[^\s.,]+", content, re.IGNORECASE))
+        has_prose_secret = bool(re.search(r"password\s+is\s+[^\s.,]+", raw_content, re.IGNORECASE))
         redacted_secrets = redaction_details.get("redacted_secrets", []) if redaction_details else []
         for feature in redacted_secrets:
             placeholder = feature["placeholder"]
@@ -1247,7 +1266,7 @@ class TypeSafeEvaluator:
         if pii_count > 0 and pii_q_id and pii_q_id in nouls:
             nouls[pii_q_id].overridden_by = "preflight_scan"
 
-        has_prose_pii = bool(re.search(r"\b(Taro Yamada|Hanako Tanaka|Jane Doe|John Doe)\b", content))
+        has_prose_pii = bool(re.search(r"\b(Taro Yamada|Hanako Tanaka|Jane Doe|John Doe)\b", raw_content))
         if "has_secrets" in nouls:
             nouls["has_secrets"].probability = 0.90 if has_prose_secret else 0.05
         if "has_pii" in nouls:
