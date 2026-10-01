@@ -1,0 +1,11 @@
+{
+  "description": "TypeSafe document evaluation safety hook for Claude Code",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "command": "python3 hooks/claude_safety_hook.py"
+      }
+    ]
+  }
+}

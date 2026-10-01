@@ -1,0 +1,116 @@
+# AGENTS.md — Guidance for Autonomous Coding Agents
+
+This guide provides instructions and operational boundaries for AI coding assistants (OpenAI Codex, GitHub Copilot, Google Antigravity CLI, Claude Code, Cursor, Aider) operating in repositories that use `typesafe-eval`.
+
+---
+
+## 1. Quick Command Invocations
+
+Always invoke `typesafe-eval` with the appropriate preset:
+
+```bash
+# Safety check (PII, credentials, secret exposure)
+typesafe-eval docs/*.md --preset safety
+
+# Documentation quality check
+typesafe-eval docs/*.md --preset quality
+
+# Technical specification / RFC check
+typesafe-eval rfc/*.md --preset tech-spec
+
+# Structured JSON output for agent consumption
+typesafe-eval docs/*.md --preset quality -f json
+
+# Dry-run validation (does not require external API call)
+typesafe-eval docs/*.md --dry-run
+```
+
+---
+
+## 2. Evaluation Presets
+
+| Preset | Purpose | Primary Checks |
+| :--- | :--- | :--- |
+| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs |
+| `quality` | Document quality | Readability, structural clarity, completeness, actionable takeaways |
+| `tech-spec` | Architecture & RFCs | Technical rigor, system design clarity, failure mode analysis, edge cases |
+| Custom (`-c`) | Domain-specific | Custom rules, customized thresholds, custom role email patterns |
+
+---
+
+## 3. Exit Code Contract
+
+`typesafe-eval` returns deterministic exit codes to enable agent branching:
+
+| Exit Code | Classification | Meaning | Agent Action |
+| :---: | :--- | :--- | :--- |
+| **`0`** | Success | All documents passed gates, or clean dry-run. | Proceed with task. |
+| **`1`** | Content Violation | At least one gate or security violation occurred. | Inspect `violations` and fix the document. |
+| **`2`** | Usage / Config Error | Invalid arguments, non-existent files, or syntax error. | Check command options and file paths. |
+| **`3`** | Runtime Error | Network timeout, API error, or missing `TYPESAFE_API_KEY`. | Skip or alert user to check environment; do not modify document. |
+
+### Precedence Rule (1 over 3)
+If multiple files are evaluated and any file fails a content/safety gate, `typesafe-eval` returns **exit code 1**, even if other files encountered runtime errors. A detected violation is never masked by a runtime error.
+
+---
+
+## 4. Reading JSON Output (`schema_version: "1.0"`)
+
+Parse the JSON output from `stdout` (`typesafe-eval ... -f json`):
+
+```json
+[
+  {
+    "schema_version": "1.0",
+    "filename": "auth.md",
+    "passed_thresholds": false,
+    "composite_score": 0.52,
+    "violations": [
+      "Credential Exposure: [REDACTED_AWS_KEY] is a known aws_key credential",
+      "PII Exposure: [EMAIL_1] is an individual address (free-mail)"
+    ],
+    "email_evaluations": [
+      {
+        "placeholder": "[EMAIL_1]",
+        "outcome": "personal",
+        "decided_by": "free_mail"
+      }
+    ],
+    "secret_evaluations": [
+      {
+        "placeholder": "[REDACTED_AWS_KEY]",
+        "outcome": "secret",
+        "decided_by": "rule"
+      }
+    ]
+  }
+]
+```
+
+- **`passed_thresholds`**: Boolean status flag.
+- **`violations`**: Array of actionable failure messages.
+- **`email_evaluations`**: Differentiates personal contact emails (`personal`) from shared organizational mailboxes (`role`).
+- **`secret_evaluations`**: Identifies exposed credentials by rule or contextual model determination without exposing raw values.
+- **Stderr Separation**: File errors and tool warnings are emitted to `stderr`; `stdout` is always a clean JSON stream suitable for `jq` or JSON parsers.
+
+---
+
+## 5. The 4 Mandatory Guidance Rules
+
+All autonomous agents must abide by the following 4 rules:
+
+1. **Don't make scores a loop target**:
+   - Cap automated revision loops at **2 rounds maximum**.
+   - Do not distort, degrade, or over-optimize natural writing just to chase higher numeric scores (Goodhart's Law). Address specific items listed in `violations`, then finalize your edit.
+
+2. **Language caveat**:
+   - TypeSafe System One (Jev) is calibrated for **English** documentation.
+   - On non-English text, treat borderline scores or low confidence with caution and inform the user.
+
+3. **Near-threshold results are soft**:
+   - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary.
+   - Report the calibrated probability range (e.g. `p = 0.48–0.60`) to the user as a contextual observation rather than an absolute failure.
+
+4. **Never pass API key through the agent**:
+   - The CLI reads `TYPESAFE_API_KEY` directly from the environment.
+   - Never ask the user to provide an API key in conversational chat, and never hardcode or echo credentials in commands or scripts.

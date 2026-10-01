@@ -373,6 +373,24 @@ On public repositories or fork PRs, runners without access to `TYPESAFE_API_KEY`
 - The GitHub Action recognizes exit code 3 and **skips gracefully** (exit code 0 with an informative notice) to prevent blocking untrusted fork PRs.
 - Actual content or security violations (exit code 1) **always fail the build**, enforcing strict quality and privacy guarantees.
 
+### 14. Agent Integrations (Claude Code, Antigravity CLI, Codex)
+
+`typesafe-eval` is designed to be agent-native, providing first-class integration for autonomous coding agents:
+
+#### Claude Code Plugin (Skill + Safety Hook)
+- **Skill**: Located at [`skills/typesafe-eval/SKILL.md`](skills/typesafe-eval/SKILL.md), guiding Claude Code on preset selection, interpreting the JSON contract, and adhering to evaluation boundaries.
+- **Hook**: Configured in [`hooks/hooks.json`](hooks/hooks.json) via a `PostToolUse` matcher on `Write|Edit` that executes [`hooks/claude_safety_hook.py`](hooks/claude_safety_hook.py).
+- **Exit Code Mapping**:
+  - `Exit 1` (content violation) → mapped to `Exit 2` with violations on `stderr`, actively prompting Claude to resolve the security issue before completing the task.
+  - `Exit 2/3` (tool/runtime error, or missing `TYPESAFE_API_KEY`) → mapped to `Exit 0`, ensuring Claude is never blocked when the external API key is unset.
+
+#### AGENTS.md Guidance
+A copy-pasteable repository guide is maintained in [`AGENTS.md`](AGENTS.md) for AI coding assistants (Google Antigravity CLI, OpenAI Codex, GitHub Copilot, Cursor, Aider). It outlines command invocations, exit code handling, and the 4 mandatory guidance rules:
+1. **Don't make scores a loop target**: Cap revision loops at 2 rounds maximum; avoid butchering natural prose to game scores.
+2. **Language caveat**: TypeSafe System One (Jev) accuracy is calibrated for English text.
+3. **Near-threshold results are soft**: Borderline results (`near_threshold: true`, within ±0.10) are advisory and should be surfaced with probability ranges.
+4. **Never pass API key through the agent**: Read `TYPESAFE_API_KEY` from the environment; never request keys in chat or pass them in arguments.
+
 ---
 
 ## ⚙️ Custom YAML Configuration
