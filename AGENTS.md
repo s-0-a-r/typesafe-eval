@@ -114,3 +114,16 @@ All autonomous agents must abide by the following 4 rules:
 4. **Never pass API key through the agent**:
    - The CLI reads `TYPESAFE_API_KEY` directly from the environment.
    - Never ask the user to provide an API key in conversational chat, and never hardcode or echo credentials in commands or scripts.
+
+---
+
+## 6. Antigravity Code Review Skill (`/boost`)
+
+For Google Antigravity CLI agents reviewing code changes, diffs, or pull requests in this repository, an automated workspace review skill is provided at `.agents/skills/code-review/`.
+
+When conducting code reviews, agents should invoke the **`/boost`** review routine to evaluate changes across the 4 core pillars:
+1. **Safety & Redaction**: Zero raw secret/email leaks, Exit 1-over-3 precedence, and pre-strip comment detection.
+2. **Contract & Stream**: Exit codes 0/1/2/3, stdout JSON purity for `jq`, and `schema_version: "1.0"`.
+3. **Evaluator Integrity**: The 4 mandatory guidance rules, Goodhart's law defense, chunking & unplaced items.
+4. **Test & Implementation**: 100% pytest pass rate, mock/real parity, and strict typing.
+
