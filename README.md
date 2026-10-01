@@ -171,29 +171,35 @@ typesafe-eval rfc/*.md --preset tech-spec --format markdown --out eval_report.md
 typesafe-eval docs/memo.md --preset quality --format json
 ```
 
-#### JSON Output & Result Schema
+#### JSON Contract & Result Schema
+
+`typesafe-eval` guarantees a stable JSON contract with explicit schema versioning across both `eval` and `validate` commands:
+- `schema_version`: String contract version identifier (`"1.0"`).
+- **Pipelining Guarantee**: Any file-level or evaluation errors are routed exclusively to `stderr` (`<path>: <error>`). `stdout` remains a clean, valid JSON stream suitable for piping directly to `jq` or downstream tools (e.g. `typesafe-eval docs/*.md -f json | jq '.[] | select(.passed_thresholds == false)'`).
+- **Strict Privacy Guarantee**: Evaluated outputs and JSON results never expose raw secret values, credential fragments, or unredacted passwords—only non-sensitive structural metadata and sanitized placeholders.
 
 When exporting results with `--format json`, each document evaluation result contains:
 
+- `schema_version`: Contract schema version (`"1.0"`).
 - `filepath` / `filename`: Evaluated file path and name.
 - `preset_name`: Applied preset or custom config name.
 - `composite_score`: Weighted overall score (0.0 to 1.0) when scores or nouls are present.
-- `passed_thresholds`: Boolean indicating whether all score/risk gates and pre-flight scans passed.
+- `passed_thresholds`: Primary gate boolean (`true` if all score/risk gates and pre-flight scans passed; `false` otherwise).
 - `mock`: Boolean indicating whether `--dry-run` was used without calling the API (`true` in dry-run, `false` otherwise).
 - `api_calls`: Number of API calls made for evaluating the document (1 for standard documents, >1 when chunking long documents).
 - `was_truncated`: Boolean indicating whether the document text was truncated due to length.
-- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, `threshold`, `passed`, and `near_threshold`.
-- `nouls`: Map of noul questions with calibrated probability, override transparency, threshold, `passed`, and `near_threshold`:
+- `scores`: Map of score questions with `score`, `max_score`, `normalized_score`, `confidence`, and `near_threshold`.
+- `nouls`: Map of noul questions with calibrated probability, override transparency, and `near_threshold`:
   - `probability`: Calibrated probability returned by the model (`null` only when the model did not return a question that the preflight scan overrode, so `overridden_by` is also set; any other question missing from the API response raises an error).
   - `overridden_by`: Set to `"preflight_scan"` when deterministic rules caught credentials or personal PII.
   - `near_threshold`: Boolean indicating whether the probability is within ±0.1 of its threshold.
-- `choices`: Map of choice questions with selected `choice`, `confidence`, and `passed`.
-- `email_evaluations`: List of evaluated email addresses with placeholder, question ID, structural features, outcome (`personal` or `role`), decision source (`rule`, `free_mail`, or `model`), and `near_threshold`.
+- `choices`: Map of choice questions with selected `choice` and `confidence`.
+- `email_evaluations`: List of evaluated email candidates with placeholder, question ID, structural features, outcome (`personal` or `role`), decision source (`rule`, `free_mail`, or `model`), and `near_threshold`.
 - `phone_evaluations`: List of evaluated phone numbers with placeholder, structural features, outcome, decision source, and `near_threshold`.
 - `ip_evaluations`: List of evaluated IP addresses with placeholder, structural features, outcome, decision source, and `near_threshold`.
 - `url_evaluations`: List of evaluated URLs with placeholder, structural features, outcome, decision source, and `near_threshold`.
 - `secret_evaluations`: List of evaluated secrets with placeholder, non-sensitive structural metadata (never raw values), outcome, decision source, and `near_threshold`.
-- `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides.
+- `violations`: List of descriptive failure messages explaining any gate violations or pre-flight overrides. Key field for automated triage and failure reporting.
 - `warnings`: List of non-fatal threshold warnings (e.g. when `thresholds_as_warnings: true`).
 - `baseline_diff`: When `--baseline` is used, contains comparison status (`compared` or `new`), truncation mismatch flag, and per-question deltas (`diff`, `max_drop`, `passed`).
 
@@ -322,6 +328,50 @@ If **any** evaluated file has a threshold violation, the CLI exits with **code 1
 - **Table**: Interactive Rich terminal table with color-coded score badges, candidate near-threshold indicators, and violation panels.
 - **Markdown**: Formatted table for GitHub Actions PR comments or issue updates (`--format markdown`).
 - **JSON**: Machine-readable structured array for pipelines, baseline saves, and downstream tools (`--format json`).
+
+### 13. Pre-commit Hook & GitHub Action
+
+#### Pre-commit Hook
+Integrate `typesafe-eval` into your local git workflow via `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/typesafe-ai/typesafe-eval
+    rev: v0.4.1
+    hooks:
+      - id: typesafe-eval
+        args: ["--preset", "safety"]
+```
+
+#### GitHub Action
+Automate document evaluation in CI using the composite action (`action.yml`):
+
+```yaml
+name: Document Evaluation
+on: [push, pull_request]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install typesafe-eval
+        run: pip install typesafe-eval
+      - name: Run typesafe-eval Action
+        uses: typesafe-ai/typesafe-eval@v0.4.1
+        with:
+          api-key: ${{ secrets.TYPESAFE_API_KEY }}
+          preset: 'safety'
+          files: '**/*.md'
+```
+
+#### Hosted Runners & Exit Code 3 Skip Behavior
+On public repositories or fork PRs, runners without access to `TYPESAFE_API_KEY` (e.g. pre-commit.ci, fork pull requests) encounter exit code 3 (runtime/missing secret):
+- The GitHub Action recognizes exit code 3 and **skips gracefully** (exit code 0 with an informative notice) to prevent blocking untrusted fork PRs.
+- Actual content or security violations (exit code 1) **always fail the build**, enforcing strict quality and privacy guarantees.
 
 ---
 
