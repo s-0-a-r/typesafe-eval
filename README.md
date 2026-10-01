@@ -21,6 +21,13 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
 
+### 🚀 What's New in v0.5.0
+- **Agent-Agnostic JSON Contract**: Stable JSON output contract (`schema_version: "1.0"`) across both `eval` and `validate` commands, with pure `stdout` JSON streams for piping to `jq`. Includes `.pre-commit-hooks.yaml` and a composite GitHub Action (`action.yml`) with exit code 3 skip handling for fork/hosted runners.
+- **Claude Code Integration Plugin**: Skill definition at [`skills/typesafe-eval/SKILL.md`](skills/typesafe-eval/SKILL.md) and `PostToolUse` safety hook at [`hooks/hooks.json`](hooks/hooks.json) backed by [`hooks/claude_safety_hook.py`](hooks/claude_safety_hook.py), mapping content violations (exit 1) to blocking hook exit 2 while skipping on missing API keys.
+- **Autonomous Agent Guidance**: Full copy-pasteable guide in [`AGENTS.md`](AGENTS.md) for OpenAI Codex, Google Antigravity CLI, Claude Code, Cursor, and Aider, encoding the 4 mandatory guidance rules.
+- **HTML Comments Secret & PII Detection (#80)**: Detection and masking run on raw documents before stripping HTML comments for the model, ensuring secrets and PII inside `<!-- ... -->` are reliably caught.
+- **Validation Unplaced Warning & Runtime Error Tracking (#82)**: Separate tracking of chunk-boundary straddling unplaced warnings in `--no-mask` mode, with strict runtime error enforcement in masked mode.
+
 ### TypeSafe System One API Properties
 The underlying evaluation engine is powered by the [TypeSafe System One API](https://docs.typesafe.ai/) (`jev-1.13.0`):
 - **Typed Judgments**: Calibrated probabilities (`Noul`), multi-level rubrics (`Score`), and categorical decisions (`Choice`).
@@ -337,7 +344,7 @@ Integrate `typesafe-eval` into your local git workflow via `.pre-commit-config.y
 ```yaml
 repos:
   - repo: https://github.com/typesafe-ai/typesafe-eval
-    rev: v0.4.1
+    rev: v0.5.0
     hooks:
       - id: typesafe-eval
         args: ["--preset", "safety"]
@@ -361,7 +368,7 @@ jobs:
       - name: Install typesafe-eval
         run: pip install typesafe-eval
       - name: Run typesafe-eval Action
-        uses: typesafe-ai/typesafe-eval@v0.4.1
+        uses: typesafe-ai/typesafe-eval@v0.5.0
         with:
           api-key: ${{ secrets.TYPESAFE_API_KEY }}
           preset: 'safety'
