@@ -105,6 +105,7 @@ class BaselineDiff(BaseModel):
     questions: Dict[str, QuestionDiff] = Field(default_factory=dict)
 
 class DocumentEvalResult(BaseModel):
+    schema_version: str = "1.0"
     filepath: str
     filename: str
     preset_name: str

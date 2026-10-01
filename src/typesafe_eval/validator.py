@@ -224,6 +224,7 @@ class CriterionEvaluationResult(BaseModel):
 
 
 class ValidationReport(BaseModel):
+    schema_version: str = "1.0"
     preset_name: str
     runs: int
     all_passed: Optional[bool] = None

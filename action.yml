@@ -1,0 +1,51 @@
+name: 'TypeSafe Eval'
+description: 'Fast, typed document evaluation CLI powered by TypeSafe System One (Jev)'
+inputs:
+  api-key:
+    description: 'TypeSafe API key (falls back to TYPESAFE_API_KEY environment variable or secret)'
+    required: false
+    default: ''
+  preset:
+    description: 'Evaluation preset to run (default: safety)'
+    required: false
+    default: 'safety'
+  files:
+    description: 'Glob pattern or file paths to evaluate (default: **/*.md)'
+    required: false
+    default: '**/*.md'
+runs:
+  using: 'composite'
+  steps:
+    - name: Run typesafe-eval
+      shell: bash
+      env:
+        INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_PRESET: ${{ inputs.preset }}
+        INPUT_FILES: ${{ inputs.files }}
+      run: |
+        if [ -n "$INPUT_API_KEY" ]; then
+          export TYPESAFE_API_KEY="$INPUT_API_KEY"
+        fi
+
+        if command -v typesafe-eval >/dev/null 2>&1; then
+          CMD="typesafe-eval"
+        else
+          CMD="python3 -m typesafe_eval.cli"
+        fi
+
+        set +e
+        $CMD $INPUT_FILES --preset "$INPUT_PRESET"
+        EXIT_CODE=$?
+        set -e
+
+        if [ $EXIT_CODE -eq 0 ]; then
+          exit 0
+        elif [ $EXIT_CODE -eq 1 ]; then
+          echo "::error::typesafe-eval detected evaluation violations (exit code 1)."
+          exit 1
+        elif [ $EXIT_CODE -eq 3 ]; then
+          echo "::notice::typesafe-eval skipped execution due to missing secret or runtime unavailable (exit code 3)."
+          exit 0
+        else
+          exit $EXIT_CODE
+        fi
