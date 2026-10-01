@@ -398,6 +398,11 @@ A copy-pasteable repository guide is maintained in [`AGENTS.md`](AGENTS.md) for 
 3. **Near-threshold results are soft**: Borderline results (`near_threshold: true`, within ±0.10) are advisory and should be surfaced with probability ranges.
 4. **Never pass API key through the agent**: Read `TYPESAFE_API_KEY` from the environment; never request keys in chat or pass them in arguments.
 
+#### Antigravity Code Review Skill (`/boost`)
+- **Workspace Skill**: Located at [`.agents/skills/code-review/SKILL.md`](.agents/skills/code-review/SKILL.md) and automatically discovered by Google Antigravity CLI.
+- **Deep `/boost` Routine**: Guides autonomous agents to conduct multi-perspective reviews across 4 core pillars (Safety & Redaction, Contract & Streams, Evaluator Integrity & Rules, and Test Rigor).
+- **Checklist**: Accompanied by a repository-specific [Domain Review Checklist](.agents/skills/code-review/references/checklist.md).
+
 ---
 
 ## ⚙️ Custom YAML Configuration
