@@ -641,3 +641,193 @@ def test_criteria_questions_field_rejected_at_load_time(tmp_path):
 
     assert "criteria -> questions" in str(excinfo.value)
     assert "Extra inputs are not permitted" in str(excinfo.value)
+
+
+def test_is_unplaced_warning():
+    from typesafe_eval.validator import is_unplaced_warning
+
+    # Exact signature from client.py
+    w1 = (
+        "1 redacted item(s) ([SECRET_1]) were not found in any of 2 chunks "
+        "and were treated as present in every chunk; any candidate probabilities for them may be less reliable."
+    )
+    assert is_unplaced_warning(w1) is True
+
+    # Variations of unplaced warning
+    assert is_unplaced_warning("redacted items were not found in any of the chunks") is True
+    assert is_unplaced_warning("item [EMAIL_1] was not found in any chunk") is True
+
+    # Threshold warnings should NOT match
+    assert is_unplaced_warning("Clarity & Structure: score 0.40 is below minimum 0.60 (warning)") is False
+    assert is_unplaced_warning("Summary: probability 0.85 is above maximum 0.50 (warning)") is False
+    assert is_unplaced_warning("Baseline contains dry-run document") is False
+
+
+def test_validate_unplaced_warnings_unmasked_mode(tmp_path, monkeypatch):
+    """Issue #82: In --no-mask mode, unplaced warnings are reported on stderr, surfaced in table/json/markdown,
+    and threshold warnings from quality preset are not repeated.
+    """
+    doc = tmp_path / "large_raw.md"
+    doc.write_text("Long raw secret content here...", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: quality\n"
+        f"runs: 1\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{clarity: present}}\n",
+        encoding="utf-8",
+    )
+
+    unplaced_msg = (
+        "1 redacted item(s) ([SECRET_1]) were not found in any of 2 chunks "
+        "and were treated as present in every chunk; any candidate probabilities for them may be less reliable."
+    )
+    threshold_msg = "Clarity & Structure: score 0.40 is below minimum 0.60 (warning)"
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="quality",
+            nouls={"clarity": NoulResult(probability=0.8)},
+            passed_thresholds=True,
+            warnings=[threshold_msg, unplaced_msg],
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    # 1. Test CLI with table output (default)
+    res_table = runner.invoke(main, ["validate", str(labels_file), "--no-mask"])
+    assert res_table.exit_code == 0
+    # Output to stderr contains unplaced warning
+    assert "were not found in any of 2 chunks" in res_table.output
+    # Table surfaces Unplaced Warnings panel
+    assert "Unplaced Warnings" in res_table.output
+    # Threshold warning is NOT printed to stderr / unplaced panel
+    assert threshold_msg not in res_table.output
+
+    # 2. Test CLI with JSON output
+    res_json = runner.invoke(main, ["validate", str(labels_file), "--no-mask", "-f", "json"])
+    assert res_json.exit_code == 0
+    data = json.loads(res_json.stdout)
+    assert "unplaced_warnings" in data
+    assert len(data["unplaced_warnings"]) == 1
+    assert doc.name in data["unplaced_warnings"][0]
+    assert "were not found in any of 2 chunks" in data["unplaced_warnings"][0]
+    # Threshold warning not in unplaced_warnings
+    assert not any(threshold_msg in w for w in data["unplaced_warnings"])
+
+    # 3. Test CLI with Markdown output
+    res_md = runner.invoke(main, ["validate", str(labels_file), "--no-mask", "-f", "markdown"])
+    assert res_md.exit_code == 0
+    assert "## Unplaced Warnings" in res_md.output
+    assert doc.name in res_md.output
+    assert "were not found in any of 2 chunks" in res_md.output
+    assert threshold_msg not in res_md.output
+
+
+def test_validate_unplaced_warning_masked_mode_runtime_error(tmp_path, monkeypatch):
+    """Issue #82: In masked mode, an unplaced item can only come from a matching bug:
+    treated as runtime error with exit code 3 and explicit message.
+    """
+    doc = tmp_path / "masked_bug.md"
+    doc.write_text("Text with placeholder", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\n"
+        f"runs: 1\n"
+        f"documents:\n"
+        f"  - path: {doc.name}\n"
+        f"    expect: {{has_pii: present}}\n",
+        encoding="utf-8",
+    )
+
+    unplaced_msg = (
+        "1 redacted item(s) ([SECRET_1]) were not found in any of 2 chunks "
+        "and were treated as present in every chunk; any candidate probabilities for them may be less reliable."
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(*args, **kwargs):
+        return DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            nouls={"has_pii": NoulResult(probability=0.9)},
+            passed_thresholds=True,
+            warnings=[unplaced_msg],
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    # Masked mode is the default
+    result = runner.invoke(main, ["validate", str(labels_file)])
+    assert result.exit_code == 3
+    assert "Unplaced item in masked mode" in (result.stderr or result.output)
+    assert "were not found in any of 2 chunks" in (result.stderr or result.output)
+
+
+def test_validate_unplaced_warning_in_pairs(tmp_path, monkeypatch):
+    """Issue #82: Pair documents with unplaced warnings are properly tracked in unplaced_warnings."""
+    before = tmp_path / "before.md"
+    before.write_text("Before content", encoding="utf-8")
+    after = tmp_path / "after.md"
+    after.write_text("After content with unplaced item", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: quality\n"
+        f"runs: 1\n"
+        f"pairs:\n"
+        f"  - before: {before.name}\n"
+        f"    after: {after.name}\n"
+        f"    expect: {{clarity: neutral}}\n",
+        encoding="utf-8",
+    )
+
+    unplaced_msg = (
+        "1 redacted item(s) ([URL_1]) were not found in any of 2 chunks "
+        "and were treated as present in every chunk; any candidate probabilities for them may be less reliable."
+    )
+
+    from typesafe_eval.client import TypeSafeEvaluator
+
+    def mock_eval(self, filepath=None, *args, **kwargs):
+        p = Path(filepath)
+        warnings = [unplaced_msg] if p.name == after.name else []
+        return DocumentEvalResult(
+            filepath=str(p),
+            filename=p.name,
+            preset_name="quality",
+            scores={
+                "clarity": ScoreResult(
+                    score=0.8,
+                    max_score=1.0,
+                    normalized_score=0.8,
+                    confidence=0.9,
+                    probabilities={},
+                )
+            },
+            passed_thresholds=True,
+            warnings=warnings,
+        )
+
+    monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate", str(labels_file), "--no-mask", "-f", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data["unplaced_warnings"]) == 1
+    assert after.name in data["unplaced_warnings"][0]
+    assert "were not found in any of 2 chunks" in data["unplaced_warnings"][0]
+
+
