@@ -441,7 +441,7 @@ def validate_command(
 
 
 PRE_COMMIT_SNIPPET = """  - repo: https://github.com/s-0-a-r/typesafe-eval
-    rev: v0.5.1
+    rev: v0.6.0
     hooks:
       - id: typesafe-eval
         args: [--preset, safety]
@@ -465,7 +465,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run typesafe-eval safety gate
-        uses: s-0-a-r/typesafe-eval@v0.5.1
+        uses: s-0-a-r/typesafe-eval@v0.6.0
         with:
           preset: safety
         env:
