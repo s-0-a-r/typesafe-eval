@@ -90,6 +90,8 @@ def _find_preflight_question(preset: PresetConfig, target: str) -> Optional[str]
             return q_id
     if target == "credentials" and "has_secrets" in preset.questions:
         return "has_secrets"
+    if target == "pii" and "has_pii" in preset.questions:
+        return "has_pii"
     return None
 
 class TypeSafeEvaluator:
@@ -167,67 +169,7 @@ class TypeSafeEvaluator:
             if _item_in_text(p, sanitized_content) and not _item_in_text(p, content)
         )
 
-        # 2. Length check & chunking determination
-        is_long = len(content) > max_chars
-        has_nouls = any(q.type == "noul" for q in preset.questions.values())
-        has_scores_or_choices = any(q.type in ("score", "choice") for q in preset.questions.values())
-
-        if is_long:
-            if has_scores_or_choices and has_nouls:
-                chunks = chunk_text(content, max_chars=max_chars, overlap=2000)
-                content_truncated, _ = guard_document_length(content, max_chars=max_chars)
-                api_calls = 1 + len(chunks)
-                was_truncated = True
-            elif has_nouls:
-                chunks = chunk_text(content, max_chars=max_chars, overlap=2000)
-                content_truncated = content
-                api_calls = len(chunks)
-                was_truncated = False
-            else:
-                chunks = []
-                content_truncated, was_truncated = guard_document_length(content, max_chars=max_chars)
-                api_calls = 1
-        else:
-            chunks = [content]
-            content_truncated = content
-            api_calls = 1
-            was_truncated = False
-
-        # 3. Dry run bypass
-        if dry_run:
-            return self._build_mock_result(
-                filepath=filepath,
-                preset=preset,
-                was_truncated=was_truncated,
-                api_calls=api_calls,
-                redaction_count=redaction_count,
-                redaction_details=redaction_details,
-            )
-
-        # 4. Build SDK questions
-        sdk_score_choice_questions: Dict[str, Any] = {}
-        sdk_preset_noul_questions: Dict[str, Any] = {}
-        for q_id, q_cfg in preset.questions.items():
-            if q_cfg.type == "score":
-                sdk_score_choice_questions[q_id] = Score(
-                    instructions=q_cfg.instructions,
-                    criteria=q_cfg.criteria if q_cfg.criteria else ["Low", "Medium", "High"],
-                )
-            elif q_cfg.type == "noul":
-                sdk_preset_noul_questions[q_id] = Noul(
-                    instructions=q_cfg.instructions,
-                )
-            elif q_cfg.type == "choice":
-                # Ensure criteria is dict
-                criteria = q_cfg.criteria
-                if isinstance(criteria, list):
-                    criteria = {item: None for item in criteria}
-                sdk_score_choice_questions[q_id] = Choice(
-                    instructions=q_cfg.instructions,
-                    criteria=criteria,
-                )
-
-        # Dynamic per-candidate Noul questions
+        # 2. Build candidate specs (dynamic per-candidate Noul questions)
         candidate_specs: List[Tuple[str, str, Noul]] = []
 
         redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
@@ -249,19 +191,20 @@ class TypeSafeEvaluator:
 
         redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
         for feature in redacted_phones:
-            placeholder = feature["placeholder"]
-            num_suffix = placeholder.strip("[]").replace("PHONE_", "")
-            q_id = f"phone_pii_{num_suffix}"
-            candidate_specs.append((
-                placeholder,
-                q_id,
-                Noul(
-                    instructions=(
-                        f"Is {placeholder} a private or personal phone number of an individual (not a shared corporate switchboard, toll-free number, or customer support line)? "
-                        f"Use the surrounding text and state.redacted_phones."
-                    )
-                ),
-            ))
+            if not feature.get("is_support_prefix"):
+                placeholder = feature["placeholder"]
+                num_suffix = placeholder.strip("[]").replace("PHONE_", "")
+                q_id = f"phone_pii_{num_suffix}"
+                candidate_specs.append((
+                    placeholder,
+                    q_id,
+                    Noul(
+                        instructions=(
+                            f"Is {placeholder} a private or personal phone number of an individual (not a shared corporate switchboard, toll-free number, or customer support line)? "
+                            f"Use the surrounding text and state.redacted_phones."
+                        )
+                    ),
+                ))
 
         redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
         for feature in redacted_ips:
@@ -318,6 +261,67 @@ class TypeSafeEvaluator:
                         )
                     ),
                 ))
+
+        # 3. Length check & chunking determination
+        is_long = len(content) > max_chars
+        has_nouls = any(q.type == "noul" for q in preset.questions.values())
+        has_scores_or_choices = any(q.type in ("score", "choice") for q in preset.questions.values())
+        has_nouls_or_candidates = has_nouls or bool(candidate_specs)
+
+        if is_long:
+            if has_scores_or_choices and has_nouls_or_candidates:
+                chunks = chunk_text(content, max_chars=max_chars, overlap=2000)
+                content_truncated, _ = guard_document_length(content, max_chars=max_chars)
+                api_calls = 1 + len(chunks)
+                was_truncated = True
+            elif has_nouls_or_candidates:
+                chunks = chunk_text(content, max_chars=max_chars, overlap=2000)
+                content_truncated = content
+                api_calls = len(chunks)
+                was_truncated = False
+            else:
+                chunks = []
+                content_truncated, was_truncated = guard_document_length(content, max_chars=max_chars)
+                api_calls = 1
+        else:
+            chunks = [content]
+            content_truncated = content
+            api_calls = 1
+            was_truncated = False
+
+        # 4. Dry run bypass
+        if dry_run:
+            return self._build_mock_result(
+                filepath=filepath,
+                preset=preset,
+                was_truncated=was_truncated,
+                api_calls=api_calls,
+                redaction_count=redaction_count,
+                redaction_details=redaction_details,
+            )
+
+        # 5. Build SDK questions
+        sdk_score_choice_questions: Dict[str, Any] = {}
+        sdk_preset_noul_questions: Dict[str, Any] = {}
+        for q_id, q_cfg in preset.questions.items():
+            if q_cfg.type == "score":
+                sdk_score_choice_questions[q_id] = Score(
+                    instructions=q_cfg.instructions,
+                    criteria=q_cfg.criteria if q_cfg.criteria else ["Low", "Medium", "High"],
+                )
+            elif q_cfg.type == "noul":
+                sdk_preset_noul_questions[q_id] = Noul(
+                    instructions=q_cfg.instructions,
+                )
+            elif q_cfg.type == "choice":
+                # Ensure criteria is dict
+                criteria = q_cfg.criteria
+                if isinstance(criteria, list):
+                    criteria = {item: None for item in criteria}
+                sdk_score_choice_questions[q_id] = Choice(
+                    instructions=q_cfg.instructions,
+                    criteria=criteria,
+                )
 
         # 5. Call TypeSafe System One (Jev)
         client = self._get_client()
@@ -396,7 +400,7 @@ class TypeSafeEvaluator:
             is_cred_override = cred_count > 0 and cred_q_id
 
             pii_q_id = _find_preflight_question(preset, "pii")
-            pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+            pii_count = redaction_details.get("by_type", {}).get("email_free_mail", 0) if redaction_details else 0
             is_pii_override = pii_count > 0 and pii_q_id
 
             missing_questions = []
@@ -454,7 +458,7 @@ class TypeSafeEvaluator:
             is_cred_override = cred_count > 0 and cred_q_id
 
             pii_q_id = _find_preflight_question(preset, "pii")
-            pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+            pii_count = redaction_details.get("by_type", {}).get("email_free_mail", 0) if redaction_details else 0
             is_pii_override = pii_count > 0 and pii_q_id
 
             if has_scores_or_choices:
@@ -804,7 +808,7 @@ class TypeSafeEvaluator:
                 )
 
         pii_q_id = _find_preflight_question(preset, "pii")
-        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+        pii_count = redaction_details.get("by_type", {}).get("email_free_mail", 0) if redaction_details else 0
         if pii_count > 0 and pii_q_id:
             if pii_q_id in nouls:
                 nouls[pii_q_id].overridden_by = "preflight_scan"
@@ -918,12 +922,13 @@ class TypeSafeEvaluator:
             if q_cfg.type == "noul" and q_id in nouls and nouls[q_id].overridden_by == "preflight_scan":
                 passed = False
                 label = q_cfg.label or q_id
+                is_pii = (q_cfg.preflight == "pii" or q_id == "has_pii")
                 target_count = (
-                    redaction_details.get("pii_personal", 0)
-                    if q_cfg.preflight == "pii"
+                    redaction_details.get("by_type", {}).get("email_free_mail", 0)
+                    if is_pii
                     else redaction_details.get("credentials", 0)
                 ) if redaction_details else 0
-                item_name = "personal PII item(s)" if q_cfg.preflight == "pii" else "credential(s)"
+                item_name = "personal PII item(s)" if is_pii else "credential(s)"
                 model_str = f" (model: {val:.2f})" if val is not None else ""
                 violations.append(
                     f"{label}: {target_count} {item_name} detected by pre-flight scan{model_str}"
@@ -1262,7 +1267,7 @@ class TypeSafeEvaluator:
             nouls[cred_q_id].overridden_by = "preflight_scan"
 
         pii_q_id = _find_preflight_question(preset, "pii")
-        pii_count = redaction_details.get("pii_personal", 0) if redaction_details else 0
+        pii_count = redaction_details.get("by_type", {}).get("email_free_mail", 0) if redaction_details else 0
         if pii_count > 0 and pii_q_id and pii_q_id in nouls:
             nouls[pii_q_id].overridden_by = "preflight_scan"
 

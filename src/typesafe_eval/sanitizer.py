@@ -7,7 +7,7 @@ import urllib.parse
 from typing import Tuple, Dict, Any, Union, Literal, Optional, List, overload
 
 PLACEHOLDER_SUBSTRINGS = (
-    "your_", "example", "dummy", "xxxx", "replace_me", "insert_",
+    "your_", "example", "dummy", "xxxx", "replace_me", "insert_", "changeme",
 )
 
 AWS_EXAMPLE_KEYS = {"AKIAIOSFODNN7EXAMPLE", "AKIAEXAMPLEKEY123456"}
@@ -186,8 +186,9 @@ def extract_ip_features(ip_str: str) -> Dict[str, Any]:
 
 def extract_url_features(url_str: str, mask: bool = True) -> Dict[str, Any]:
     """Extracts domain classification features from a URL candidate."""
+    cleaned_url = url_str.rstrip(".,])>")
     try:
-        parsed = urllib.parse.urlparse(url_str if "://" in url_str else f"http://{url_str}")
+        parsed = urllib.parse.urlparse(cleaned_url if "://" in cleaned_url else f"http://{cleaned_url}")
         host = (parsed.hostname or "").lower()
     except Exception:
         host = ""
@@ -291,6 +292,7 @@ EXAMPLE_REPLACEMENTS = {
     "aws_key": "[EXAMPLE_AWS_KEY]",
     "bearer_token": "Bearer [EXAMPLE_TOKEN]",
     "private_key": "[EXAMPLE_PRIVATE_KEY]",
+    "slack_token": "[EXAMPLE_SLACK_TOKEN]",
 }
 
 KNOWN_CREDENTIAL_SPECS = [
@@ -301,10 +303,11 @@ KNOWN_CREDENTIAL_SPECS = [
     (re.compile(r"\bapikey_[0-9a-zA-Z_]{20,}\b", re.IGNORECASE), "[REDACTED_API_KEY]", "api_key"),
     (re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}(?![a-zA-Z0-9\-_\.=])", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "bearer_token"),
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]", "private_key"),
+    (re.compile(r"\bxox[baprs]-[0-9a-zA-Z-]{10,}\b"), "[REDACTED_SLACK_TOKEN]", "slack_token"),
 ]
 
 AMBIGUOUS_SECRET_PATTERN = re.compile(
-    r"\b(?P<key>db_password|password|passwd|pwd|api_key|apikey|auth_token|access_token|secret_key|secret|token)\s*[:=]\s*(?P<val>\"(?:[^\"]|\\.)*\"|'(?:[^']|\\.)*'|\$\{[^}]+\}|<[^>]+>|[^\s\n,;]+)",
+    r"""(?:\b|(?P<quote>["']))(?P<key>db_password|password|passwd|pwd|api_key|apikey|auth_token|access_token|secret_key|secret|token)(?(quote)(?P=quote)|\b)\s*(?P<delim>[:=])\s*(?P<val>"(?:[^"]|\\.)*"|'(?:[^']|\\.)*'|\$\{[^}]+\}|<[^>]+>|[^\s\n,;}]+)""",
     re.IGNORECASE,
 )
 
@@ -314,7 +317,7 @@ PHONE_PATTERN = re.compile(
     r"(?:(?<!\w)\+1[-.\s]\d{3}[-.\s]\d{3}[-.\s]\d{4}\b|\b1-800[-.\s]\d{3}[-.\s]\d{4}\b|\b0[1-9]\d{0,3}[-.\s]\d{1,4}[-.\s]\d{3,4}\b)"
 )
 
-URL_PATTERN = re.compile(r"\b(?:https?|ldap)://[^\s\"'<>)]+", re.IGNORECASE)
+URL_PATTERN = re.compile(r"\b(?:https?|ldap)://[^\s\"'<>)\]]+(?<![.,\]\)>])", re.IGNORECASE)
 
 IP_PATTERN = re.compile(r"(?:::1\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){1,7}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b)")
 
@@ -324,6 +327,7 @@ PATTERN_SPECS = [
     (re.compile(r"\bsk-[0-9a-zA-Z]{20,}\b", re.IGNORECASE), "[REDACTED_SECRET_KEY]", "credentials", "secret_key"),
     (re.compile(r"\bAKIA[0-9A-Z]{16,}\b"), "[REDACTED_AWS_KEY]", "credentials", "aws_key"),
     (re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}(?![a-zA-Z0-9\-_\.=])", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "credentials", "bearer_token"),
+    (re.compile(r"\bxox[baprs]-[0-9a-zA-Z-]{10,}\b"), "[REDACTED_SLACK_TOKEN]", "credentials", "slack_token"),
     (EMAIL_PATTERN, "[REDACTED_EMAIL]", "pii", "email"),
 ]
 
@@ -464,20 +468,24 @@ def mask_sensitive_data(
 
         # Delimiter between key and val
         matched_str = m.group(0)
-        delim = "=" if "=" in matched_str else ":"
+        delim = m.group("delim") if "delim" in m.groupdict() and m.group("delim") else ("=" if "=" in matched_str else ":")
+        quote = m.group("quote") if "quote" in m.groupdict() and m.group("quote") else ""
+        key_repr = f"{quote}{key_name}{quote}" if quote else key_name
+        sep = ": " if delim == ":" else "="
+        replacement_token = f"{key_repr}{sep}{placeholder}"
 
         if feat["placeholder_syntax"]:
             details["examples"] += 1
             details["by_type"]["example_secret"] = details["by_type"].get("example_secret", 0) + 1
             feat["outcome"] = "safe"
             feat["decided_by"] = "rule"
-            add_span(s, e, f"{key_name}{delim}{placeholder}")
+            add_span(s, e, replacement_token)
             raw_mapping.setdefault(placeholder, []).append(matched_str)
         else:
             total_redactions += 1
             details["by_type"]["ambiguous_secret"] = details["by_type"].get("ambiguous_secret", 0) + 1
             feat["decided_by"] = "model"
-            add_span(s, e, f"{key_name}{delim}{placeholder}")
+            add_span(s, e, replacement_token)
             raw_mapping.setdefault(placeholder, []).append(matched_str)
 
         distinct_secrets.append(feat)

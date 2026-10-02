@@ -1,7 +1,7 @@
 - id: typesafe-eval
   name: typesafe-eval
   description: Fast, typed document evaluation CLI powered by TypeSafe System One (Jev)
-  entry: typesafe-eval
+  entry: typesafe-eval-hook
   language: python
   types: [markdown]
   args: ["--preset", "safety"]

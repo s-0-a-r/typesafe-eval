@@ -11,14 +11,22 @@ from typesafe_eval.models import DocumentEvalResult, PresetConfig, NEAR_THRESHOL
 
 console = Console()
 
-def format_score_badge(val: float) -> str:
+def format_score_badge(val: float, invert: bool = False) -> str:
     pct = val * 100
-    if val >= 0.75:
-        return f"[bold green]{pct:.0f}%[/bold green]"
-    elif val >= 0.50:
-        return f"[bold yellow]{pct:.0f}%[/bold yellow]"
+    if invert:
+        if val <= 0.25:
+            return f"[bold green]{pct:.0f}%[/bold green]"
+        elif val <= 0.50:
+            return f"[bold yellow]{pct:.0f}%[/bold yellow]"
+        else:
+            return f"[bold red]{pct:.0f}%[/bold red]"
     else:
-        return f"[bold red]{pct:.0f}%[/bold red]"
+        if val >= 0.75:
+            return f"[bold green]{pct:.0f}%[/bold green]"
+        elif val >= 0.50:
+            return f"[bold yellow]{pct:.0f}%[/bold yellow]"
+        else:
+            return f"[bold red]{pct:.0f}%[/bold red]"
 
 def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> None:
     """Renders evaluation results as an interactive Rich terminal table."""
@@ -60,10 +68,11 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
 
         for q_id, q_cfg in preset.questions.items():
             diff_info = b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+            is_risk = q_cfg.max_threshold is not None
 
             if q_cfg.type == "score" and q_id in res.scores:
                 s_obj = res.scores[q_id]
-                badge = format_score_badge(s_obj.normalized_score)
+                badge = format_score_badge(s_obj.normalized_score, invert=is_risk)
                 near_marker = " [yellow]~[/yellow]" if s_obj.near_threshold else ""
                 cell_text = f"{badge}{near_marker}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f}[/dim]"
                 if diff_info:
@@ -73,7 +82,7 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 prob = res.nouls[q_id].probability
                 if prob is not None:
-                    badge = format_score_badge(prob)
+                    badge = format_score_badge(prob, invert=is_risk)
                     near_marker = " [yellow]~[/yellow]" if res.nouls[q_id].near_threshold else ""
                     cell_text = f"{badge}{near_marker}\n[dim]p(yes)[/dim]"
                     if diff_info:
