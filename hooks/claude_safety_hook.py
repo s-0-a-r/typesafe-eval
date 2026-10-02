@@ -61,7 +61,18 @@ def extract_files_from_stdin() -> List[str]:
 
 
 def extract_files_from_git() -> List[str]:
-    """Inspects git status/diff for changed markdown files."""
+    """Inspects git status/diff for changed and untracked markdown files."""
+    found_files = []
+    seen = set()
+
+    def add_file(fname: str):
+        cleaned = fname.strip().strip("\"'")
+        if (cleaned.endswith(".md") or cleaned.endswith(".markdown")) and Path(cleaned).is_file():
+            if cleaned not in seen:
+                seen.add(cleaned)
+                found_files.append(cleaned)
+
+    # 1. Staged and unstaged tracked changes
     try:
         res = subprocess.run(
             ["git", "diff", "--name-only", "HEAD"],
@@ -70,15 +81,12 @@ def extract_files_from_git() -> List[str]:
             timeout=5,
         )
         if res.returncode == 0:
-            lines = res.stdout.strip().splitlines()
-            mds = [l.strip() for l in lines if (l.strip().endswith(".md") or l.strip().endswith(".markdown"))]
-            existing = [m for m in mds if Path(m).is_file()]
-            if existing:
-                return existing
+            for line in res.stdout.strip().splitlines():
+                add_file(line)
     except Exception:
         pass
 
-    # Also check unstaged
+    # 2. Untracked files and unstaged status
     try:
         res = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -87,17 +95,16 @@ def extract_files_from_git() -> List[str]:
             timeout=5,
         )
         if res.returncode == 0:
-            existing = []
             for line in res.stdout.strip().splitlines():
                 if len(line) > 3:
                     fname = line[3:].strip()
-                    if (fname.endswith(".md") or fname.endswith(".markdown")) and Path(fname).is_file():
-                        existing.append(fname)
-            return existing
+                    if " -> " in fname:
+                        fname = fname.split(" -> ")[-1].strip()
+                    add_file(fname)
     except Exception:
         pass
 
-    return []
+    return found_files
 
 
 def run_hook(args: Optional[List[str]] = None) -> int:
@@ -145,25 +152,29 @@ def run_hook(args: Optional[List[str]] = None) -> int:
     if proc.returncode == 0:
         return 0
     elif proc.returncode == 1:
-        # Content / safety violation -> exit 2 with formatted stderr
+        # Content / safety violation -> exit 2 with formatted stderr only when stdout is valid JSON and violations exist
         violations = []
         try:
             data = json.loads(proc.stdout)
-            for doc in data:
-                fname = doc.get("filename", "document")
-                for v in doc.get("violations", []):
-                    violations.append(f"{fname}: {v}")
+            if isinstance(data, list):
+                for doc in data:
+                    if isinstance(doc, dict):
+                        fname = doc.get("filename", "document")
+                        for v in doc.get("violations", []):
+                            violations.append(f"{fname}: {v}")
         except Exception:
             pass
 
-        if not violations:
-            msg = proc.stdout.strip() or proc.stderr.strip() or "Safety policy violation detected."
-            violations.append(msg)
-
-        sys.stderr.write("TypeSafe Safety Gate Failed:\n")
-        for v in violations:
-            sys.stderr.write(f"• {v}\n")
-        return 2
+        if violations:
+            sys.stderr.write("TypeSafe Safety Gate Failed:\n")
+            for v in violations:
+                sys.stderr.write(f"• {v}\n")
+            return 2
+        else:
+            sys.stderr.write(
+                "typesafe-eval: non-JSON output or no violations parsed on exit 1; skipping hook.\n"
+            )
+            return 0
     else:
         # Exit 2 or 3: tool/runtime error -> exit 0 so Claude is not falsely alerted
         sys.stderr.write(

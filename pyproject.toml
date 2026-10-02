@@ -49,6 +49,7 @@ dev = [
 [project.scripts]
 typesafe-eval = "typesafe_eval.cli:main"
 jev-eval = "typesafe_eval.cli:main"
+typesafe-eval-hook = "typesafe_eval.hook:pre_commit_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/typesafe_eval"]

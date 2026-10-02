@@ -160,7 +160,7 @@ def test_pre_commit_hooks_yaml_structure():
     assert hook is not None, "Hook with id 'typesafe-eval' must be present"
     assert hook["name"] == "typesafe-eval"
     assert "TypeSafe System One" in hook["description"]
-    assert hook["entry"] == "typesafe-eval"
+    assert hook["entry"] in ("typesafe-eval-hook", "typesafe-eval")
     assert hook["language"] == "python"
     assert hook["types"] == ["markdown"]
     assert hook["args"] == ["--preset", "safety"]
