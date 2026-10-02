@@ -440,5 +440,115 @@ def validate_command(
         sys.exit(0)
 
 
+PRE_COMMIT_SNIPPET = """  - repo: https://github.com/s-0-a-r/typesafe-eval
+    rev: v0.5.1
+    hooks:
+      - id: typesafe-eval
+        args: [--preset, safety]
+"""
+
+GITHUB_ACTION_WORKFLOW = """name: TypeSafe Evaluation Gate
+
+on:
+  pull_request:
+    paths:
+      - '**.md'
+  push:
+    branches:
+      - main
+    paths:
+      - '**.md'
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run typesafe-eval safety gate
+        uses: s-0-a-r/typesafe-eval@v0.5.1
+        with:
+          preset: safety
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+"""
+
+CLAUDE_HOOK_CONFIG = """{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "command": "python3 hooks/claude_safety_hook.py"
+      }
+    ]
+  }
+}
+"""
+
+
+@main.command(name="init", context_settings=dict(help_option_names=["-h", "--help"]))
+@click.option("--pre-commit", "opt_pre_commit", is_flag=True, help="Configure .pre-commit-config.yaml hook.")
+@click.option("--claude-code", "opt_claude_code", is_flag=True, help="Configure Claude Code safety hook (hooks/hooks.json).")
+@click.option("--github-action", "opt_github_action", is_flag=True, help="Generate .github/workflows/typesafe-eval.yml.")
+@click.option("--all", "opt_all", is_flag=True, help="Set up all agent and CI integrations.")
+def init(
+    opt_pre_commit: bool,
+    opt_claude_code: bool,
+    opt_github_action: bool,
+    opt_all: bool,
+):
+    """Scaffolds agent integrations and CI workflows in the current repository."""
+    if opt_all or not (opt_pre_commit or opt_claude_code or opt_github_action):
+        opt_pre_commit = True
+        opt_claude_code = True
+        if opt_all:
+            opt_github_action = True
+
+    configured = []
+
+    # 1. Pre-commit
+    if opt_pre_commit:
+        pc_path = Path(".pre-commit-config.yaml")
+        if pc_path.exists():
+            content = pc_path.read_text(encoding="utf-8")
+            if "typesafe-eval" not in content:
+                if "repos:" in content:
+                    content = content.replace("repos:\n", f"repos:\n{PRE_COMMIT_SNIPPET}")
+                else:
+                    content += f"\nrepos:\n{PRE_COMMIT_SNIPPET}"
+                pc_path.write_text(content, encoding="utf-8")
+                configured.append(".pre-commit-config.yaml (updated)")
+            else:
+                configured.append(".pre-commit-config.yaml (already configured)")
+        else:
+            pc_path.write_text(f"repos:\n{PRE_COMMIT_SNIPPET}", encoding="utf-8")
+            configured.append(".pre-commit-config.yaml (created)")
+
+    # 2. Claude Code Hook
+    if opt_claude_code:
+        hooks_dir = Path("hooks")
+        hooks_dir.mkdir(exist_ok=True)
+        hh_path = hooks_dir / "hooks.json"
+        if not hh_path.exists():
+            hh_path.write_text(CLAUDE_HOOK_CONFIG, encoding="utf-8")
+            configured.append("hooks/hooks.json (created)")
+        else:
+            configured.append("hooks/hooks.json (already exists)")
+
+    # 3. GitHub Action Workflow
+    if opt_github_action:
+        wf_dir = Path(".github/workflows")
+        wf_dir.mkdir(parents=True, exist_ok=True)
+        wf_path = wf_dir / "typesafe-eval.yml"
+        if not wf_path.exists():
+            wf_path.write_text(GITHUB_ACTION_WORKFLOW, encoding="utf-8")
+            configured.append(".github/workflows/typesafe-eval.yml (created)")
+        else:
+            configured.append(".github/workflows/typesafe-eval.yml (already exists)")
+
+    for item in configured:
+        click.echo(f"✓ {item}")
+    sys.exit(0)
+
+
 if __name__ == "__main__":
     main()
