@@ -94,9 +94,16 @@ def _find_preflight_question(preset: PresetConfig, target: str) -> Optional[str]
         return "has_pii"
     return None
 
+DEFAULT_CANDIDATE_BATCH_SIZE = 15
+
 class TypeSafeEvaluator:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        max_candidate_batch_size: int = DEFAULT_CANDIDATE_BATCH_SIZE,
+    ):
         self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
+        self.max_candidate_batch_size = max(1, max_candidate_batch_size)
         self._client: Optional[TypeSafeClient] = None
 
     def _get_client(self) -> TypeSafeClient:
@@ -384,11 +391,18 @@ class TypeSafeEvaluator:
             return st
 
         if not is_long:
-            all_questions = {**sdk_score_choice_questions, **sdk_preset_noul_questions}
-            for _, q_id, q_obj in candidate_specs:
-                all_questions[q_id] = q_obj
             st = _make_state(content, is_full=True)
-            response = _call_system_one_with_retry(client, state=st, questions=all_questions)
+            batch_size = self.max_candidate_batch_size
+            candidate_batches = [
+                candidate_specs[i : i + batch_size]
+                for i in range(0, len(candidate_specs), batch_size)
+            ] or [[]]
+
+            first_questions = {**sdk_score_choice_questions, **sdk_preset_noul_questions}
+            for _, q_id, q_obj in candidate_batches[0]:
+                first_questions[q_id] = q_obj
+
+            response = _call_system_one_with_retry(client, state=st, questions=first_questions)
             if response.usage:
                 total_input_tokens += response.usage.input_tokens
                 total_output_tokens += response.usage.output_tokens
@@ -443,11 +457,24 @@ class TypeSafeEvaluator:
                     else:
                         missing_questions.append(q_id)
 
-            for _, q_id, _ in candidate_specs:
+            for _, q_id, _ in candidate_batches[0]:
                 if q_id in response.nouls:
                     candidate_prob_map[q_id] = [response.nouls[q_id].noul]
                 else:
                     missing_questions.append(q_id)
+
+            # Evaluate any remaining candidate batches
+            for sub_batch in candidate_batches[1:]:
+                sub_questions = {q_id: q_obj for _, q_id, q_obj in sub_batch}
+                sub_resp = _call_system_one_with_retry(client, state=st, questions=sub_questions)
+                if sub_resp.usage:
+                    total_input_tokens += sub_resp.usage.input_tokens
+                    total_output_tokens += sub_resp.usage.output_tokens
+                for _, q_id, _ in sub_batch:
+                    if q_id in sub_resp.nouls:
+                        candidate_prob_map[q_id] = [sub_resp.nouls[q_id].noul]
+                    else:
+                        missing_questions.append(q_id)
 
             if missing_questions:
                 q_names = ", ".join(f"'{q}'" for q in missing_questions)
@@ -512,10 +539,21 @@ class TypeSafeEvaluator:
                 n_chunks = len(chunks)
                 for chunk_idx, chunk_text_part in enumerate(chunks, start=1):
                     chunk_st = _make_state(chunk_text_part, is_full=False)
+                    chunk_candidates = [
+                        (placeholder, q_id, q_obj)
+                        for placeholder, q_id, q_obj in candidate_specs
+                        if _in_chunk(placeholder, chunk_text_part)
+                    ]
+                    batch_size = self.max_candidate_batch_size
+                    chunk_batches = [
+                        chunk_candidates[i : i + batch_size]
+                        for i in range(0, len(chunk_candidates), batch_size)
+                    ] or [[]]
+
                     chunk_questions = dict(sdk_preset_noul_questions)
-                    for placeholder, q_id, q_obj in candidate_specs:
-                        if _in_chunk(placeholder, chunk_text_part):
-                            chunk_questions[q_id] = q_obj
+                    for _, q_id, q_obj in chunk_batches[0]:
+                        chunk_questions[q_id] = q_obj
+
                     if chunk_questions:
                         resp_chk = _call_system_one_with_retry(client, state=chunk_st, questions=chunk_questions)
                         if resp_chk.usage:
@@ -540,9 +578,28 @@ class TypeSafeEvaluator:
                         for q_id in sdk_preset_noul_questions:
                             if q_id in resp_chk.nouls:
                                 preset_noul_probs[q_id].append(resp_chk.nouls[q_id].noul)
-                        for _, q_id, _ in candidate_specs:
+                        for _, q_id, _ in chunk_batches[0]:
                             if q_id in resp_chk.nouls:
                                 candidate_prob_map.setdefault(q_id, []).append(resp_chk.nouls[q_id].noul)
+
+                    # Subsequent candidate batches in this chunk
+                    for sub_batch in chunk_batches[1:]:
+                        sub_questions = {q_id: q_obj for _, q_id, q_obj in sub_batch}
+                        sub_resp = _call_system_one_with_retry(client, state=chunk_st, questions=sub_questions)
+                        if sub_resp.usage:
+                            total_input_tokens += sub_resp.usage.input_tokens
+                            total_output_tokens += sub_resp.usage.output_tokens
+                        missing_sub = []
+                        for _, q_id, _ in sub_batch:
+                            if q_id in sub_resp.nouls:
+                                candidate_prob_map.setdefault(q_id, []).append(sub_resp.nouls[q_id].noul)
+                            else:
+                                missing_sub.append(q_id)
+                        if missing_sub:
+                            q_names = ", ".join(f"'{q}'" for q in missing_sub)
+                            raise RuntimeError(
+                                f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
+                            )
 
                 never_asked = [q_id for _, q_id, _ in candidate_specs if q_id not in candidate_prob_map]
                 if never_asked:

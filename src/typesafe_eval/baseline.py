@@ -83,14 +83,28 @@ def compare_document_with_baseline(
     
     Returns (updated_result, has_regression, optional_truncation_warning).
     """
-    # Match candidate by filepath or resolved path only
-    match_key = None
+    # 1. Direct match by exact filepath or resolved absolute path
     prev = None
     for key in (result.filepath, str(Path(result.filepath).resolve())):
         if key in baseline_lookup:
             prev = baseline_lookup[key]
-            match_key = key
             break
+
+    # 2. Portable cross-environment relative / suffix matching (e.g. CI runner absolute path vs local run)
+    if prev is None:
+        norm_target = Path(result.filepath).as_posix().lstrip("./")
+        seen_ids = set()
+        candidates = []
+        for doc in baseline_lookup.values():
+            if id(doc) not in seen_ids:
+                seen_ids.add(id(doc))
+                doc_norm = Path(doc.filepath).as_posix().lstrip("./")
+                if doc_norm == norm_target:
+                    candidates.append(doc)
+                elif doc_norm.endswith("/" + norm_target) or norm_target.endswith("/" + doc_norm):
+                    candidates.append(doc)
+        if len(candidates) == 1:
+            prev = candidates[0]
 
     if prev is None:
         result.baseline_diff = BaselineDiff(status="new")

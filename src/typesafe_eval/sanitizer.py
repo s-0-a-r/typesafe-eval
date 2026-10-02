@@ -34,7 +34,7 @@ FREE_OR_PERSONAL_DOMAINS = {
     "aol.com", "proton.me", "protonmail.com", "zoho.com", "mail.com", "gmx.com",
 }
 
-PHONE_SUPPORT_PREFIXES = ("0120", "0800", "0570", "1-800", "800")
+PHONE_SUPPORT_PREFIXES = ("0120", "0800", "0570", "1-800", "800", "+800", "+1-800", "+1 800")
 PHONE_SUPPORT_KEYWORDS = {
     "support", "representative", "switchboard", "helpdesk", "toll-free", "toll free",
     "customer", "care", "service", "corporate desk", "desk", "inquiries",
@@ -314,24 +314,13 @@ AMBIGUOUS_SECRET_PATTERN = re.compile(
 EMAIL_PATTERN = re.compile(r"\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b")
 
 PHONE_PATTERN = re.compile(
-    r"(?:(?<!\w)\+1[-.\s]\d{3}[-.\s]\d{3}[-.\s]\d{4}\b|\b1-800[-.\s]\d{3}[-.\s]\d{4}\b|\b0[1-9]\d{0,3}[-.\s]\d{1,4}[-.\s]\d{3,4}\b)"
+    r"(?:(?<!\w)\+[1-9]\d{0,2}[-.\s]?(?:\d[-.\s]?){6,12}\d\b|\b1-800[-.\s]\d{3}[-.\s]\d{4}\b|\b0[1-9]\d{0,3}[-.\s]\d{1,4}[-.\s]\d{3,4}\b)"
 )
 
 URL_PATTERN = re.compile(r"\b(?:https?|ldap)://[^\s\"'<>)\]]+(?<![.,\]\)>])", re.IGNORECASE)
 
 IP_PATTERN = re.compile(r"(?:::1\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){1,7}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b)")
 
-PATTERN_SPECS = [
-    (re.compile(r"\bapikey_[0-9a-zA-Z_]{20,}\b", re.IGNORECASE), "[REDACTED_API_KEY]", "credentials", "api_key"),
-    (re.compile(r"\bgh[pousr]_[0-9a-zA-Z]{36}\b", re.IGNORECASE), "[REDACTED_GH_TOKEN]", "credentials", "github_token"),
-    (re.compile(r"\bsk-[0-9a-zA-Z]{20,}\b", re.IGNORECASE), "[REDACTED_SECRET_KEY]", "credentials", "secret_key"),
-    (re.compile(r"\bAKIA[0-9A-Z]{16,}\b"), "[REDACTED_AWS_KEY]", "credentials", "aws_key"),
-    (re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}(?![a-zA-Z0-9\-_\.=])", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "credentials", "bearer_token"),
-    (re.compile(r"\bxox[baprs]-[0-9a-zA-Z-]{10,}\b"), "[REDACTED_SLACK_TOKEN]", "credentials", "slack_token"),
-    (EMAIL_PATTERN, "[REDACTED_EMAIL]", "pii", "email"),
-]
-
-SECRET_PATTERNS = [(pattern, replacement) for pattern, replacement, _, _ in PATTERN_SPECS]
 
 
 @overload
