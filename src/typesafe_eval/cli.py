@@ -149,16 +149,19 @@ def eval_command(
     # 1. Resolve matched files
     resolved_paths: List[Path] = []
     for pattern in files:
-        matches = glob.glob(pattern, recursive=True)
-        if matches:
+        if not glob.has_magic(pattern):
+            p = Path(pattern)
+            if not p.is_file():
+                err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
+                sys.exit(2)
+            if p not in resolved_paths:
+                resolved_paths.append(p)
+        else:
+            matches = glob.glob(pattern, recursive=True)
             for m in matches:
                 p = Path(m)
                 if p.is_file() and p not in resolved_paths:
                     resolved_paths.append(p)
-        else:
-            p = Path(pattern)
-            if p.is_file() and p not in resolved_paths:
-                resolved_paths.append(p)
 
     if not resolved_paths:
         err_console.print(f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}")

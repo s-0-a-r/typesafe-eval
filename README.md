@@ -343,8 +343,8 @@ Integrate `typesafe-eval` into your local git workflow via `.pre-commit-config.y
 
 ```yaml
 repos:
-  - repo: https://github.com/typesafe-ai/typesafe-eval
-    rev: v0.5.0
+  - repo: https://github.com/s-0-a-r/typesafe-eval
+    rev: v0.5.1
     hooks:
       - id: typesafe-eval
         args: ["--preset", "safety"]
@@ -368,7 +368,7 @@ jobs:
       - name: Install typesafe-eval
         run: pip install typesafe-eval
       - name: Run typesafe-eval Action
-        uses: typesafe-ai/typesafe-eval@v0.5.0
+        uses: s-0-a-r/typesafe-eval@v0.5.1
         with:
           api-key: ${{ secrets.TYPESAFE_API_KEY }}
           preset: 'safety'

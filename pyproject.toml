@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "typesafe-eval"
-version = "0.5.0"
+version = "0.5.1"
 description = "Fast, typed multi-dimensional document evaluation CLI powered by TypeSafe System One (Jev)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,6 +49,7 @@ dev = [
 [project.scripts]
 typesafe-eval = "typesafe_eval.cli:main"
 jev-eval = "typesafe_eval.cli:main"
+typesafe-eval-hook = "typesafe_eval.hook:pre_commit_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/typesafe_eval"]
