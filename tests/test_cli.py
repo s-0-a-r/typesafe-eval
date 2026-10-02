@@ -1,11 +1,13 @@
 from click.testing import CliRunner
 from typesafe_eval.cli import main
 
+from typesafe_eval import __version__
+
 def test_cli_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.5.1" in result.output
+    assert __version__ in result.output
 
 def test_cli_list_presets():
     runner = CliRunner()
