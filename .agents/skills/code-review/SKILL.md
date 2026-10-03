@@ -11,9 +11,9 @@ Reviewers must use the **/boost** mindset—engaging deep investigation, multi-p
 
 ---
 
-## The 4 Review Pillars
+## The 5 Review Pillars
 
-Every review must inspect changes against these four non-negotiable architectural pillars:
+Every review must inspect changes against these five non-negotiable architectural pillars:
 
 ```mermaid
 flowchart TD
@@ -22,6 +22,7 @@ flowchart TD
     Review --> P2["2. Contract & Output Streams<br/>(Exit 0/1/2/3, stdout JSON purity, schema_version)"]
     Review --> P3["3. Evaluator & Guidance<br/>(The 4 Mandatory Rules, No Goodhart gaming)"]
     Review --> P4["4. Test & Implementation<br/>(100% pytest pass, mock/real parity, boundary overlap)"]
+    Review --> P5["5. Real CLI Acceptance<br/>(Subprocess execution, 14-item AC matrix pass)"]
 ```
 
 ### Pillar 1: Safety & Sensitive Data Redaction
@@ -52,6 +53,16 @@ flowchart TD
 - **Mock vs. Real Parity**: Ensure `_build_mock_result` mirrors live evaluation logic (including regexes and placeholder parsing).
 - **Type Annotations**: Python code must have strict typing compatible with Python 3.10–3.14.
 
+### Pillar 5: Real CLI Acceptance Verification
+- **Subprocess AC Execution**: In addition to unit tests, reviewers MUST execute the real CLI acceptance suite via subprocess:
+  ```bash
+  python scripts/verify_ac.py
+  # or
+  .venv/bin/pytest -v -m acceptance
+  ```
+- **Zero Regression**: All acceptance criteria (14 items) must report **PASS**. Unit test mocks alone cannot satisfy review approval.
+- **Matrix Inclusion**: The generated AC verification matrix must be attached to the review report.
+
 ---
 
 ## Step-by-Step Review Procedure
@@ -76,12 +87,18 @@ Engage the `/boost` review routine by scrutinizing the changes across the four p
   - *What happens if an HTML comment has unclosed tags or nested brackets?*
   - *Does any new exception bypass the exit code contract?*
 
-### Step 3: Run Automated Verification
-Execute the test suite and verify linting:
-```bash
-.venv/bin/pytest -v
-```
-Check that test execution is fast (< 3s) and no warnings or unhandled exceptions are emitted.
+### Step 3: Run Automated Verification & Real CLI Acceptance
+1. Execute the full pytest suite:
+   ```bash
+   .venv/bin/pytest -v
+   ```
+2. Execute the autonomous real CLI acceptance suite:
+   ```bash
+   python scripts/verify_ac.py
+   # or
+   .venv/bin/pytest -v -m acceptance
+   ```
+Check that test execution is fast (< 4s), 100% of the 14 AC items pass, and no unhandled exceptions are emitted.
 
 ### Step 4: Construct the Review Report
 Synthesize your findings into a clear, actionable review report following this format:
@@ -94,10 +111,15 @@ Synthesize your findings into a clear, actionable review report following this f
 - **Pillar 2 (Contract & Output Streams)**: [PASS / FAIL] — Explanation
 - **Pillar 3 (Evaluator & Guidance Rules)**: [PASS / FAIL] — Explanation
 - **Pillar 4 (Test Coverage & Parity)**: [PASS / FAIL] — Explanation
+- **Pillar 5 (Real CLI Acceptance Verification)**: [PASS / FAIL] — 14/14 AC items verified via subprocess
 
-#### 2. Detailed Findings
+#### 2. Acceptance Criteria (AC) Verification Matrix
+<!-- Paste output of python scripts/verify_ac.py here -->
+
+#### 3. Detailed Findings
 - `[BLOCKER|WARNING|SUGGESTION]` **<file_path>:<line_number>**: Description of the issue, risk, and concrete recommendation.
 
-#### 3. Verdict
+#### 4. Verdict
 VERDICT: APPROVED | CHANGES_REQUESTED
 ```
+

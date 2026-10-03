@@ -56,3 +56,6 @@ packages = ["src/typesafe_eval"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "acceptance: End-to-end real CLI process acceptance tests",
+]
