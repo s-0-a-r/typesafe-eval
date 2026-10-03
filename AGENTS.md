@@ -121,9 +121,30 @@ All autonomous agents must abide by the following 4 rules:
 
 For Google Antigravity CLI agents reviewing code changes, diffs, or pull requests in this repository, an automated workspace review skill is provided at `.agents/skills/code-review/`.
 
-When conducting code reviews, agents should invoke the **`/boost`** review routine to evaluate changes across the 4 core pillars:
+When conducting code reviews, agents should invoke the **`/boost`** review routine to evaluate changes across the 5 core pillars:
 1. **Safety & Redaction**: Zero raw secret/email leaks, Exit 1-over-3 precedence, and pre-strip comment detection.
 2. **Contract & Stream**: Exit codes 0/1/2/3, stdout JSON purity for `jq`, and `schema_version: "1.0"`.
 3. **Evaluator Integrity**: The 4 mandatory guidance rules, Goodhart's law defense, chunking & unplaced items.
 4. **Test & Implementation**: 100% pytest pass rate, mock/real parity, and strict typing.
+5. **Real CLI Acceptance Verification**: End-to-end OS subprocess execution against acceptance criteria matrix.
+
+---
+
+## 7. Mandatory Autonomous AC Verification
+
+All autonomous agents (and developers) operating in this repository **must verify actual Acceptance Criteria (AC)** before finalizing feature implementations, opening pull requests, or initiating release workflows.
+
+### Autonomous Verification Contract
+- **Unit Tests Alone Are Insufficient**: Mock-only tests (e.g. `CliRunner` with monkeypatch) do not satisfy acceptance. Real CLI entrypoints (`typesafe-eval`, `typesafe-eval-hook`, `hooks/claude_safety_hook.py`) must be executed as OS subprocesses.
+- **Verification Command**:
+  ```bash
+  # Standalone markdown/JSON acceptance matrix runner
+  python scripts/verify_ac.py
+
+  # Or pytest acceptance marker
+  pytest -v -m acceptance
+  ```
+- **PR Inclusion**: Agents must execute `python scripts/verify_ac.py` and attach the generated Acceptance Criteria Verification Matrix table into the PR description.
+- **Zero Regression Rule**: 100% of acceptance criteria (all 14 items) must report `**PASS**`. Any failure blocks review approval and release.
+
 
