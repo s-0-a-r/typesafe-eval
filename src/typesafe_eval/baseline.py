@@ -94,17 +94,25 @@ def compare_document_with_baseline(
     if prev is None:
         norm_target = Path(result.filepath).as_posix().lstrip("./")
         seen_ids = set()
-        candidates = []
+        norm_docs = []
         for doc in baseline_lookup.values():
             if id(doc) not in seen_ids:
                 seen_ids.add(id(doc))
-                doc_norm = Path(doc.filepath).as_posix().lstrip("./")
-                if doc_norm == norm_target:
-                    candidates.append(doc)
-                elif doc_norm.endswith("/" + norm_target) or norm_target.endswith("/" + doc_norm):
-                    candidates.append(doc)
-        if len(candidates) == 1:
-            prev = candidates[0]
+                norm_docs.append((doc, Path(doc.filepath).as_posix().lstrip("./")))
+
+        # 2a. Prioritize exact normalized match
+        exact_matches = [doc for doc, doc_norm in norm_docs if doc_norm == norm_target]
+        if len(exact_matches) == 1:
+            prev = exact_matches[0]
+        elif not exact_matches:
+            # 2b. Fallback to suffix matching
+            suffix_matches = [
+                doc
+                for doc, doc_norm in norm_docs
+                if doc_norm.endswith("/" + norm_target) or norm_target.endswith("/" + doc_norm)
+            ]
+            if len(suffix_matches) == 1:
+                prev = suffix_matches[0]
 
     if prev is None:
         result.baseline_diff = BaselineDiff(status="new")
