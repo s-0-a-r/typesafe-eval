@@ -21,6 +21,15 @@ typesafe-eval rfc/*.md --preset tech-spec
 # Structured JSON output for agent consumption
 typesafe-eval docs/*.md --preset quality -f json
 
+# Evaluate only git staged files (pre-commit gating)
+typesafe-eval --staged
+
+# Evaluate files modified since branch/commit
+typesafe-eval --since origin/main
+
+# Parallel document evaluation (concurrency)
+typesafe-eval docs/*.md -j 8
+
 # Dry-run validation (does not require external API call)
 typesafe-eval docs/*.md --dry-run
 ```

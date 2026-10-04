@@ -21,6 +21,12 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
 
+### 🚀 What's New in v0.8.0
+- **Configuration Auto-Discovery**: Automatically traverses upward to locate `.typesafe-eval.yaml`, `.typesafe-eval.yml`, or `pyproject.toml` (`[tool.typesafe-eval]`), enabling repository-wide defaults without mandatory `--preset` flags. Supports preset extension and field overrides.
+- **Parallel Document Concurrency (`-j` / `--concurrency`)**: Accelerated evaluation using thread pools, executing API calls concurrently while preserving strict input document ordering in reports.
+- **Git Diff Evaluation (`--staged` / `--since`)**: Zero-noise gating for pre-commit hooks and CI pull request workflows by evaluating only modified or staged markdown documents.
+- **Advisory Thresholds & JSON Schema Export**: Soft gate checks via `advisory: true` questions and automated schema generation via `typesafe-eval schema`.
+
 ### 🚀 What's New in v0.5.0
 - **Agent-Agnostic JSON Contract**: Stable JSON output contract (`schema_version: "1.0"`) across both `eval` and `validate` commands, with pure `stdout` JSON streams for piping to `jq`. Includes `.pre-commit-hooks.yaml` and a composite GitHub Action (`action.yml`) with exit code 3 skip handling for fork/hosted runners.
 - **Claude Code Integration Plugin**: Skill definition at [`skills/typesafe-eval/SKILL.md`](skills/typesafe-eval/SKILL.md) and `PostToolUse` safety hook at [`hooks/hooks.json`](hooks/hooks.json) backed by [`hooks/claude_safety_hook.py`](hooks/claude_safety_hook.py), mapping content violations (exit 1) to blocking hook exit 2 while skipping on missing API keys.
