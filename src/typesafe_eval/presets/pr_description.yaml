@@ -7,6 +7,7 @@ questions:
     label: "Summary"
     instructions: "Does this PR description explain what changes are made and the reason or problem they solve? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   testing:
     type: noul
@@ -19,15 +20,18 @@ questions:
     label: "Impact"
     instructions: "Does this PR description describe the impact, affected components, or potential operational risks of the changes? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   breaking_changes:
     type: noul
     label: "Breaking changes"
     instructions: "Does this PR description explicitly mention whether there are breaking changes, migrations, or backwards-incompatible behavior? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   related_issues:
     type: noul
     label: "Related issues"
     instructions: "Does this PR description reference or link related issues, tickets, design docs, or discussions? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
