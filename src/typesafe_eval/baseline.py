@@ -169,13 +169,18 @@ def compare_document_with_baseline(
                     regressed=regressed,
                 )
 
+                is_advisory = bool(q_cfg and q_cfg.advisory)
                 if regressed:
-                    has_regression = True
-                    result.passed_thresholds = False
-                    result.violations.append(
+                    msg = (
                         f"Baseline risk rise: '{q_id}' rose by {rise:.2f} "
                         f"(prev: {prev_val:.2f}, curr: {curr_val:.2f}, max allowed rise: {threshold:.2f})"
                     )
+                    if is_advisory:
+                        result.warnings.append(f"{msg} (warning)")
+                    else:
+                        has_regression = True
+                        result.passed_thresholds = False
+                        result.violations.append(msg)
             else:
                 # For standard/min_threshold questions (e.g. clarity, completeness):
                 # A drop in score is a regression
@@ -190,13 +195,18 @@ def compare_document_with_baseline(
                     regressed=regressed,
                 )
 
+                is_advisory = bool(q_cfg and q_cfg.advisory)
                 if regressed:
-                    has_regression = True
-                    result.passed_thresholds = False
-                    result.violations.append(
+                    msg = (
                         f"Baseline drop: '{q_id}' dropped by {drop:.2f} "
                         f"(prev: {prev_val:.2f}, curr: {curr_val:.2f}, max allowed drop: {threshold:.2f})"
                     )
+                    if is_advisory:
+                        result.warnings.append(f"{msg} (warning)")
+                    else:
+                        has_regression = True
+                        result.passed_thresholds = False
+                        result.violations.append(msg)
 
     result.baseline_diff = BaselineDiff(
         status="compared",

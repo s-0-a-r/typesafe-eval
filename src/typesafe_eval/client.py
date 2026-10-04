@@ -1063,13 +1063,14 @@ class TypeSafeEvaluator:
             elif q_cfg.type == "noul" and q_id in nouls:
                 nouls[q_id].near_threshold = is_near
 
+            is_advisory = is_warning_only or bool(q_cfg.advisory)
+
             # Pre-flight scan override violation check
             if (
                 q_cfg.type == "noul"
                 and q_id in nouls
                 and nouls[q_id].overridden_by == "preflight_scan"
             ):
-                passed = False
                 label = q_cfg.label or q_id
                 is_pii = q_cfg.preflight == "pii" or q_id == "has_pii"
                 target_count = (
@@ -1083,14 +1084,17 @@ class TypeSafeEvaluator:
                 )
                 item_name = "personal PII item(s)" if is_pii else "credential(s)"
                 model_str = f" (model: {val:.2f})" if val is not None else ""
-                violations.append(
-                    f"{label}: {target_count} {item_name} detected by pre-flight scan{model_str}"
-                )
+                msg = f"{label}: {target_count} {item_name} detected by pre-flight scan{model_str}"
+                if is_advisory:
+                    warnings.append(f"{msg} (warning)")
+                else:
+                    passed = False
+                    violations.append(msg)
             elif val is not None:
                 # Threshold verification
                 if q_cfg.min_threshold is not None and val < q_cfg.min_threshold:
                     label = q_cfg.label or q_id
-                    if is_warning_only:
+                    if is_advisory:
                         warnings.append(
                             f"{label}: score {val:.2f} is below minimum {q_cfg.min_threshold:.2f} (warning)"
                         )
@@ -1101,7 +1105,7 @@ class TypeSafeEvaluator:
                         )
                 if q_cfg.max_threshold is not None and val > q_cfg.max_threshold:
                     label = q_cfg.label or q_id
-                    if is_warning_only:
+                    if is_advisory:
                         warnings.append(
                             f"{label}: risk {val:.2f} exceeds maximum {q_cfg.max_threshold:.2f} (warning)"
                         )

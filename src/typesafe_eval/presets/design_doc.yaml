@@ -13,6 +13,7 @@ questions:
     label: "Non-goals"
     instructions: "Does this document explicitly list what is out of scope or intentionally not addressed (non-goals)? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   alternatives:
     type: noul
@@ -25,6 +26,7 @@ questions:
     label: "Risks"
     instructions: "Does this document identify risks or failure modes of the proposed change, with mitigations? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   rollback:
     type: noul
@@ -37,18 +39,21 @@ questions:
     label: "Success metrics"
     instructions: "Does this document define how success will be measured (metrics, targets, or acceptance criteria)? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   migration:
     type: noul
     label: "Migration"
     instructions: "Does this document describe the rollout or migration steps from the current system to the new one? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   impact:
     type: noul
     label: "Impact"
     instructions: "Does this document list the other systems, teams, or users affected by the change? Answer yes only if the document states what the question asks outright, in a section, paragraph or line of its own, or in a sentence that says it. Do not answer yes because it could be inferred from text that is about something else."
     min_threshold: 0.5
+    advisory: true
 
   open_questions:
     type: noul
