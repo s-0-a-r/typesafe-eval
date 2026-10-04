@@ -41,6 +41,9 @@ def test_public_api_symbols_exported() -> None:
     assert hasattr(typesafe_eval, "RuntimeEvalError")
     assert hasattr(typesafe_eval, "ContentViolationError")
     assert hasattr(typesafe_eval, "TypeSafeEvaluator")
+    assert hasattr(typesafe_eval, "ScoreResult")
+    assert hasattr(typesafe_eval, "NoulResult")
+    assert hasattr(typesafe_eval, "ChoiceResult")
     assert hasattr(typesafe_eval, "__version__")
 
 
@@ -134,6 +137,7 @@ def test_evaluate_document_dry_run(tmp_path: Path) -> None:
 
     assert isinstance(res, DocumentEvalResult)
     assert res.filename == "spec.md"
+    assert res.filepath == str(doc_file)
     assert res.mock is True
 
 
@@ -157,6 +161,8 @@ def test_evaluate_raise_on_violation() -> None:
         assert "Readability score 0.40" in err.violations[0]
         assert err.result is not None
         assert err.result.passed_thresholds is False
+        assert len(err.results) == 1
+        assert err.results[0] is err.result
 
         # When raise_on_violation=False (default), returns the result without raising
         res = evaluate(content, preset="quality", api_key="dummy_key", raise_on_violation=False)
@@ -187,6 +193,7 @@ def test_evaluate_documents_raise_on_violation(tmp_path: Path) -> None:
 
         assert len(exc_info.value.violations) > 0
         assert "PII exposure detected" in exc_info.value.violations[0]
+        assert len(exc_info.value.results) == 2  # mocked return_value is returned for both docs
 
 
 def test_evaluate_documents_concurrency(tmp_path: Path) -> None:

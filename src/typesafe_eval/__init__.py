@@ -12,9 +12,12 @@ from typesafe_eval.exceptions import (
 from typesafe_eval.models import (
     CANDIDATE_DECISION_THRESHOLD,
     NEAR_THRESHOLD_MARGIN,
+    ChoiceResult,
     DocumentEvalResult,
+    NoulResult,
     PresetConfig,
     QuestionConfig,
+    ScoreResult,
 )
 from typesafe_eval.presets import (
     find_project_config,
@@ -31,6 +34,9 @@ __all__ = [
     "evaluate_documents",
     "TypeSafeEvaluator",
     "DocumentEvalResult",
+    "ScoreResult",
+    "NoulResult",
+    "ChoiceResult",
     "PresetConfig",
     "QuestionConfig",
     "load_preset",

@@ -32,10 +32,14 @@ class ContentViolationError(TypeSafeEvalError):
         message: str,
         violations: list[str] | None = None,
         result: DocumentEvalResult | None = None,
+        results: list[DocumentEvalResult] | None = None,
     ) -> None:
         super().__init__(message)
         self.violations: list[str] = violations or []
         self.result: DocumentEvalResult | None = result
+        self.results: list[DocumentEvalResult] = (
+            results if results is not None else ([result] if result is not None else [])
+        )
 
 
 __all__ = [

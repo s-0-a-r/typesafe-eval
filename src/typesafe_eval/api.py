@@ -53,7 +53,9 @@ def evaluate(
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
     filename: str = "<memory>",
+    filepath: str | Path | None = None,
     project_root: str | Path | None = None,
+    evaluator: TypeSafeEvaluator | None = None,
 ) -> DocumentEvalResult:
     """Evaluates raw in-memory content against a specified preset."""
     if not isinstance(content, str):
@@ -68,13 +70,14 @@ def evaluate(
             "or pass api_key=..."
         )
 
-    evaluator = TypeSafeEvaluator(api_key=resolved_api_key)
+    resolved_filepath = str(filepath) if filepath is not None else filename
+    active_evaluator = evaluator or TypeSafeEvaluator(api_key=resolved_api_key)
     try:
-        result = evaluator.evaluate_content(
+        result = active_evaluator.evaluate_content(
             content=content,
             preset=preset_cfg,
             filename=filename,
-            filepath=filename,
+            filepath=resolved_filepath,
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             dry_run=dry_run,
@@ -89,6 +92,7 @@ def evaluate(
             f"Content violation in '{filename}': {'; '.join(result.violations)}",
             violations=result.violations,
             result=result,
+            results=[result],
         )
 
     return result
@@ -124,6 +128,7 @@ def evaluate_document(
         max_chars=max_chars,
         raise_on_violation=raise_on_violation,
         filename=doc_path.name,
+        filepath=str(doc_path),
         project_root=project_root or doc_path.parent,
     )
 
@@ -161,8 +166,15 @@ def evaluate_documents(
             raise ConfigurationError(f"Document file not found: {p}")
         resolved_paths.append(doc_path)
 
+    # Shared evaluator for connection pooling across threads
+    shared_evaluator = TypeSafeEvaluator(api_key=resolved_api_key)
+
     def _eval_single(doc_p: Path) -> DocumentEvalResult:
-        content = doc_p.read_text(encoding="utf-8")
+        try:
+            content = doc_p.read_text(encoding="utf-8")
+        except Exception as e:
+            raise ConfigurationError(f"Failed to read file '{doc_p}': {e}") from e
+
         return evaluate(
             content=content,
             preset=preset_cfg,
@@ -172,7 +184,9 @@ def evaluate_documents(
             max_chars=max_chars,
             raise_on_violation=False,
             filename=doc_p.name,
+            filepath=str(doc_p),
             project_root=project_root or doc_p.parent,
+            evaluator=shared_evaluator,
         )
 
     concurrency = max(1, concurrency)
@@ -190,6 +204,7 @@ def evaluate_documents(
                 f"{len(violated)} document(s) failed gates: {'; '.join(all_violations)}",
                 violations=all_violations,
                 result=violated[0] if len(violated) == 1 else None,
+                results=violated,
             )
 
     return results
