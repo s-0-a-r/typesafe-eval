@@ -6,10 +6,11 @@ import threading
 from collections.abc import Callable
 from collections.abc import Set as AbstractSet
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 
+from typesafe_eval.exceptions import AuthenticationError
 from typesafe_eval.models import (
     CANDIDATE_DECISION_THRESHOLD,
     NEAR_THRESHOLD_MARGIN,
@@ -122,7 +123,7 @@ class TypeSafeEvaluator:
         with self._lock:
             if self._client is None:
                 if not self.api_key:
-                    raise ValueError(
+                    raise AuthenticationError(
                         "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
                         "or pass --api-key / specify in configuration."
                     )
@@ -131,15 +132,37 @@ class TypeSafeEvaluator:
 
     def evaluate_document(
         self,
-        filepath: str,
+        filepath: str | Path,
         preset: PresetConfig,
         mask_secrets: bool = True,
         max_chars: int = 25000,
         dry_run: bool = False,
     ) -> DocumentEvalResult:
-        """Evaluates a single document against the specified preset."""
+        """Evaluates a single document file against the specified preset."""
         path = Path(filepath)
         raw_content = path.read_text(encoding="utf-8")
+        return self.evaluate_content(
+            content=raw_content,
+            preset=preset,
+            filename=path.name,
+            filepath=str(path),
+            mask_secrets=mask_secrets,
+            max_chars=max_chars,
+            dry_run=dry_run,
+        )
+
+    def evaluate_content(
+        self,
+        content: str,
+        preset: PresetConfig,
+        filename: str = "<memory>",
+        filepath: str | Path = "<memory>",
+        mask_secrets: bool = True,
+        max_chars: int = 25000,
+        dry_run: bool = False,
+    ) -> DocumentEvalResult:
+        """Evaluates in-memory document content against the specified preset."""
+        raw_content = content
 
         # 1. Sanitize (detection & feature extraction run on raw_content before stripping HTML comments)
         custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
@@ -151,9 +174,9 @@ class TypeSafeEvaluator:
             redaction_details.pop("_raw_mapping", {}) if redaction_details else {}
         )
 
-        _raw_token_cache: dict[str, set] = {}
+        _raw_token_cache: dict[str, set[str]] = {}
 
-        def _raw_tokens_in(text: str) -> set:
+        def _raw_tokens_in(text: str) -> set[str]:
             # Re-run the same detector on the chunk so a raw value matches only as a whole detected token.
             if text not in _raw_token_cache:
                 _, _, chunk_details = mask_sensitive_data(
@@ -329,12 +352,14 @@ class TypeSafeEvaluator:
         # 4. Dry run bypass
         if dry_run:
             return self._build_mock_result(
-                filepath=filepath,
+                filepath=str(filepath),
                 preset=preset,
                 was_truncated=was_truncated,
                 api_calls=api_calls,
                 redaction_count=redaction_count,
                 redaction_details=redaction_details,
+                filename=filename,
+                content=raw_content,
             )
 
         # 5. Build SDK questions
@@ -342,9 +367,14 @@ class TypeSafeEvaluator:
         sdk_preset_noul_questions: dict[str, Any] = {}
         for q_id, q_cfg in preset.questions.items():
             if q_cfg.type == "score":
+                criteria_list = (
+                    list(q_cfg.criteria)
+                    if isinstance(q_cfg.criteria, list)
+                    else ["Low", "Medium", "High"]
+                )
                 sdk_score_choice_questions[q_id] = Score(
                     instructions=q_cfg.instructions,
-                    criteria=q_cfg.criteria if q_cfg.criteria else ["Low", "Medium", "High"],
+                    criteria=criteria_list,
                 )
             elif q_cfg.type == "noul":
                 sdk_preset_noul_questions[q_id] = Noul(
@@ -357,7 +387,7 @@ class TypeSafeEvaluator:
                     criteria = dict.fromkeys(criteria)
                 sdk_score_choice_questions[q_id] = Choice(
                     instructions=q_cfg.instructions,
-                    criteria=criteria,
+                    criteria=cast(Any, criteria),
                 )
 
         # 5. Call TypeSafe System One (Jev)
@@ -383,7 +413,7 @@ class TypeSafeEvaluator:
         def _make_state(doc_text: str, is_full: bool = True) -> dict[str, Any]:
             st: dict[str, Any] = {
                 "document": doc_text,
-                "filename": path.name,
+                "filename": filename,
             }
             if is_full:
                 if redaction_details and (
@@ -747,30 +777,30 @@ class TypeSafeEvaluator:
             num_suffix = placeholder.strip("[]").replace("PHONE_", "")
             q_id = f"phone_pii_{num_suffix}"
             prob = max(candidate_prob_map[q_id]) if candidate_prob_map.get(q_id) else None
-            outcome: Literal["personal", "support", "undecided"] = "undecided"
-            decided_by: Literal["model", "rule"] = "model"
+            outcome_phone: Literal["personal", "support", "undecided"] = "undecided"
+            decided_by_phone: Literal["model", "rule"] = "model"
             if feature.get("is_support_prefix"):
-                outcome = "support"
-                decided_by = "rule"
+                outcome_phone = "support"
+                decided_by_phone = "rule"
             elif prob is not None:
-                outcome = "personal" if prob >= CANDIDATE_DECISION_THRESHOLD else "support"
+                outcome_phone = "personal" if prob >= CANDIDATE_DECISION_THRESHOLD else "support"
             elif feature.get("looks_like_support"):
-                outcome = "support"
+                outcome_phone = "support"
             else:
-                outcome = "personal"
+                outcome_phone = "personal"
 
             phone_evaluations.append(
                 PhoneEvaluationResult(
                     placeholder=placeholder,
-                    question_id=q_id if decided_by == "model" else None,
+                    question_id=q_id if decided_by_phone == "model" else None,
                     features=feature,
-                    outcome=outcome,
+                    outcome=outcome_phone,
                     probability=prob,
-                    decided_by=decided_by,
-                    near_threshold=_is_candidate_near_threshold(decided_by, prob),
+                    decided_by=decided_by_phone,
+                    near_threshold=_is_candidate_near_threshold(decided_by_phone, prob),
                 )
             )
-            if outcome == "personal":
+            if outcome_phone == "personal":
                 prob_str = f" (model: {prob:.2f})" if prob is not None else ""
                 phone_violations.append(
                     f"PII Exposure: {placeholder} is an individual phone number{prob_str}"
@@ -997,8 +1027,8 @@ class TypeSafeEvaluator:
             }
 
         return DocumentEvalResult(
-            filepath=filepath,
-            filename=path.name,
+            filepath=str(filepath),
+            filename=filename,
             preset_name=preset.name,
             scores=scores,
             nouls=nouls,
@@ -1027,7 +1057,7 @@ class TypeSafeEvaluator:
         nouls: dict[str, NoulResult],
         choices: dict[str, ChoiceResult],
         redaction_details: dict[str, Any] | None = None,
-    ):
+    ) -> tuple[float | None, bool, list[str], list[str]]:
         total_weight = 0.0
         weighted_sum = 0.0
         passed = True
@@ -1129,13 +1159,19 @@ class TypeSafeEvaluator:
         api_calls: int = 1,
         redaction_count: int = 0,
         redaction_details: dict[str, Any] | None = None,
+        filename: str | None = None,
+        content: str | None = None,
     ) -> DocumentEvalResult:
         """Returns mock evaluation result for dry-run or testing."""
         scores = {}
         nouls = {}
         choices = {}
         path = Path(filepath)
-        raw_content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        doc_filename = filename or path.name
+        if content is not None:
+            raw_content = content
+        else:
+            raw_content = path.read_text(encoding="utf-8") if path.is_file() else ""
 
         for q_id, q_cfg in preset.questions.items():
             if q_cfg.type == "score":
@@ -1448,7 +1484,7 @@ class TypeSafeEvaluator:
 
         return DocumentEvalResult(
             filepath=filepath,
-            filename=path.name,
+            filename=doc_filename,
             preset_name=preset.name,
             scores=scores,
             nouls=nouls,

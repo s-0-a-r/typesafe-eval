@@ -1,12 +1,28 @@
 """Preset loader and custom configuration parser."""
 
+import sys
 from pathlib import Path
 
 import yaml
 
 from typesafe_eval.models import PresetConfig
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
 BUILTIN_PRESETS_DIR = Path(__file__).parent
+
+
+__all__ = [
+    "PresetConfig",
+    "BUILTIN_PRESETS_DIR",
+    "list_builtin_presets",
+    "load_preset",
+    "find_project_config",
+    "load_project_config",
+]
 
 
 def list_builtin_presets() -> list[str]:
@@ -51,11 +67,6 @@ def find_project_config(start_dir: Path | None = None) -> Path | None:
         pyproject = directory / "pyproject.toml"
         if pyproject.is_file():
             try:
-                try:
-                    import tomllib
-                except ImportError:
-                    import tomli as tomllib  # type: ignore
-
                 data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
                 if "tool" in data and "typesafe-eval" in data["tool"]:
                     return pyproject
@@ -75,11 +86,6 @@ def load_project_config(start_dir: Path | None = None) -> tuple[PresetConfig | N
         return None, None
 
     if cfg_path.name == "pyproject.toml":
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib  # type: ignore
-
         data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
         tool_section = data.get("tool")
         tool_cfg = tool_section.get("typesafe-eval") if isinstance(tool_section, dict) else None

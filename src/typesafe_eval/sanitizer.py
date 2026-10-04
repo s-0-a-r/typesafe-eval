@@ -515,7 +515,7 @@ def mask_sensitive_data(
                 return True
         return False
 
-    def add_span(s: int, e: int, repl: str):
+    def add_span(s: int, e: int, repl: str) -> None:
         occupied_spans.append((s, e))
         replacements.append((s, e, repl))
 
@@ -903,9 +903,9 @@ def strip_html_comments(text: str) -> str:
     are left as is.
     """
 
-    def _repl(m: re.Match) -> str:
+    def _repl(m: re.Match[str]) -> str:
         if m.group("comment"):
             return ""
-        return m.group(0)
+        return str(m.group(0))
 
     return _HTML_COMMENT_PATTERN.sub(_repl, text)

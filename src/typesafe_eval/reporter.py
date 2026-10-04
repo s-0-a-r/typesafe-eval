@@ -299,9 +299,9 @@ def render_markdown(results: list[DocumentEvalResult], preset: PresetConfig) -> 
             + r.url_evaluations
             + r.secret_evaluations
         )
-        for c in all_cands:
-            if c.near_threshold and c.probability is not None:
-                near_cands.append(f"{c.placeholder} {c.outcome} (p={c.probability:.2f})")
+        for cand in all_cands:
+            if cand.near_threshold and cand.probability is not None:
+                near_cands.append(f"{cand.placeholder} {cand.outcome} (p={cand.probability:.2f})")
         if near_cands:
             cand_str = ", ".join(near_cands)
             if len(results) > 1:
@@ -320,6 +320,7 @@ def render_markdown(results: list[DocumentEvalResult], preset: PresetConfig) -> 
         )
         lines.append("| :--- | :--- | :---: | :---: | :---: | :---: | :---: |")
         for r in compared_docs:
+            assert r.baseline_diff is not None
             for q_id, q_diff in r.baseline_diff.questions.items():
                 status_badge = "**REGRESSED**" if q_diff.regressed else "OK"
                 lines.append(
