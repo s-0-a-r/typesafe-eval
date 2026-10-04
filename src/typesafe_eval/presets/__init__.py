@@ -81,7 +81,8 @@ def load_project_config(start_dir: Path | None = None) -> tuple[PresetConfig | N
             import tomli as tomllib  # type: ignore
 
         data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-        tool_cfg = data.get("tool", {}).get("typesafe-eval")
+        tool_section = data.get("tool")
+        tool_cfg = tool_section.get("typesafe-eval") if isinstance(tool_section, dict) else None
         if not isinstance(tool_cfg, dict):
             return None, None
         cfg_dict = dict(tool_cfg)

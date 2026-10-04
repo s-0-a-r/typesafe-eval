@@ -70,6 +70,37 @@ def get_git_changed_files(staged: bool = False, since: str | None = None) -> lis
         raise RuntimeError(f"Git diff extraction failed: {err_msg}") from e
 
 
+DEFAULT_EVAL_EXTENSIONS = {
+    ".md",
+    ".markdown",
+    ".mdown",
+    ".txt",
+    ".text",
+    ".rst",
+    ".adoc",
+    ".asciidoc",
+    ".json",
+    ".yaml",
+    ".yml",
+}
+
+
+def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
+    """Emits clean result when no modified or staged files match criteria."""
+    if output_format == "json":
+        out_content = render_json([])
+        if out:
+            out.write_text(out_content, encoding="utf-8")
+        else:
+            click.echo(out_content)
+    else:
+        msg = "No modified or staged files matched evaluation criteria."
+        if out:
+            out.write_text(msg + "\n", encoding="utf-8")
+        else:
+            click.echo(msg)
+
+
 class DefaultGroup(click.Group):
     """Click Group that defaults to a specified command if no subcommand matches."""
 
@@ -250,11 +281,11 @@ def eval_command(
             resolved_paths = [p for p in resolved_paths if p.resolve() in git_files_set]
     else:
         assert git_files is not None
-        resolved_paths = git_files
+        resolved_paths = [p for p in git_files if p.suffix.lower() in DEFAULT_EVAL_EXTENSIONS]
 
     if not resolved_paths:
         if staged or changed_since:
-            click.echo("No modified or staged files matched evaluation criteria.")
+            _emit_empty_diff_result(output_format=output_format, out=out)
             sys.exit(0)
         err_console.print(
             f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"

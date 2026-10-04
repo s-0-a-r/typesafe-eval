@@ -153,3 +153,12 @@ def test_cli_explicit_preset_overrides_discovery(tmp_path: Path, monkeypatch):
     result = runner.invoke(main, [str(doc), "--preset", "tech-spec", "--dry-run", "-f", "json"])
     assert result.exit_code == 0
     assert '"preset_name": "tech-spec"' in result.output
+
+
+def test_load_project_config_non_dict_tool(tmp_path: Path):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "demo"\ntool = "invalid"\n', encoding="utf-8")
+
+    cfg, path = load_project_config(start_dir=tmp_path)
+    assert cfg is None
+    assert path is None

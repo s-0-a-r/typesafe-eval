@@ -135,3 +135,48 @@ def test_cli_git_error_exit_2(tmp_path: Path, monkeypatch):
     result = runner.invoke(main, ["--staged"])
     assert result.exit_code == 2
     assert "Git Error:" in (result.stderr or result.stdout)
+
+
+def test_cli_staged_no_changes_json_pure(temp_git_repo, monkeypatch):
+    repo, _ = temp_git_repo
+    monkeypatch.chdir(repo)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["--staged", "--dry-run", "-f", "json"])
+    assert result.exit_code == 0
+    # stdout must be valid JSON array parsable by jq
+    data = json.loads(result.stdout)
+    assert data == []
+
+
+def test_cli_staged_no_changes_json_with_out(temp_git_repo, monkeypatch):
+    repo, _ = temp_git_repo
+    monkeypatch.chdir(repo)
+    out_file = repo / "out.json"
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["--staged", "--dry-run", "-f", "json", "-o", str(out_file)])
+    assert result.exit_code == 0
+    assert out_file.is_file()
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert data == []
+
+
+def test_cli_staged_filters_binary_and_non_doc_files(temp_git_repo, monkeypatch):
+    repo, run_git = temp_git_repo
+    monkeypatch.chdir(repo)
+
+    # Stage a python file and a binary file
+    py_file = repo / "script.py"
+    py_file.write_text("print('hello')", encoding="utf-8")
+    bin_file = repo / "image.png"
+    bin_file.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+
+    run_git("add", "script.py", "image.png")
+
+    runner = CliRunner()
+    # Without explicit file args, typesafe-eval filters to docs and sees 0 doc files
+    result = runner.invoke(main, ["--staged", "--dry-run", "-f", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data == []
