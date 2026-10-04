@@ -11,6 +11,7 @@
 - [ ] **Pillar 3 (Evaluator Integrity)**: The 4 mandatory guidance rules observed, no Goodhart score gaming.
 - [ ] **Pillar 4 (Test & Implementation)**: 100% test pass rate (`pytest -v`), strict typing.
 - [ ] **Pillar 5 (Real CLI Acceptance Verification)**: 14/14 AC items passed via subprocess.
+- [ ] **Branch Target**: Target branch is the active release branch (`release/v*`), NOT `main` (unless this is a release PR).
 
 ---
 
