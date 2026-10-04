@@ -161,6 +161,3 @@ All autonomous coding agents operating in this repository **must follow the rele
    - Direct PRs to `main` from non-release branches are strictly prohibited and automatically blocked by CI (`.github/workflows/branch_policy.yml`).
 3. **Release Promotion**:
    - Only release branches (`release/v*`) may target `main` when initiating the final release PR.
-
-
-

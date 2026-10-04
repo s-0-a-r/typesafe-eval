@@ -8,6 +8,7 @@ open release milestone and opens a Pull Request on GitHub.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import shutil
@@ -26,7 +27,7 @@ def get_current_version() -> str:
     m = re.search(r'version\s*=\s*"([^"]+)"', pyproject)
     if m:
         return m.group(1)
-    return "0.6.0"
+    raise RuntimeError("Could not determine version from pyproject.toml")
 
 
 def compute_next_milestone_title(current_ver: str) -> str:
@@ -79,7 +80,27 @@ def get_or_create_release_milestone() -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Automated Code Health & Style Maintainer.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Run ruff check and ruff format --check without modifying files or opening PRs.",
+    )
+    args = parser.parse_args()
+
     python_bin = sys.executable
+
+    if args.check:
+        print("Checking codebase health with Ruff (--check mode)...")
+        res_lint = subprocess.run([python_bin, "-m", "ruff", "check", "--no-cache", "."])
+        res_format = subprocess.run(
+            [python_bin, "-m", "ruff", "format", "--check", "--no-cache", "."]
+        )
+        if res_lint.returncode != 0 or res_format.returncode != 0:
+            print("❌ Code health check failed (lint or format violations found).")
+            return 1
+        print("✅ Code health check passed. Codebase is clean and well-formatted.")
+        return 0
 
     print("Step 1: Running Ruff auto-fix and format...")
     run_cmd([python_bin, "-m", "ruff", "check", "--fix", "--no-cache", "."], check=False)
@@ -103,6 +124,10 @@ def main() -> int:
     milestone = get_or_create_release_milestone()
     now_str = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     branch_name = f"chore/code-health-{now_str}"
+
+    # Determine base release branch: release/v{milestone}
+    ms_ver = milestone.lstrip("v") if milestone else get_current_version()
+    base_branch = f"release/v{ms_ver}"
 
     print(f"Step 2: Creating branch {branch_name}...")
     run_cmd(["git", "checkout", "-b", branch_name])
@@ -136,6 +161,8 @@ def main() -> int:
         gh_bin,
         "pr",
         "create",
+        "--base",
+        base_branch,
         "--title",
         "chore(quality): automated code health & style fixes",
         "--body",

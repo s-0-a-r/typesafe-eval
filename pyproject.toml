@@ -60,6 +60,8 @@ packages = ["src/typesafe_eval"]
 only-include = [
     "src",
     "tests",
+    "scripts",
+    "hooks",
 ]
 
 [tool.pytest.ini_options]
