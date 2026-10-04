@@ -45,6 +45,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.16.0",
+    "tomli>=1.1.0; python_version < '3.11'",
 ]
 
 [project.scripts]
@@ -54,6 +55,12 @@ typesafe-eval-hook = "typesafe_eval.hook:pre_commit_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/typesafe_eval"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src",
+    "tests",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
