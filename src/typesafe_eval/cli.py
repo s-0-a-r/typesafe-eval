@@ -1,6 +1,8 @@
 """Command line interface for TypeSafe document evaluation and validation."""
 
 import glob
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,7 +13,8 @@ from rich.markup import escape
 from typesafe_eval import __version__
 from typesafe_eval.baseline import compare_document_with_baseline, load_baseline
 from typesafe_eval.client import TypeSafeEvaluator
-from typesafe_eval.presets import list_builtin_presets, load_preset
+from typesafe_eval.models import DocumentEvalResult, PresetConfig
+from typesafe_eval.presets import list_builtin_presets, load_preset, load_project_config
 from typesafe_eval.reporter import render_json, render_markdown, render_table
 from typesafe_eval.validator import (
     generate_ablation_variants,
@@ -24,6 +27,78 @@ from typesafe_eval.validator import (
 )
 
 err_console = Console(stderr=True)
+
+
+def get_git_changed_files(staged: bool = False, since: str | None = None) -> list[str]:
+    """Retrieves list of modified/added files from git."""
+    git_env = dict(os.environ)
+    if "GIT_CONFIG_GLOBAL" not in git_env:
+        git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+
+    try:
+        root_proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=git_env,
+        )
+        repo_root = Path(root_proc.stdout.strip())
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.strip() if e.stderr else str(e)
+        raise RuntimeError(f"Not a git repository: {err_msg}") from e
+    except FileNotFoundError as e:
+        raise RuntimeError("git executable not found in PATH") from e
+
+    cmd = ["git", "diff", "--name-only", "--diff-filter=ACMR"]
+    if staged:
+        cmd.append("--cached")
+    if since:
+        cmd.append(since)
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True, env=git_env)
+        files = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        result = []
+        for f in files:
+            full_path = (repo_root / f).resolve()
+            if full_path.is_file():
+                result.append(str(full_path))
+        return result
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.strip() if e.stderr else str(e)
+        raise RuntimeError(f"Git diff extraction failed: {err_msg}") from e
+
+
+DEFAULT_EVAL_EXTENSIONS = {
+    ".md",
+    ".markdown",
+    ".mdown",
+    ".txt",
+    ".text",
+    ".rst",
+    ".adoc",
+    ".asciidoc",
+    ".json",
+    ".yaml",
+    ".yml",
+}
+
+
+def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
+    """Emits clean result when no modified or staged files match criteria."""
+    if output_format == "json":
+        out_content = render_json([])
+        if out:
+            out.write_text(out_content, encoding="utf-8")
+        else:
+            click.echo(out_content)
+    else:
+        msg = "No modified or staged files matched evaluation criteria."
+        if out:
+            out.write_text(msg + "\n", encoding="utf-8")
+        else:
+            click.echo(msg)
 
 
 class DefaultGroup(click.Group):
@@ -62,8 +137,8 @@ def main():
 @click.option(
     "-p",
     "--preset",
-    default="quality",
-    help=f"Built-in preset to use ({', '.join(list_builtin_presets())}). Default: quality.",
+    default=None,
+    help=f"Built-in preset to use ({', '.join(list_builtin_presets())}). Default: project config or quality.",
 )
 @click.option(
     "-c",
@@ -118,13 +193,33 @@ def main():
     help="Previous JSON report to compare against and detect score regressions.",
 )
 @click.option(
+    "-j",
+    "--concurrency",
+    type=click.IntRange(min=1),
+    default=4,
+    help="Number of concurrent worker threads for parallel document evaluation. Default: 4.",
+)
+@click.option(
+    "--staged",
+    is_flag=True,
+    help="Evaluate only files staged for git commit.",
+)
+@click.option(
+    "--since",
+    "--changed-since",
+    "changed_since",
+    type=str,
+    default=None,
+    help="Evaluate files modified or added in git since the specified commit or branch reference.",
+)
+@click.option(
     "--list-presets",
     is_flag=True,
     help="List all available built-in evaluation presets and exit.",
 )
 def eval_command(
     files: list[str],
-    preset: str,
+    preset: str | None,
     config: Path | None,
     output_format: str,
     out: Path | None,
@@ -134,6 +229,9 @@ def eval_command(
     api_key: str | None,
     fail_on_threshold: bool,
     baseline: Path | None,
+    concurrency: int,
+    staged: bool,
+    changed_since: str | None,
     list_presets: bool,
 ):
     """Evaluate documents against quality, safety, or custom evaluation presets."""
@@ -144,7 +242,17 @@ def eval_command(
             click.echo(f"  • {name:<12} : {p.title or p.name} ({p.description or ''})")
         sys.exit(0)
 
-    if not files:
+    # Git diff resolution if requested
+    git_files: list[Path] | None = None
+    if staged or changed_since:
+        try:
+            raw_git_files = get_git_changed_files(staged=staged, since=changed_since)
+            git_files = [Path(f).resolve() for f in raw_git_files]
+        except RuntimeError as e:
+            err_console.print(f"[bold red]Git Error:[/bold red] {e}")
+            sys.exit(2)
+
+    if not files and git_files is None:
         err_console.print("[bold red]Error:[/bold red] No files or file patterns specified.")
         err_console.print("Usage: typesafe-eval [OPTIONS] <FILE_OR_GLOB>...")
         err_console.print("Example: typesafe-eval docs/*.md --preset quality")
@@ -152,34 +260,62 @@ def eval_command(
 
     # 1. Resolve matched files
     resolved_paths: list[Path] = []
-    for pattern in files:
-        if not glob.has_magic(pattern):
-            p = Path(pattern)
-            if not p.is_file():
-                err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
-                sys.exit(2)
-            if p not in resolved_paths:
-                resolved_paths.append(p)
-        else:
-            matches = glob.glob(pattern, recursive=True)
-            for m in matches:
-                p = Path(m)
-                if p.is_file() and p not in resolved_paths:
+    if files:
+        for pattern in files:
+            if not glob.has_magic(pattern):
+                p = Path(pattern)
+                if not p.is_file():
+                    err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
+                    sys.exit(2)
+                if p not in resolved_paths:
                     resolved_paths.append(p)
+            else:
+                matches = glob.glob(pattern, recursive=True)
+                for m in matches:
+                    p = Path(m)
+                    if p.is_file() and p not in resolved_paths:
+                        resolved_paths.append(p)
+
+        if git_files is not None:
+            git_files_set = {f.resolve() for f in git_files}
+            resolved_paths = [p for p in resolved_paths if p.resolve() in git_files_set]
+    else:
+        assert git_files is not None
+        resolved_paths = [p for p in git_files if p.suffix.lower() in DEFAULT_EVAL_EXTENSIONS]
 
     if not resolved_paths:
+        if staged or changed_since:
+            _emit_empty_diff_result(output_format=output_format, out=out)
+            sys.exit(0)
         err_console.print(
             f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"
         )
         sys.exit(2)
 
     # 2. Load preset configuration
-    preset_target = str(config) if config else preset
-    try:
-        preset_cfg = load_preset(preset_target)
-    except Exception as e:
-        err_console.print(f"[bold red]Error loading preset:[/bold red] {e}")
-        sys.exit(2)
+    preset_cfg: PresetConfig
+    if config:
+        try:
+            preset_cfg = load_preset(str(config))
+        except Exception as e:
+            err_console.print(f"[bold red]Error loading preset:[/bold red] {e}")
+            sys.exit(2)
+    elif preset is not None:
+        try:
+            preset_cfg = load_preset(preset)
+        except Exception as e:
+            err_console.print(f"[bold red]Error loading preset:[/bold red] {e}")
+            sys.exit(2)
+    else:
+        try:
+            auto_cfg, _ = load_project_config()
+            if auto_cfg is not None:
+                preset_cfg = auto_cfg
+            else:
+                preset_cfg = load_preset("quality")
+        except Exception as e:
+            err_console.print(f"[bold red]Error loading discovered config:[/bold red] {e}")
+            sys.exit(2)
 
     # 3. Load baseline if specified
     baseline_lookup = None
@@ -196,44 +332,61 @@ def eval_command(
     # 4. Initialize Evaluator
     evaluator = TypeSafeEvaluator(api_key=api_key)
 
-    # 5. Evaluate documents
-    results = []
-    has_violations = False
-    has_errors = False
-
-    for path in resolved_paths:
+    # 5. Evaluate documents (concurrent or sequential)
+    def _eval_single(target_path: Path) -> tuple[Path, DocumentEvalResult | None, str | None]:
         try:
             res = evaluator.evaluate_document(
-                filepath=str(path),
+                filepath=str(target_path),
                 preset=preset_cfg,
                 mask_secrets=mask_secrets,
                 max_chars=max_chars,
                 dry_run=dry_run,
             )
-
-            # Compare against baseline if active
-            if baseline_lookup is not None:
-                try:
-                    res, has_reg, warn_msg = compare_document_with_baseline(
-                        result=res,
-                        baseline_lookup=baseline_lookup,
-                        preset=preset_cfg,
-                        default_max_drop=0.10,
-                    )
-                except ValueError as e:
-                    err_console.print(f"[bold red]Error comparing baseline:[/bold red] {e}")
-                    sys.exit(2)
-                if warn_msg:
-                    click.echo(f"Warning: {warn_msg}", err=True)
-                if has_reg:
-                    has_violations = True
-
-            results.append(res)
-            if not res.passed_thresholds and not res.mock:
-                has_violations = True
+            return (target_path, res, None)
         except Exception as e:
-            click.echo(f"{path}: {e}", err=True)
+            return (target_path, None, str(e))
+
+    raw_eval_results: list[tuple[Path, DocumentEvalResult | None, str | None]] = []
+    if concurrency == 1 or len(resolved_paths) == 1:
+        for path in resolved_paths:
+            raw_eval_results.append(_eval_single(path))
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(concurrency, len(resolved_paths))) as executor:
+            raw_eval_results = list(executor.map(_eval_single, resolved_paths))
+
+    results = []
+    has_violations = False
+    has_errors = False
+
+    for path, res, err in raw_eval_results:
+        if err is not None:
+            click.echo(f"{path}: {err}", err=True)
             has_errors = True
+            continue
+
+        assert res is not None
+        # Compare against baseline if active
+        if baseline_lookup is not None:
+            try:
+                res, has_reg, warn_msg = compare_document_with_baseline(
+                    result=res,
+                    baseline_lookup=baseline_lookup,
+                    preset=preset_cfg,
+                    default_max_drop=0.10,
+                )
+            except ValueError as e:
+                err_console.print(f"[bold red]Error comparing baseline:[/bold red] {e}")
+                sys.exit(2)
+            if warn_msg:
+                click.echo(f"Warning: {warn_msg}", err=True)
+            if has_reg:
+                has_violations = True
+
+        results.append(res)
+        if not res.passed_thresholds and not res.mock:
+            has_violations = True
 
     # 5. Output handling
     if results or output_format == "json":

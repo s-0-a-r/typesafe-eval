@@ -2,6 +2,7 @@
 
 import os
 import re
+import threading
 from collections.abc import Callable
 from collections.abc import Set as AbstractSet
 from pathlib import Path
@@ -115,16 +116,18 @@ class TypeSafeEvaluator:
         self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
         self.max_candidate_batch_size = max(1, max_candidate_batch_size)
         self._client: TypeSafeClient | None = None
+        self._lock = threading.Lock()
 
     def _get_client(self) -> TypeSafeClient:
-        if self._client is None:
-            if not self.api_key:
-                raise ValueError(
-                    "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
-                    "or pass --api-key / specify in configuration."
-                )
-            self._client = TypeSafeClient(api_key=self.api_key)
-        return self._client
+        with self._lock:
+            if self._client is None:
+                if not self.api_key:
+                    raise ValueError(
+                        "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
+                        "or pass --api-key / specify in configuration."
+                    )
+                self._client = TypeSafeClient(api_key=self.api_key)
+            return self._client
 
     def evaluate_document(
         self,
