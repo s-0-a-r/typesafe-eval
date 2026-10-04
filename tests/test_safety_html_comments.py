@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from unittest.mock import MagicMock
+
 import pytest
 from click.testing import CliRunner
 
@@ -15,7 +16,9 @@ def _make_mock_client():
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.scores = {
-        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={"0": 0.9, "1": 0.1})
+        "confidentiality_risk": MagicMock(
+            score=0.1, confidence=0.9, probabilities={"0": 0.9, "1": 0.1}
+        )
     }
     mock_resp.nouls = {
         "has_secrets": MagicMock(noul=0.1),
@@ -24,7 +27,11 @@ def _make_mock_client():
         "email_pii_1": MagicMock(noul=0.85),
     }
     mock_resp.choices = {
-        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={"compliant": 0.9, "non_compliant": 0.1})
+        "policy_compliance": MagicMock(
+            choice="compliant",
+            confidence=0.9,
+            probabilities={"compliant": 0.9, "non_compliant": 0.1},
+        )
     }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
@@ -123,8 +130,7 @@ def test_free_mail_email_in_html_comment(tmp_path: Path, mask: bool):
     assert result.redaction_details is not None
     assert result.redaction_details["pii_personal"] >= 1
     assert any(
-        e.outcome == "personal" and e.decided_by == "free_mail"
-        for e in result.email_evaluations
+        e.outcome == "personal" and e.decided_by == "free_mail" for e in result.email_evaluations
     )
     assert not result.passed_thresholds
     assert any("PII Exposure" in v for v in result.violations)
@@ -210,9 +216,7 @@ def test_validation_with_comment_secret_masked_mode(tmp_path: Path):
     """Validation in masked mode handles HTML comment secret without triggering false matching-bug runtime error."""
     doc = tmp_path / "comment_secret_doc.md"
     doc.write_text(
-        "# Safe Document\n"
-        "<!-- DB_PASSWORD=AKIA1234567890ABCDEF -->\n"
-        "Documentation content.\n",
+        "# Safe Document\n<!-- DB_PASSWORD=AKIA1234567890ABCDEF -->\nDocumentation content.\n",
         encoding="utf-8",
     )
 

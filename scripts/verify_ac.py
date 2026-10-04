@@ -15,7 +15,6 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -26,19 +25,19 @@ class ACResult:
     expected: str
     actual: str
     passed: bool
-    details: Optional[str] = None
+    details: str | None = None
 
 
 class ACVerifier:
-    def __init__(self, python_bin: Optional[str] = None, verbose: bool = False):
+    def __init__(self, python_bin: str | None = None, verbose: bool = False):
         self.python_bin = python_bin or sys.executable
         self.verbose = verbose
-        self.results: List[ACResult] = []
+        self.results: list[ACResult] = []
 
     def _run_cli(
         self,
-        args: List[str],
-        env_override: Optional[Dict[str, str]] = None,
+        args: list[str],
+        env_override: dict[str, str] | None = None,
         module: str = "typesafe_eval.cli",
     ) -> subprocess.CompletedProcess:
         """Run CLI as an OS subprocess."""
@@ -53,8 +52,7 @@ class ACVerifier:
         cmd = [self.python_bin, "-m", module] + args
         return subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             env=env,
         )
@@ -62,7 +60,7 @@ class ACVerifier:
     def _run_subprocess_python(
         self,
         code: str,
-        env_override: Optional[Dict[str, str]] = None,
+        env_override: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
         """Run inline Python in an isolated subprocess."""
         env = os.environ.copy()
@@ -76,8 +74,7 @@ class ACVerifier:
         cmd = [self.python_bin, "-c", code]
         return subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             env=env,
         )
@@ -160,7 +157,10 @@ class ACVerifier:
                 data = json.loads(cp.stdout)
                 if isinstance(data, list) and len(data) > 0:
                     item = data[0]
-                    if item.get("passed_thresholds") is True and len(item.get("violations", [])) == 0:
+                    if (
+                        item.get("passed_thresholds") is True
+                        and len(item.get("violations", [])) == 0
+                    ):
                         passed = True
                         parsed_status = "passed_thresholds=True, violations=0"
             except Exception as e:
@@ -264,7 +264,9 @@ class ACVerifier:
                 )
                 if raw_not_leaked and has_phone_mask:
                     passed = True
-                    details = "E.164 phone masked as [PHONE_1], format: international, zero raw leak"
+                    details = (
+                        "E.164 phone masked as [PHONE_1], format: international, zero raw leak"
+                    )
             except Exception as e:
                 details = f"JSON error: {e}"
 
@@ -360,7 +362,11 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
     main()
 """
         cp = self._run_subprocess_python(code)
-        passed = (cp.returncode == 1) and ("PII Exposure" in cp.stdout) and ("Connection timeout" in cp.stderr)
+        passed = (
+            (cp.returncode == 1)
+            and ("PII Exposure" in cp.stdout)
+            and ("Connection timeout" in cp.stderr)
+        )
         self.results.append(
             ACResult(
                 id=10,
@@ -380,7 +386,11 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
         details = "Failed"
         try:
             data = json.loads(cp.stdout)
-            if isinstance(data, list) and cp.stdout.strip().startswith("[") and cp.stdout.strip().endswith("]"):
+            if (
+                isinstance(data, list)
+                and cp.stdout.strip().startswith("[")
+                and cp.stdout.strip().endswith("]")
+            ):
                 passed = True
                 details = "stdout is 100% pure JSON parsable by json.loads"
         except Exception as e:
@@ -421,8 +431,8 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
         cmd = [self.python_bin, "hooks/claude_safety_hook.py"]
         env = os.environ.copy()
         env.pop("TYPESAFE_API_KEY", None)
-        cp = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-        passed = (cp.returncode == 0)
+        cp = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        passed = cp.returncode == 0
         self.results.append(
             ACResult(
                 id=13,

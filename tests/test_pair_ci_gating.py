@@ -2,35 +2,32 @@
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
+from scripts.feasibility_check import run_feasibility
+from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.models import (
     DocumentEvalResult,
-    ScoreResult,
-    NoulResult,
     PresetConfig,
     QuestionConfig,
+    ScoreResult,
 )
-from typesafe_eval.client import TypeSafeEvaluator, _is_transient_error
 from typesafe_eval.validator import (
-    get_t_crit_95,
-    compute_ci_95,
-    run_validation,
-    compute_questions_hash,
+    ValidationCriteria,
     ValidationLabelsConfig,
     ValidationPairExpectation,
-    ValidationCriteria,
-    load_labels_file,
+    compute_questions_hash,
+    get_t_crit_95,
+    run_validation,
 )
-from scripts.feasibility_check import run_feasibility
 
 
 class FakeEvaluator:
     """Fake evaluator that returns predetermined scores or tracks call counts."""
 
-    def __init__(self, score_map: Optional[Dict[str, float]] = None):
+    def __init__(self, score_map: dict[str, float] | None = None):
         self.score_map = score_map or {}
         self.call_count = 0
         self.call_log = []
@@ -97,6 +94,7 @@ def _make_preset(question_id: str = "clarity") -> PresetConfig:
 
 # --- 1. get_t_crit_95 Acceptance Tests ---
 
+
 def test_t_crit_degrees_of_freedom():
     assert get_t_crit_95(11) >= 2.20
     assert get_t_crit_95(13) >= 2.16
@@ -107,6 +105,7 @@ def test_t_crit_degrees_of_freedom():
 
 
 # --- 2. Run pairing & Incomplete pairs ---
+
 
 def test_incomplete_pair_run_lost(tmp_path):
     """When run 2 of after side lacks clarity, deltas come from runs 1 & 3 only and pair is incomplete."""
@@ -119,7 +118,9 @@ def test_incomplete_pair_run_lost(tmp_path):
         def __init__(self):
             self.calls = {str(f_before): 0, str(f_after): 0}
 
-        def evaluate_document(self, filepath, preset, mask_secrets=True, max_chars=25000, dry_run=False):
+        def evaluate_document(
+            self, filepath, preset, mask_secrets=True, max_chars=25000, dry_run=False
+        ):
             self.calls[filepath] += 1
             call_idx = self.calls[filepath]  # 1, 2, or 3
 
@@ -187,6 +188,7 @@ def test_incomplete_pair_run_lost(tmp_path):
 
 # --- 3. Zero pairs must not pass criteria ---
 
+
 def test_zero_down_pairs_fails_min_degradation_drop(tmp_path):
     labels_cfg = ValidationLabelsConfig(
         preset="quality",
@@ -209,6 +211,7 @@ def test_zero_down_pairs_fails_min_degradation_drop(tmp_path):
 
 # --- 4. Truncation excluded from gating ---
 
+
 def test_truncation_excluded_from_gating(tmp_path):
     f_before = tmp_path / "before.md"
     f_before.write_text("before", encoding="utf-8")
@@ -216,7 +219,9 @@ def test_truncation_excluded_from_gating(tmp_path):
     f_after.write_text("after", encoding="utf-8")
 
     class TruncatedFakeEvaluator:
-        def evaluate_document(self, filepath, preset, mask_secrets=True, max_chars=25000, dry_run=False):
+        def evaluate_document(
+            self, filepath, preset, mask_secrets=True, max_chars=25000, dry_run=False
+        ):
             return DocumentEvalResult(
                 filepath=filepath,
                 filename=Path(filepath).name,
@@ -262,6 +267,7 @@ def test_truncation_excluded_from_gating(tmp_path):
 
 
 # --- 5. Caching & Run-Major Order ---
+
 
 def test_cache_and_run_major_order_264_calls(tmp_path):
     """75 pairs × 3 runs over 13 distinct base files cost (13+75)×3 = 264 evaluator calls."""
@@ -328,6 +334,7 @@ def test_cache_and_run_major_order_264_calls(tmp_path):
 
 # --- 6. Retry transient API errors ---
 
+
 def test_retry_transient_api_errors(monkeypatch):
     """A client that fails twice with 503 and then succeeds does not lose the run."""
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy-key")
@@ -362,6 +369,7 @@ def test_retry_transient_api_errors(monkeypatch):
 
     # Fast backoff for testing
     import typesafe_eval.client as client_mod
+
     orig_call = client_mod._call_system_one_with_retry
 
     def fast_call(client, state, questions, max_attempts=3, initial_backoff=0.001):
@@ -378,6 +386,7 @@ def test_retry_transient_api_errors(monkeypatch):
 
 
 # --- 7. Group CI Gating Unit Tests (7 scenarios) ---
+
 
 def _setup_group_scenario(tmp_path, pairs_data, criteria_kwargs):
     """Helper to set up files, labels config, and fake evaluator for group gating tests."""
@@ -541,7 +550,9 @@ def test_group_gating_pair_guard_failing_on_one_extreme_pair(tmp_path):
     )
     assert report.all_passed is False
     # Check that the extreme pair's own passed is False
-    extreme_p = next(p for p in report.pair_results if pytest.approx(p.mean_delta, abs=1e-3) == 0.15)
+    extreme_p = next(
+        p for p in report.pair_results if pytest.approx(p.mean_delta, abs=1e-3) == 0.15
+    )
     assert extreme_p.passed is False
     crit = next(c for c in report.criteria_results if c.name == "pair_guard_neutral_abs_max")
     assert crit.passed is False
@@ -632,6 +643,7 @@ def test_per_pair_kinds_passes_and_fails_overall_criteria(tmp_path):
 def test_labels_extra_keys_forbid_exits_2(tmp_path):
     """Labels file with typo in criteria or pair exits 2 before evaluation and names unknown key."""
     from click.testing import CliRunner
+
     from typesafe_eval.cli import main
 
     labels_content = """preset: design-doc
@@ -707,6 +719,7 @@ def test_worst_pair_path_includes_full_relative_path_and_doc_id(tmp_path):
 
 # --- 8. Feasibility Check Tests ---
 
+
 def test_feasibility_check_missing_relative_file_exits_2(tmp_path):
     """Missing relative before/after file exits with code 2 and outputs path."""
     pairs_file = tmp_path / "pairs.json"
@@ -729,11 +742,14 @@ def test_feasibility_check_pairs_and_doc_mutual_exclusion():
     """C: Passing --pairs together with --doc prints message to stderr and exits with code 2."""
     import subprocess
     import sys
+
     cmd = [
         sys.executable,
         "scripts/feasibility_check.py",
-        "--pairs", "dummy_pairs.json",
-        "--doc", "dummy_doc.md",
+        "--pairs",
+        "dummy_pairs.json",
+        "--doc",
+        "dummy_doc.md",
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     assert res.returncode == 2
@@ -772,8 +788,22 @@ def test_feasibility_check_heldout_present_gives_numbers(tmp_path):
     doc = tmp_path / "doc.md"
     doc.write_text("sample content", encoding="utf-8")
     pairs_data = [
-        {"id": "p0", "doc_id": "d0", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "tuning"},
-        {"id": "p1", "doc_id": "d1", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "heldout"},
+        {
+            "id": "p0",
+            "doc_id": "d0",
+            "doc_type": "article",
+            "before": "doc.md",
+            "after": "doc.md",
+            "split": "tuning",
+        },
+        {
+            "id": "p1",
+            "doc_id": "d1",
+            "doc_type": "article",
+            "before": "doc.md",
+            "after": "doc.md",
+            "split": "heldout",
+        },
     ]
     pairs_file = tmp_path / "pairs.json"
     pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")
@@ -794,8 +824,22 @@ def test_feasibility_check_no_heldout_gives_nulls(tmp_path):
     doc = tmp_path / "doc.md"
     doc.write_text("sample content", encoding="utf-8")
     pairs_data = [
-        {"id": "p0", "doc_id": "d0", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "tuning"},
-        {"id": "p1", "doc_id": "d1", "doc_type": "article", "before": "doc.md", "after": "doc.md", "split": "tuning"},
+        {
+            "id": "p0",
+            "doc_id": "d0",
+            "doc_type": "article",
+            "before": "doc.md",
+            "after": "doc.md",
+            "split": "tuning",
+        },
+        {
+            "id": "p1",
+            "doc_id": "d1",
+            "doc_type": "article",
+            "before": "doc.md",
+            "after": "doc.md",
+            "split": "tuning",
+        },
     ]
     pairs_file = tmp_path / "pairs.json"
     pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")
@@ -901,9 +945,13 @@ def test_pair_guard_down_tolerance_default(tmp_path):
         pairs_data_equal,
         {"pair_guard_neutral_abs_max": 0.10, "min_group_size": 6},
     )
-    p_equal = next(p for p in report_equal.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.0)
+    p_equal = next(
+        p for p in report_equal.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.0
+    )
     assert p_equal.passed is True
-    crit_equal = next(c for c in report_equal.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    crit_equal = next(
+        c for c in report_equal.criteria_results if c.name == "pair_guard_neutral_abs_max"
+    )
     assert crit_equal.passed is True
     assert "down <= 0.000" in crit_equal.expected
     assert report_equal.all_passed is True
@@ -924,9 +972,13 @@ def test_pair_guard_down_tolerance_default(tmp_path):
         pairs_data_above,
         {"pair_guard_neutral_abs_max": 0.10, "min_group_size": 6},
     )
-    slight_up_p = next(p for p in report_above.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005)
+    slight_up_p = next(
+        p for p in report_above.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.005
+    )
     assert slight_up_p.passed is False
-    crit_above = next(c for c in report_above.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    crit_above = next(
+        c for c in report_above.criteria_results if c.name == "pair_guard_neutral_abs_max"
+    )
     assert crit_above.passed is False
     assert "down <= 0.000" in crit_above.expected
     assert report_above.all_passed is False
@@ -948,11 +1000,19 @@ def test_pair_guard_down_tolerance_custom(tmp_path):
     report_pass = _setup_group_scenario(
         dir_pass,
         pairs_data_pass,
-        {"pair_guard_neutral_abs_max": 0.10, "pair_guard_down_tolerance": 0.02, "min_group_size": 6},
+        {
+            "pair_guard_neutral_abs_max": 0.10,
+            "pair_guard_down_tolerance": 0.02,
+            "min_group_size": 6,
+        },
     )
-    p_pass = next(p for p in report_pass.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.02)
+    p_pass = next(
+        p for p in report_pass.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.02
+    )
     assert p_pass.passed is True
-    crit_pass = next(c for c in report_pass.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    crit_pass = next(
+        c for c in report_pass.criteria_results if c.name == "pair_guard_neutral_abs_max"
+    )
     assert crit_pass.passed is True
     assert "down <= 0.020" in crit_pass.expected
     assert report_pass.all_passed is True
@@ -971,11 +1031,18 @@ def test_pair_guard_down_tolerance_custom(tmp_path):
     report_fail = _setup_group_scenario(
         dir_fail,
         pairs_data_fail,
-        {"pair_guard_neutral_abs_max": 0.10, "pair_guard_down_tolerance": 0.02, "min_group_size": 6},
+        {
+            "pair_guard_neutral_abs_max": 0.10,
+            "pair_guard_down_tolerance": 0.02,
+            "min_group_size": 6,
+        },
     )
-    p_fail = next(p for p in report_fail.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.021)
+    p_fail = next(
+        p for p in report_fail.pair_results if pytest.approx(p.mean_delta, abs=1e-4) == 0.021
+    )
     assert p_fail.passed is False
-    crit_fail = next(c for c in report_fail.criteria_results if c.name == "pair_guard_neutral_abs_max")
+    crit_fail = next(
+        c for c in report_fail.criteria_results if c.name == "pair_guard_neutral_abs_max"
+    )
     assert crit_fail.passed is False
     assert report_fail.all_passed is False
-

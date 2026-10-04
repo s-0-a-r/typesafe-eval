@@ -1,13 +1,19 @@
+import json
+from pathlib import Path
+
 from click.testing import CliRunner
-from typesafe_eval.cli import main
 
 from typesafe_eval import __version__
+from typesafe_eval.cli import main
+from typesafe_eval.models import DocumentEvalResult
+
 
 def test_cli_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
     assert __version__ in result.output
+
 
 def test_cli_list_presets():
     runner = CliRunner()
@@ -17,10 +23,11 @@ def test_cli_list_presets():
     assert "safety" in result.output
     assert "tech-spec" in result.output
 
+
 def test_cli_dry_run(tmp_path):
     doc = tmp_path / "test.md"
     doc.write_text("# Test Document\nThis is a sample document for evaluation.", encoding="utf-8")
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality", "--dry-run"])
     assert result.exit_code == 0
@@ -29,10 +36,11 @@ def test_cli_dry_run(tmp_path):
     assert "PASS" not in result.output
     assert "FAIL" not in result.output
 
+
 def test_cli_json_format(tmp_path):
     doc = tmp_path / "test.md"
     doc.write_text("# Test Document\nThis is a sample document for evaluation.", encoding="utf-8")
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality", "--dry-run", "--format", "json"])
     assert result.exit_code == 0
@@ -41,11 +49,9 @@ def test_cli_json_format(tmp_path):
     assert '"mock": true' in result.output
 
 
-import json
-from pathlib import Path
-from typesafe_eval.models import DocumentEvalResult
-
-def _make_mock_result(filepath: str, passed: bool = True, violations: list = None) -> DocumentEvalResult:
+def _make_mock_result(
+    filepath: str, passed: bool = True, violations: list = None
+) -> DocumentEvalResult:
     p = Path(filepath)
     return DocumentEvalResult(
         filepath=filepath,
@@ -55,10 +61,12 @@ def _make_mock_result(filepath: str, passed: bool = True, violations: list = Non
         violations=violations or ([] if passed else ["Minimum score threshold failed"]),
     )
 
+
 def test_cli_exit_code_0_all_pass(tmp_path, monkeypatch):
     doc = tmp_path / "valid.md"
     doc.write_text("# Valid Document\nClean content.", encoding="utf-8")
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -69,36 +77,44 @@ def test_cli_exit_code_0_all_pass(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "PASS" in result.output
 
+
 def test_cli_exit_code_1_violations_only(tmp_path, monkeypatch):
     doc = tmp_path / "violating.md"
     doc.write_text("# Violating Document\nBad content.", encoding="utf-8")
-    
+
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
-        lambda *args, **kwargs: _make_mock_result(str(doc), passed=False, violations=["Score below min_threshold 0.7"]),
+        lambda *args, **kwargs: _make_mock_result(
+            str(doc), passed=False, violations=["Score below min_threshold 0.7"]
+        ),
     )
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality"])
     assert result.exit_code == 1
     assert "Score below min_threshold 0.7" in result.output
+
 
 def test_cli_exit_code_1_violation_and_error_mixed(tmp_path, monkeypatch):
     doc1 = tmp_path / "violating.md"
     doc1.write_text("# Violating Doc", encoding="utf-8")
     doc2 = tmp_path / "error.md"
     doc2.write_text("# Error Doc", encoding="utf-8")
-    
+
     from typesafe_eval.client import TypeSafeEvaluator
+
     def mock_eval(self, filepath, **kwargs):
         if "violating" in filepath:
-            return _make_mock_result(filepath, passed=False, violations=["Critical quality violation"])
+            return _make_mock_result(
+                filepath, passed=False, violations=["Critical quality violation"]
+            )
         raise RuntimeError("Connection reset by peer")
-        
+
     monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc1), str(doc2), "--preset", "quality"])
     # Precedence: violation (1) over error (3)
@@ -109,98 +125,110 @@ def test_cli_exit_code_1_violation_and_error_mixed(tmp_path, monkeypatch):
     # Errored file is reported on stderr
     assert "error.md: Connection reset by peer" in (result.stderr or result.output)
 
+
 def test_cli_exit_code_2_no_files():
     runner = CliRunner()
     # No arguments specified
     result = runner.invoke(main, [])
     assert result.exit_code == 2
     assert "No files or file patterns specified" in (result.stderr or result.output)
-    
+
     # Pattern matching no files
     result_glob = runner.invoke(main, ["nonexistent_path_xyz_*.md"])
     assert result_glob.exit_code == 2
     assert "No valid files matched the pattern" in (result_glob.stderr or result_glob.output)
 
+
 def test_cli_exit_code_2_preset_load_failure(tmp_path):
     doc = tmp_path / "test.md"
     doc.write_text("# Test", encoding="utf-8")
     runner = CliRunner()
-    
+
     # Nonexistent preset
     result_preset = runner.invoke(main, [str(doc), "--preset", "nonexistent_preset"])
     assert result_preset.exit_code == 2
     assert "Error loading preset" in (result_preset.stderr or result_preset.output)
-    
+
     # Nonexistent config file
     result_config = runner.invoke(main, [str(doc), "--config", str(tmp_path / "missing.yaml")])
     assert result_config.exit_code == 2
 
+
 def test_cli_exit_code_3_errors_only(tmp_path, monkeypatch):
     doc = tmp_path / "doc.md"
     doc.write_text("# Test", encoding="utf-8")
-    
+
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("API rate limit exceeded")),
     )
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality"])
     assert result.exit_code == 3
     assert f"{doc}: API rate limit exceeded" in (result.stderr or result.output)
 
+
 def test_cli_exit_code_0_violations_with_no_fail_on_threshold(tmp_path, monkeypatch):
     doc = tmp_path / "violating.md"
     doc.write_text("# Violating", encoding="utf-8")
-    
+
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
-        lambda *args, **kwargs: _make_mock_result(str(doc), passed=False, violations=["Threshold failed"]),
+        lambda *args, **kwargs: _make_mock_result(
+            str(doc), passed=False, violations=["Threshold failed"]
+        ),
     )
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality", "--no-fail-on-threshold"])
     assert result.exit_code == 0
     assert "FAIL" in result.output
 
+
 def test_cli_exit_code_3_errors_with_no_fail_on_threshold(tmp_path, monkeypatch):
     doc = tmp_path / "doc.md"
     doc.write_text("# Test", encoding="utf-8")
-    
+
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Network unreachable")),
     )
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", "quality", "--no-fail-on-threshold"])
     assert result.exit_code == 3
     assert f"{doc}: Network unreachable" in (result.stderr or result.output)
+
 
 def test_cli_continue_on_file_error_json_format(tmp_path, monkeypatch):
     doc1 = tmp_path / "doc1.md"
     doc1.write_text("# Doc 1", encoding="utf-8")
     doc2 = tmp_path / "doc2.md"
     doc2.write_text("# Doc 2", encoding="utf-8")
-    
+
     from typesafe_eval.client import TypeSafeEvaluator
+
     def mock_eval(self, filepath, **kwargs):
         if "doc1" in filepath:
             return _make_mock_result(filepath, passed=True)
         raise RuntimeError("Disk read error")
-        
+
     monkeypatch.setattr(TypeSafeEvaluator, "evaluate_document", mock_eval)
-    
+
     runner = CliRunner()
     result = runner.invoke(main, [str(doc1), str(doc2), "--format", "json"])
     assert result.exit_code == 3  # error occurred and no threshold violations
-    
+
     # stdout contains json with only doc1
     data = json.loads(result.stdout)
     assert len(data) == 1
@@ -249,5 +277,3 @@ documents:
     runner = CliRunner()
     result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
     assert result.exit_code == 3
-
-

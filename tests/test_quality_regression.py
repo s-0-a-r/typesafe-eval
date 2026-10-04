@@ -1,22 +1,23 @@
 import json
 import sys
 from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.feasibility_check import compute_ci95, compute_roc_auc, run_feasibility
 from typesafe_eval.cli import main
 from typesafe_eval.client import TypeSafeEvaluator
-from typesafe_eval.presets import load_preset
 from typesafe_eval.models import (
-    DocumentEvalResult,
-    ScoreResult,
     ChoiceResult,
+    DocumentEvalResult,
     PresetConfig,
     QuestionConfig,
+    ScoreResult,
 )
-from scripts.feasibility_check import compute_roc_auc, compute_ci95, run_feasibility
+from typesafe_eval.presets import load_preset
 
 
 def test_quality_preset_definition():
@@ -209,10 +210,38 @@ def test_feasibility_check_between_doc_spread_distinct_docs(tmp_path):
 def test_feasibility_check_tuning_heldout_split_and_doc_types(tmp_path):
     # Create pairs JSON with 4 distinct documents and 2 document types
     pairs_data = [
-        {"id": "p1", "doc_id": "doc_a", "doc_type": "design_doc", "better": "after", "before_text": "draft A", "after_text": "final A"},
-        {"id": "p2", "doc_id": "doc_b", "doc_type": "design_doc", "better": "after", "before_text": "draft B", "after_text": "final B"},
-        {"id": "p3", "doc_id": "doc_c", "doc_type": "article", "better": "before", "before_text": "orig C", "after_text": "degraded C"},
-        {"id": "p4", "doc_id": "doc_d", "doc_type": "article", "better": "before", "before_text": "orig D", "after_text": "degraded D"},
+        {
+            "id": "p1",
+            "doc_id": "doc_a",
+            "doc_type": "design_doc",
+            "better": "after",
+            "before_text": "draft A",
+            "after_text": "final A",
+        },
+        {
+            "id": "p2",
+            "doc_id": "doc_b",
+            "doc_type": "design_doc",
+            "better": "after",
+            "before_text": "draft B",
+            "after_text": "final B",
+        },
+        {
+            "id": "p3",
+            "doc_id": "doc_c",
+            "doc_type": "article",
+            "better": "before",
+            "before_text": "orig C",
+            "after_text": "degraded C",
+        },
+        {
+            "id": "p4",
+            "doc_id": "doc_d",
+            "doc_type": "article",
+            "better": "before",
+            "before_text": "orig D",
+            "after_text": "degraded D",
+        },
     ]
     pairs_file = tmp_path / "pairs.json"
     pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")
@@ -243,8 +272,22 @@ def test_feasibility_check_direction_better_handling(tmp_path):
     # Review pair: after is better (0.90) vs before (0.40)
     # Synthetic pair: before is better (0.90) vs after (0.40)
     pairs_data = [
-        {"id": "p_review", "doc_id": "doc_rev", "doc_type": "article", "better": "after", "before_text": "bad", "after_text": "good"},
-        {"id": "p_synth", "doc_id": "doc_syn", "doc_type": "article", "better": "before", "before_text": "good", "after_text": "bad"},
+        {
+            "id": "p_review",
+            "doc_id": "doc_rev",
+            "doc_type": "article",
+            "better": "after",
+            "before_text": "bad",
+            "after_text": "good",
+        },
+        {
+            "id": "p_synth",
+            "doc_id": "doc_syn",
+            "doc_type": "article",
+            "better": "before",
+            "before_text": "good",
+            "after_text": "bad",
+        },
     ]
     pairs_file = tmp_path / "direction_pairs.json"
     pairs_file.write_text(json.dumps(pairs_data), encoding="utf-8")

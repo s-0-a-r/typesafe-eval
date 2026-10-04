@@ -1,49 +1,133 @@
 """Sanitizer and guard utilities for documents sent to TypeSafe."""
 
-import re
 import fnmatch
 import ipaddress
+import re
 import urllib.parse
-from typing import Tuple, Dict, Any, Union, Literal, Optional, List, overload
+from typing import Any, Literal, overload
 
 PLACEHOLDER_SUBSTRINGS = (
-    "your_", "example", "dummy", "xxxx", "replace_me", "insert_", "changeme",
+    "your_",
+    "example",
+    "dummy",
+    "xxxx",
+    "replace_me",
+    "insert_",
+    "changeme",
 )
 
 AWS_EXAMPLE_KEYS = {"AKIAIOSFODNN7EXAMPLE", "AKIAEXAMPLEKEY123456"}
 
 ROLE_EMAIL_LOCAL_PARTS = {
-    "admin", "administrator", "info", "support", "help", "contact",
-    "legal", "compliance", "security", "sales", "billing", "marketing",
-    "careers", "jobs", "press", "media", "privacy", "postmaster",
-    "hostmaster", "root", "noreply", "no-reply", "team", "office",
-    "dev", "ops", "hr", "inquiries", "feedback",
-    "hello", "hi", "notifications", "notification", "alerts", "alert",
-    "accounts", "account", "newsletter", "news", "service", "services",
-    "general", "community", "events", "partners", "partnership",
-    "customercare", "customer-care", "customerservice", "customer-service",
+    "admin",
+    "administrator",
+    "info",
+    "support",
+    "help",
+    "contact",
+    "legal",
+    "compliance",
+    "security",
+    "sales",
+    "billing",
+    "marketing",
+    "careers",
+    "jobs",
+    "press",
+    "media",
+    "privacy",
+    "postmaster",
+    "hostmaster",
+    "root",
+    "noreply",
+    "no-reply",
+    "team",
+    "office",
+    "dev",
+    "ops",
+    "hr",
+    "inquiries",
+    "feedback",
+    "hello",
+    "hi",
+    "notifications",
+    "notification",
+    "alerts",
+    "alert",
+    "accounts",
+    "account",
+    "newsletter",
+    "news",
+    "service",
+    "services",
+    "general",
+    "community",
+    "events",
+    "partners",
+    "partnership",
+    "customercare",
+    "customer-care",
+    "customerservice",
+    "customer-service",
 }
 
 ROLE_EMAIL_AFFIXES = (
-    "-team", "team-", "-support", "support-", "-ops", "-dev", "-service",
+    "-team",
+    "team-",
+    "-support",
+    "support-",
+    "-ops",
+    "-dev",
+    "-service",
 )
 
 FREE_OR_PERSONAL_DOMAINS = {
-    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "hotmail.com",
-    "outlook.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
-    "aol.com", "proton.me", "protonmail.com", "zoho.com", "mail.com", "gmx.com",
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "ymail.com",
+    "hotmail.com",
+    "outlook.com",
+    "live.com",
+    "msn.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "aol.com",
+    "proton.me",
+    "protonmail.com",
+    "zoho.com",
+    "mail.com",
+    "gmx.com",
 }
 
 PHONE_SUPPORT_PREFIXES = ("0120", "0800", "0570", "1-800", "800", "+800", "+1-800", "+1 800")
 PHONE_SUPPORT_KEYWORDS = {
-    "support", "representative", "switchboard", "helpdesk", "toll-free", "toll free",
-    "customer", "care", "service", "corporate desk", "desk", "inquiries",
-    "代表", "窓口", "問い合わせ", "お問合せ", "問合せ", "サポート", "ヘルプデスク"
+    "support",
+    "representative",
+    "switchboard",
+    "helpdesk",
+    "toll-free",
+    "toll free",
+    "customer",
+    "care",
+    "service",
+    "corporate desk",
+    "desk",
+    "inquiries",
+    "代表",
+    "窓口",
+    "問い合わせ",
+    "お問合せ",
+    "問合せ",
+    "サポート",
+    "ヘルプデスク",
 }
 
 EXAMPLE_DOMAINS = {"example.com", "example.org", "example.net", "localhost"}
 EXAMPLE_TLDS = (".example", ".invalid", ".test", ".localhost")
 INTERNAL_TLDS = (".internal", ".local", ".corp", ".intra", ".lan", ".home")
+
 
 def is_credential_placeholder(token: str) -> bool:
     """Checks whether token is an obvious documentation or example placeholder."""
@@ -51,6 +135,7 @@ def is_credential_placeholder(token: str) -> bool:
         return token in AWS_EXAMPLE_KEYS
     token_lower = token.lower()
     return any(p in token_lower for p in PLACEHOLDER_SUBSTRINGS)
+
 
 def detect_local_part_shape(local_part: str) -> str:
     """Classifies the structural pattern of the email local part."""
@@ -63,6 +148,7 @@ def detect_local_part_shape(local_part: str) -> str:
         return "single_word"
     return "other"
 
+
 def is_known_role_word(local_part: str) -> bool:
     """Checks whether local part matches standard role vocabulary or affixes."""
     lp = local_part.lower()
@@ -72,7 +158,10 @@ def is_known_role_word(local_part: str) -> bool:
         return True
     return False
 
-def extract_email_features(email_str: str, custom_role_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
+
+def extract_email_features(
+    email_str: str, custom_role_patterns: list[str] | None = None
+) -> dict[str, Any]:
     """Extracts objective structural features from an email address."""
     parts = email_str.split("@", 1)
     if len(parts) != 2:
@@ -97,7 +186,8 @@ def extract_email_features(email_str: str, custom_role_patterns: Optional[List[s
         "matches_custom_role": matches_custom,
     }
 
-def classify_email(email_str: str, custom_role_patterns: Optional[List[str]] = None) -> str:
+
+def classify_email(email_str: str, custom_role_patterns: list[str] | None = None) -> str:
     """Classifies email address as 'role' or 'personal' (legacy / backward-compatibility)."""
     parts = email_str.split("@", 1)
     if len(parts) != 2:
@@ -107,7 +197,9 @@ def classify_email(email_str: str, custom_role_patterns: Optional[List[str]] = N
         return "personal"
     if local_part in ROLE_EMAIL_LOCAL_PARTS:
         return "role"
-    if any(local_part.startswith(affix) or local_part.endswith(affix) for affix in ROLE_EMAIL_AFFIXES):
+    if any(
+        local_part.startswith(affix) or local_part.endswith(affix) for affix in ROLE_EMAIL_AFFIXES
+    ):
         return "role"
     if custom_role_patterns:
         for pattern in custom_role_patterns:
@@ -115,7 +207,8 @@ def classify_email(email_str: str, custom_role_patterns: Optional[List[str]] = N
                 return "role"
     return "personal"
 
-def extract_phone_features(phone_str: str, surrounding_text: str = "") -> Dict[str, Any]:
+
+def extract_phone_features(phone_str: str, surrounding_text: str = "") -> dict[str, Any]:
     """Extracts structural features from a phone number candidate."""
     norm = phone_str.strip()
     is_support_prefix = any(norm.startswith(p) for p in PHONE_SUPPORT_PREFIXES)
@@ -142,7 +235,8 @@ def extract_phone_features(phone_str: str, surrounding_text: str = "") -> Dict[s
         "near_support_keyword": near_support_kw,
     }
 
-def extract_ip_features(ip_str: str) -> Dict[str, Any]:
+
+def extract_ip_features(ip_str: str) -> dict[str, Any]:
     """Extracts routing and RFC category features from an IP candidate."""
     try:
         ip = ipaddress.ip_address(ip_str)
@@ -184,11 +278,14 @@ def extract_ip_features(ip_str: str) -> Dict[str, Any]:
         "is_private": is_priv,
     }
 
-def extract_url_features(url_str: str, mask: bool = True) -> Dict[str, Any]:
+
+def extract_url_features(url_str: str, mask: bool = True) -> dict[str, Any]:
     """Extracts domain classification features from a URL candidate."""
     cleaned_url = url_str.rstrip(".,])>")
     try:
-        parsed = urllib.parse.urlparse(cleaned_url if "://" in cleaned_url else f"http://{cleaned_url}")
+        parsed = urllib.parse.urlparse(
+            cleaned_url if "://" in cleaned_url else f"http://{cleaned_url}"
+        )
         host = (parsed.hostname or "").lower()
     except Exception:
         host = ""
@@ -207,7 +304,7 @@ def extract_url_features(url_str: str, mask: bool = True) -> Dict[str, Any]:
         or host.startswith("api.example.")
     )
     is_internal = any(host.endswith(tld) for tld in INTERNAL_TLDS)
-    is_public = (host == "github.com" or host.endswith(".github.com"))
+    is_public = host == "github.com" or host.endswith(".github.com")
 
     suffix_class = None
     for tld in INTERNAL_TLDS:
@@ -220,7 +317,7 @@ def extract_url_features(url_str: str, mask: bool = True) -> Dict[str, Any]:
                 suffix_class = tld
                 break
 
-    features: Dict[str, Any] = {
+    features: dict[str, Any] = {
         "is_example_domain": is_example,
         "is_loopback": is_loop,
         "is_documentation": is_doc_ip,
@@ -234,13 +331,14 @@ def extract_url_features(url_str: str, mask: bool = True) -> Dict[str, Any]:
 
     return features
 
+
 def extract_secret_features(
     key_name: str,
     raw_val: str,
     surrounding_text: str = "",
     is_known_format: bool = False,
     is_example: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Extracts objective structural features from a secret candidate.
 
     STRICT SAFETY CONSTRAINT:
@@ -267,10 +365,16 @@ def extract_secret_features(
     )
 
     ctx_lower = surrounding_text.lower()
-    near_example = any(w in ctx_lower for w in ("example", "例", "replace", "置き換えて", "sample", "template"))
+    near_example = any(
+        w in ctx_lower for w in ("example", "例", "replace", "置き換えて", "sample", "template")
+    )
 
     location = "prose"
-    if "```env" in ctx_lower or "\n" + key_name.lower() + "=" in ctx_lower or "\n" + key_name.lower() + ":" in ctx_lower:
+    if (
+        "```env" in ctx_lower
+        or "\n" + key_name.lower() + "=" in ctx_lower
+        or "\n" + key_name.lower() + ":" in ctx_lower
+    ):
         location = "env_block"
     elif "```" in ctx_lower or "`" in surrounding_text:
         location = "code_block"
@@ -285,6 +389,7 @@ def extract_secret_features(
         "is_known_format": is_known_format,
     }
 
+
 EXAMPLE_REPLACEMENTS = {
     "api_key": "[EXAMPLE_API_KEY]",
     "github_token": "[EXAMPLE_GH_TOKEN]",
@@ -297,11 +402,23 @@ EXAMPLE_REPLACEMENTS = {
 
 KNOWN_CREDENTIAL_SPECS = [
     (re.compile(r"\bAKIA[0-9A-Z]{16,}\b"), "[REDACTED_AWS_KEY]", "aws_key"),
-    (re.compile(r"\bgh[pousr]_[0-9a-zA-Z]{36,}\b", re.IGNORECASE), "[REDACTED_GH_TOKEN]", "github_token"),
-    (re.compile(r"\bsk_(?:live|test)_[0-9a-zA-Z]{20,}\b", re.IGNORECASE), "[REDACTED_SECRET_KEY]", "secret_key"),
+    (
+        re.compile(r"\bgh[pousr]_[0-9a-zA-Z]{36,}\b", re.IGNORECASE),
+        "[REDACTED_GH_TOKEN]",
+        "github_token",
+    ),
+    (
+        re.compile(r"\bsk_(?:live|test)_[0-9a-zA-Z]{20,}\b", re.IGNORECASE),
+        "[REDACTED_SECRET_KEY]",
+        "secret_key",
+    ),
     (re.compile(r"\bsk-[0-9a-zA-Z]{20,}\b", re.IGNORECASE), "[REDACTED_SECRET_KEY]", "secret_key"),
     (re.compile(r"\bapikey_[0-9a-zA-Z_]{20,}\b", re.IGNORECASE), "[REDACTED_API_KEY]", "api_key"),
-    (re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}(?![a-zA-Z0-9\-_\.=])", re.IGNORECASE), "Bearer [REDACTED_TOKEN]", "bearer_token"),
+    (
+        re.compile(r"\bbearer\s+[a-zA-Z0-9\-_\.=]{20,}(?![a-zA-Z0-9\-_\.=])", re.IGNORECASE),
+        "Bearer [REDACTED_TOKEN]",
+        "bearer_token",
+    ),
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]", "private_key"),
     (re.compile(r"\bxox[baprs]-[0-9a-zA-Z-]{10,}\b"), "[REDACTED_SLACK_TOKEN]", "slack_token"),
 ]
@@ -319,8 +436,9 @@ PHONE_PATTERN = re.compile(
 
 URL_PATTERN = re.compile(r"\b(?:https?|ldap)://[^\s\"'<>)\]]+(?<![.,\]\)>])", re.IGNORECASE)
 
-IP_PATTERN = re.compile(r"(?:::1\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){1,7}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b)")
-
+IP_PATTERN = re.compile(
+    r"(?:::1\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){1,7}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b)"
+)
 
 
 @overload
@@ -328,25 +446,27 @@ def mask_sensitive_data(
     text: str,
     mask: bool = True,
     return_details: Literal[False] = False,
-    custom_role_patterns: Optional[List[str]] = None,
-) -> Tuple[str, int]: ...
+    custom_role_patterns: list[str] | None = None,
+) -> tuple[str, int]: ...
+
 
 @overload
 def mask_sensitive_data(
     text: str,
     mask: bool = True,
     return_details: Literal[True] = ...,
-    custom_role_patterns: Optional[List[str]] = None,
-) -> Tuple[str, int, Dict[str, Any]]: ...
+    custom_role_patterns: list[str] | None = None,
+) -> tuple[str, int, dict[str, Any]]: ...
+
 
 def mask_sensitive_data(
     text: str,
     mask: bool = True,
     return_details: bool = False,
-    custom_role_patterns: Optional[List[str]] = None,
-) -> Union[Tuple[str, int], Tuple[str, int, Dict[str, Any]]]:
+    custom_role_patterns: list[str] | None = None,
+) -> tuple[str, int] | tuple[str, int, dict[str, Any]]:
     """Replaces detected credentials, tokens, and PII with numbered redaction placeholders.
-    
+
     When mask=False (--no-mask), detection, classification, and feature extraction still run
     identically and populate details, but the returned text remains unmasked.
 
@@ -361,15 +481,15 @@ def mask_sensitive_data(
         or (sanitized_text, count_of_redactions, details_dict) when return_details=True.
     """
     total_redactions = 0
-    distinct_emails: Dict[str, Dict[str, Any]] = {}
-    distinct_phones: Dict[str, Dict[str, Any]] = {}
-    distinct_ips: Dict[str, Dict[str, Any]] = {}
-    distinct_urls: Dict[str, Dict[str, Any]] = {}
-    distinct_secrets: List[Dict[str, Any]] = []
-    rule_violations: List[str] = []
-    raw_mapping: Dict[str, List[str]] = {}
+    distinct_emails: dict[str, dict[str, Any]] = {}
+    distinct_phones: dict[str, dict[str, Any]] = {}
+    distinct_ips: dict[str, dict[str, Any]] = {}
+    distinct_urls: dict[str, dict[str, Any]] = {}
+    distinct_secrets: list[dict[str, Any]] = []
+    rule_violations: list[str] = []
+    raw_mapping: dict[str, list[str]] = {}
 
-    details: Dict[str, Any] = {
+    details: dict[str, Any] = {
         "total": 0,
         "credentials": 0,
         "pii": 0,
@@ -386,8 +506,8 @@ def mask_sensitive_data(
     }
 
     # Replacement list of tuples: (start, end, replacement_str)
-    replacements: List[Tuple[int, int, str]] = []
-    occupied_spans: List[Tuple[int, int]] = []
+    replacements: list[tuple[int, int, str]] = []
+    occupied_spans: list[tuple[int, int]] = []
 
     def span_overlaps(s: int, e: int) -> bool:
         for os, oe in occupied_spans:
@@ -409,7 +529,9 @@ def mask_sensitive_data(
             if is_credential_placeholder(token):
                 example_token = EXAMPLE_REPLACEMENTS.get(type_name, "[EXAMPLE_SECRET]")
                 details["examples"] += 1
-                details["by_type"][f"example_{type_name}"] = details["by_type"].get(f"example_{type_name}", 0) + 1
+                details["by_type"][f"example_{type_name}"] = (
+                    details["by_type"].get(f"example_{type_name}", 0) + 1
+                )
                 add_span(s, e, example_token)
             else:
                 total_redactions += 1
@@ -417,7 +539,9 @@ def mask_sensitive_data(
                 details["by_type"][type_name] = details["by_type"].get(type_name, 0) + 1
                 sec_idx = len(distinct_secrets) + 1
                 placeholder = f"[SECRET_{sec_idx}]"
-                rule_violations.append(f"Credential Exposure: {placeholder} is a known {type_name} credential")
+                rule_violations.append(
+                    f"Credential Exposure: {placeholder} is a known {type_name} credential"
+                )
                 ctx_start = max(0, s - 60)
                 ctx_end = min(len(text), e + 60)
                 feat = extract_secret_features(
@@ -457,7 +581,11 @@ def mask_sensitive_data(
 
         # Delimiter between key and val
         matched_str = m.group(0)
-        delim = m.group("delim") if "delim" in m.groupdict() and m.group("delim") else ("=" if "=" in matched_str else ":")
+        delim = (
+            m.group("delim")
+            if "delim" in m.groupdict() and m.group("delim")
+            else ("=" if "=" in matched_str else ":")
+        )
         quote = m.group("quote") if "quote" in m.groupdict() and m.group("quote") else ""
         key_repr = f"{quote}{key_name}{quote}" if quote else key_name
         sep = ": " if delim == ":" else "="
@@ -472,7 +600,9 @@ def mask_sensitive_data(
             raw_mapping.setdefault(placeholder, []).append(matched_str)
         else:
             total_redactions += 1
-            details["by_type"]["ambiguous_secret"] = details["by_type"].get("ambiguous_secret", 0) + 1
+            details["by_type"]["ambiguous_secret"] = (
+                details["by_type"].get("ambiguous_secret", 0) + 1
+            )
             feat["decided_by"] = "model"
             add_span(s, e, replacement_token)
             raw_mapping.setdefault(placeholder, []).append(matched_str)
@@ -662,14 +792,14 @@ def mask_sensitive_data(
 
 def guard_document_length(
     text: str, max_chars: int = 25000, truncate_mode: str = "head_tail"
-) -> Tuple[str, bool]:
+) -> tuple[str, bool]:
     """Ensures document stays within reasonable context length limits.
-    
+
     Args:
         text: Original document content.
         max_chars: Maximum character budget (default: 25,000 chars, ~6,000-8,000 tokens).
         truncate_mode: 'head_tail' (keep beginning & end) or 'raise'.
-        
+
     Returns:
         (processed_text, was_truncated)
     """
@@ -683,8 +813,10 @@ def guard_document_length(
 
     half = max(max_chars // 2, 1)
     truncated_chars = max(len(text) - (half * 2), 0)
-    truncated_msg = f"\n\n... [TRUNCATED {truncated_chars} CHARACTERS TO PREVENT TOKEN OVERFLOW] ...\n\n"
-    tail = text[len(text) - half:] if half > 0 else ""
+    truncated_msg = (
+        f"\n\n... [TRUNCATED {truncated_chars} CHARACTERS TO PREVENT TOKEN OVERFLOW] ...\n\n"
+    )
+    tail = text[len(text) - half :] if half > 0 else ""
     processed = text[:half] + truncated_msg + tail
     return processed, True
 
@@ -693,7 +825,7 @@ def chunk_text(
     text: str,
     max_chars: int = 25000,
     overlap: int = 2000,
-) -> List[str]:
+) -> list[str]:
     """Splits text into overlapping chunks, each within max_chars.
 
     Prefers paragraph breaks (\\n\\n) or line breaks (\\n) for chunk boundaries
@@ -713,7 +845,7 @@ def chunk_text(
         return [text]
 
     effective_overlap = min(max(overlap, 0), max_chars // 2)
-    chunks: List[str] = []
+    chunks: list[str] = []
     start = 0
     total_len = len(text)
 
@@ -770,10 +902,10 @@ def strip_html_comments(text: str) -> str:
     intact because they render literally. Unclosed comments (<!-- without matching -->)
     are left as is.
     """
+
     def _repl(m: re.Match) -> str:
         if m.group("comment"):
             return ""
         return m.group(0)
 
     return _HTML_COMMENT_PATTERN.sub(_repl, text)
-

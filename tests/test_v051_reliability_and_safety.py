@@ -10,33 +10,30 @@ Covers:
 """
 
 import json
-import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from typesafe_eval.client import TypeSafeEvaluator, _find_preflight_question
+from hooks.claude_safety_hook import extract_files_from_git, run_hook
 from typesafe_eval.cli import main
+from typesafe_eval.client import TypeSafeEvaluator, _find_preflight_question
 from typesafe_eval.hook import pre_commit_main
 from typesafe_eval.models import PresetConfig, QuestionConfig
 from typesafe_eval.presets import load_preset
 from typesafe_eval.reporter import format_score_badge
 from typesafe_eval.sanitizer import (
-    AMBIGUOUS_SECRET_PATTERN,
     PLACEHOLDER_SUBSTRINGS,
     URL_PATTERN,
     extract_url_features,
     mask_sensitive_data,
 )
-from hooks.claude_safety_hook import extract_files_from_git, run_hook
-
 
 # ============================================================================
 # Task 1: Sanitizer & Credential / Secret Detection
 # ============================================================================
+
 
 def test_quoted_json_yaml_keys_detected():
     """Double-quoted and single-quoted keys in JSON/YAML are detected with colon space preserved."""
@@ -109,7 +106,9 @@ def test_url_pattern_excludes_trailing_punctuation():
     feat = extract_url_features("https://internal.corp/status.")
     assert feat["is_internal_tld"] is True
 
-    masked, count, _ = mask_sensitive_data("Visit https://internal.corp/admin.", return_details=True)
+    masked, count, _ = mask_sensitive_data(
+        "Visit https://internal.corp/admin.", return_details=True
+    )
     assert count == 1
     assert "[URL_1]." in masked  # The period stays outside the placeholder
 
@@ -117,6 +116,7 @@ def test_url_pattern_excludes_trailing_punctuation():
 # ============================================================================
 # Task 2: Core Evaluation Engine
 # ============================================================================
+
 
 def test_find_preflight_question_pii_fallback():
     """_find_preflight_question falls back to has_pii when target is pii."""
@@ -131,7 +131,9 @@ def test_find_preflight_question_pii_fallback():
     preset_explicit = PresetConfig(
         name="test_preset",
         questions={
-            "custom_pii": QuestionConfig(type="noul", label="PII", instructions="Check PII", preflight="pii"),
+            "custom_pii": QuestionConfig(
+                type="noul", label="PII", instructions="Check PII", preflight="pii"
+            ),
             "has_pii": QuestionConfig(type="noul", label="PII", instructions="Check PII"),
         },
     )
@@ -141,19 +143,25 @@ def test_find_preflight_question_pii_fallback():
 def test_support_phone_prefix_skips_llm(tmp_path):
     """Support phone prefix (0120, 1-800) is evaluated by rule and not sent to LLM candidate_specs."""
     doc = tmp_path / "phone_doc.md"
-    doc.write_text("Call toll-free 0120-123-456 or US 1-800-555-0199 for assistance.", encoding="utf-8")
+    doc.write_text(
+        "Call toll-free 0120-123-456 or US 1-800-555-0199 for assistance.", encoding="utf-8"
+    )
 
     preset = load_preset("safety")
     evaluator = TypeSafeEvaluator(api_key="mock-key")
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {
         "has_secrets": MagicMock(noul=0.01),
         "has_pii": MagicMock(noul=0.05),
     }
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -179,17 +187,26 @@ def test_long_document_candidate_chunking_without_nouls(tmp_path):
         name="score_only_preset",
         questions={
             "quality_score": QuestionConfig(
-                type="score", label="Quality", instructions="Rate quality", criteria=["Low", "Med", "High"], min_threshold=0.5
+                type="score",
+                label="Quality",
+                instructions="Rate quality",
+                criteria=["Low", "Med", "High"],
+                min_threshold=0.5,
             ),
             "compliance_choice": QuestionConfig(
-                type="choice", label="Compliance", instructions="Compliance check", criteria=["compliant", "non-compliant"]
+                type="choice",
+                label="Compliance",
+                instructions="Compliance check",
+                criteria=["compliant", "non-compliant"],
             ),
         },
     )
 
     FILL = "This is a detailed architectural section of the document.\n\n" * 600  # ~35k chars
     doc = tmp_path / "long_doc.md"
-    doc.write_text(FILL + 'db_password: "actual_production_secret_pass!"\n\n' + FILL, encoding="utf-8")
+    doc.write_text(
+        FILL + 'db_password: "actual_production_secret_pass!"\n\n' + FILL, encoding="utf-8"
+    )
 
     evaluator = TypeSafeEvaluator(api_key="mock-key")
 
@@ -200,7 +217,9 @@ def test_long_document_candidate_chunking_without_nouls(tmp_path):
         def system_one(self, state, questions):
             self.calls.append(sorted(list(questions.keys())))
             scores = {"quality_score": NS(score=2, confidence=0.9, probabilities={})}
-            choices = {"compliance_choice": NS(choice="compliant", confidence=0.9, probabilities={})}
+            choices = {
+                "compliance_choice": NS(choice="compliant", confidence=0.9, probabilities={})
+            }
             nouls = {q: NS(noul=0.92) for q in questions if q.startswith("secret_")}
             return NS(usage=None, model="mock-jev", scores=scores, choices=choices, nouls=nouls)
 
@@ -210,8 +229,8 @@ def test_long_document_candidate_chunking_without_nouls(tmp_path):
     res = evaluator.evaluate_document(str(doc), preset=preset_no_nouls)
     assert res.api_calls > 1
     assert len(client.calls) >= 2
-    assert ['compliance_choice', 'quality_score'] in client.calls
-    assert ['secret_1'] in client.calls
+    assert ["compliance_choice", "quality_score"] in client.calls
+    assert ["secret_1"] in client.calls
     # Candidate question secret_1 was asked and evaluated
     assert len(res.secret_evaluations) == 1
     assert res.secret_evaluations[0].outcome == "secret"
@@ -222,6 +241,7 @@ def test_long_document_candidate_chunking_without_nouls(tmp_path):
 # Task 3: Terminal Display Score Badge Inversion
 # ============================================================================
 
+
 def test_format_score_badge_inversion():
     """format_score_badge inverts green/red threshold logic when invert=True."""
     # Standard (quality/compliance: higher is better)
@@ -230,14 +250,15 @@ def test_format_score_badge_inversion():
     assert "red" in format_score_badge(0.20, invert=False)
 
     # Inverted (risk/exposure: lower is better/safer)
-    assert "green" in format_score_badge(0.20, invert=True)   # <= 0.25 is safe/green
+    assert "green" in format_score_badge(0.20, invert=True)  # <= 0.25 is safe/green
     assert "yellow" in format_score_badge(0.40, invert=True)  # <= 0.50 is yellow
-    assert "red" in format_score_badge(0.85, invert=True)     # > 0.50 is dangerous/red
+    assert "red" in format_score_badge(0.85, invert=True)  # > 0.50 is dangerous/red
 
 
 # ============================================================================
 # Task 4: CLI Exit 2 for Non-existent Files
 # ============================================================================
+
 
 def test_cli_exit_2_on_non_existent_explicit_path(tmp_path):
     """Passing a non-existent explicit path results in error output on stderr and exit code 2."""
@@ -257,6 +278,7 @@ def test_cli_exit_2_on_non_existent_explicit_path(tmp_path):
 # ============================================================================
 # Task 5: Pre-commit Hook Wrapper & README
 # ============================================================================
+
 
 def test_pre_commit_hook_exit_3_skipped_as_0(capsys):
     """pre_commit_main catches exit code 3 and converts it to exit code 0."""
@@ -287,6 +309,7 @@ def test_readme_urls_fixed():
 # ============================================================================
 # Task 6: Claude Safety Hook Hardening
 # ============================================================================
+
 
 def test_claude_hook_exit_1_requires_valid_json_with_violations(tmp_path, monkeypatch, capsys):
     """exit code 1 exits 2 only if stdout is valid JSON with violations; otherwise exits 0."""

@@ -1,21 +1,20 @@
-import json
 import sys
 from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.feasibility_check import run_feasibility
 from typesafe_eval.cli import main
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
 from typesafe_eval.validator import (
     load_labels_file,
-    run_validation,
     render_validation_markdown,
-    render_validation_table,
+    run_validation,
 )
-from scripts.feasibility_check import run_feasibility
 
 
 def test_tech_spec_preset_definition():
@@ -68,6 +67,7 @@ def test_validate_with_tech_spec_preset(tmp_path):
 
     labels_file = tmp_path / "labels.yaml"
     import yaml
+
     labels_file.write_text(yaml.dump(labels_data), encoding="utf-8")
 
     labels_cfg, base_dir = load_labels_file(labels_file)
@@ -113,6 +113,7 @@ def test_cli_validate_tech_spec_dry_run(tmp_path):
     }
     labels_file = tmp_path / "labels.yaml"
     import yaml
+
     labels_file.write_text(yaml.dump(labels_data), encoding="utf-8")
 
     result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
@@ -155,6 +156,7 @@ def test_validate_expect_label_typo_fails_at_load_time(tmp_path):
     }
     labels_file = tmp_path / "labels_typo.yaml"
     import yaml
+
     labels_file.write_text(yaml.dump(labels_data), encoding="utf-8")
 
     result = runner.invoke(main, ["validate", str(labels_file)])
@@ -180,12 +182,16 @@ def test_validate_choice_question_label_rejected(tmp_path):
     }
     labels_file = tmp_path / "labels_choice.yaml"
     import yaml
+
     labels_file.write_text(yaml.dump(labels_data), encoding="utf-8")
 
     result = runner.invoke(main, ["validate", str(labels_file)])
     assert result.exit_code == 2
     out = " ".join(result.output.split())
-    assert "readiness is a choice question; its distribution is recorded automatically, do not label it" in out
+    assert (
+        "readiness is a choice question; its distribution is recorded automatically, do not label it"
+        in out
+    )
 
 
 def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
@@ -200,7 +206,9 @@ def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
             question_id="calrity",
             dry_run=True,
         )
-    assert "Question 'calrity' is not a valid score question in preset 'quality'" in str(excinfo_typo.value)
+    assert "Question 'calrity' is not a valid score question in preset 'quality'" in str(
+        excinfo_typo.value
+    )
     assert "Available score question(s): clarity" in str(excinfo_typo.value)
 
     # Noul question_id passed as score
@@ -211,7 +219,9 @@ def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
             question_id="has_secrets",
             dry_run=True,
         )
-    assert "Question 'has_secrets' is not a valid score question in preset 'safety'" in str(excinfo_noul.value)
+    assert "Question 'has_secrets' is not a valid score question in preset 'safety'" in str(
+        excinfo_noul.value
+    )
     assert "Available score question(s): confidentiality_risk" in str(excinfo_noul.value)
 
     # Preset without clarity and no question specified
@@ -222,7 +232,10 @@ def test_feasibility_check_question_validation_typo_and_noul(tmp_path):
             question_id=None,
             dry_run=True,
         )
-    assert "Preset 'safety' has no 'clarity' question. Specify a score question with --question." in str(excinfo_no_q.value)
+    assert (
+        "Preset 'safety' has no 'clarity' question. Specify a score question with --question."
+        in str(excinfo_no_q.value)
+    )
     assert "Available score question(s): confidentiality_risk" in str(excinfo_no_q.value)
 
 
@@ -238,7 +251,9 @@ def test_feasibility_check_with_tech_spec_no_score_questions(tmp_path):
             question_id="has_test_plan",
             dry_run=True,
         )
-    assert "Question 'has_test_plan' is not a valid score question in preset 'tech-spec'." in str(excinfo_q.value)
+    assert "Question 'has_test_plan' is not a valid score question in preset 'tech-spec'." in str(
+        excinfo_q.value
+    )
     assert "Available score question(s): none" in str(excinfo_q.value)
 
     # When question_id is omitted with tech-spec
@@ -249,6 +264,8 @@ def test_feasibility_check_with_tech_spec_no_score_questions(tmp_path):
             question_id=None,
             dry_run=True,
         )
-    assert "Preset 'tech-spec' has no 'clarity' question. Specify a score question with --question." in str(excinfo_no_q.value)
+    assert (
+        "Preset 'tech-spec' has no 'clarity' question. Specify a score question with --question."
+        in str(excinfo_no_q.value)
+    )
     assert "Available score question(s): none" in str(excinfo_no_q.value)
-

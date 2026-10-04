@@ -1,27 +1,26 @@
 """Command line interface for TypeSafe document evaluation and validation."""
 
-import sys
 import glob
+import sys
 from pathlib import Path
-from typing import List, Optional
 
 import click
 from rich.console import Console
 from rich.markup import escape
 
 from typesafe_eval import __version__
-from typesafe_eval.presets import load_preset, list_builtin_presets
+from typesafe_eval.baseline import compare_document_with_baseline, load_baseline
 from typesafe_eval.client import TypeSafeEvaluator
-from typesafe_eval.reporter import render_table, render_json, render_markdown
-from typesafe_eval.baseline import load_baseline, compare_document_with_baseline
+from typesafe_eval.presets import list_builtin_presets, load_preset
+from typesafe_eval.reporter import render_json, render_markdown, render_table
 from typesafe_eval.validator import (
+    generate_ablation_variants,
     load_labels_file,
-    validate_labels_preset,
-    run_validation,
-    render_validation_table,
     render_validation_json,
     render_validation_markdown,
-    generate_ablation_variants,
+    render_validation_table,
+    run_validation,
+    validate_labels_preset,
 )
 
 err_console = Console(stderr=True)
@@ -50,7 +49,7 @@ class DefaultGroup(click.Group):
     name="typesafe-eval",
     cls=DefaultGroup,
     default_if_no_match="eval",
-    context_settings=dict(help_option_names=["-h", "--help"]),
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 @click.version_option(version=__version__, prog_name="typesafe-eval")
 def main():
@@ -58,26 +57,31 @@ def main():
     pass
 
 
-@main.command(name="eval", context_settings=dict(help_option_names=["-h", "--help"]))
+@main.command(name="eval", context_settings={"help_option_names": ["-h", "--help"]})
 @click.argument("files", nargs=-1, type=str)
 @click.option(
-    "-p", "--preset",
+    "-p",
+    "--preset",
     default="quality",
     help=f"Built-in preset to use ({', '.join(list_builtin_presets())}). Default: quality.",
 )
 @click.option(
-    "-c", "--config",
+    "-c",
+    "--config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Custom YAML configuration file defining evaluation dimensions.",
 )
 @click.option(
-    "-f", "--format", "output_format",
+    "-f",
+    "--format",
+    "output_format",
     type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
     default="table",
     help="Output presentation format. Default: table.",
 )
 @click.option(
-    "-o", "--out",
+    "-o",
+    "--out",
     type=click.Path(dir_okay=False, path_type=Path),
     help="Save report output to specified file path.",
 )
@@ -119,17 +123,17 @@ def main():
     help="List all available built-in evaluation presets and exit.",
 )
 def eval_command(
-    files: List[str],
+    files: list[str],
     preset: str,
-    config: Optional[Path],
+    config: Path | None,
     output_format: str,
-    out: Optional[Path],
+    out: Path | None,
     mask_secrets: bool,
     max_chars: int,
     dry_run: bool,
-    api_key: Optional[str],
+    api_key: str | None,
     fail_on_threshold: bool,
-    baseline: Optional[Path],
+    baseline: Path | None,
     list_presets: bool,
 ):
     """Evaluate documents against quality, safety, or custom evaluation presets."""
@@ -147,7 +151,7 @@ def eval_command(
         sys.exit(2)
 
     # 1. Resolve matched files
-    resolved_paths: List[Path] = []
+    resolved_paths: list[Path] = []
     for pattern in files:
         if not glob.has_magic(pattern):
             p = Path(pattern)
@@ -164,7 +168,9 @@ def eval_command(
                     resolved_paths.append(p)
 
     if not resolved_paths:
-        err_console.print(f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}")
+        err_console.print(
+            f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"
+        )
         sys.exit(2)
 
     # 2. Load preset configuration
@@ -263,7 +269,7 @@ def eval_command(
         sys.exit(0)
 
 
-@main.command(name="validate", context_settings=dict(help_option_names=["-h", "--help"]))
+@main.command(name="validate", context_settings={"help_option_names": ["-h", "--help"]})
 @click.argument("labels_file", required=False, type=str)
 @click.option(
     "--runs",
@@ -272,13 +278,16 @@ def eval_command(
     help="Number of evaluation runs per document/pair (default: 3, or set in labels file).",
 )
 @click.option(
-    "-f", "--format", "output_format",
+    "-f",
+    "--format",
+    "output_format",
     type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
     default="table",
     help="Output presentation format. Default: table.",
 )
 @click.option(
-    "-o", "--out",
+    "-o",
+    "--out",
     type=click.Path(dir_okay=False, path_type=Path),
     help="Save report output to specified file path.",
 )
@@ -319,16 +328,16 @@ def eval_command(
     help="TypeSafe API key (falls back to TYPESAFE_API_KEY environment variable).",
 )
 def validate_command(
-    labels_file: Optional[str],
-    runs: Optional[int],
+    labels_file: str | None,
+    runs: int | None,
     output_format: str,
-    out: Optional[Path],
-    ablate: Optional[Path],
-    ablate_out_dir: Optional[Path],
+    out: Path | None,
+    ablate: Path | None,
+    ablate_out_dir: Path | None,
     ablate_preset: str,
-    ablate_labels_out: Optional[Path],
+    ablate_labels_out: Path | None,
     dry_run: bool,
-    api_key: Optional[str],
+    api_key: str | None,
     mask_secrets: bool = True,
 ):
     """Run validation across fixed test documents using a labels.yaml specification or generate ablation variants."""
@@ -348,7 +357,9 @@ def validate_command(
             target_labels_out = ablate_labels_out or out
             if target_labels_out:
                 target_labels_out.write_text(labels_yaml, encoding="utf-8")
-                err_console.print(f"[green]Labels configuration saved to:[/green] {target_labels_out}")
+                err_console.print(
+                    f"[green]Labels configuration saved to:[/green] {target_labels_out}"
+                )
             sys.exit(0)
         except Exception as e:
             err_console.print(f"[bold red]Ablation error:[/bold red] {e}")
@@ -485,10 +496,22 @@ CLAUDE_HOOK_CONFIG = """{
 """
 
 
-@main.command(name="init", context_settings=dict(help_option_names=["-h", "--help"]))
-@click.option("--pre-commit", "opt_pre_commit", is_flag=True, help="Configure .pre-commit-config.yaml hook.")
-@click.option("--claude-code", "opt_claude_code", is_flag=True, help="Configure Claude Code safety hook (hooks/hooks.json).")
-@click.option("--github-action", "opt_github_action", is_flag=True, help="Generate .github/workflows/typesafe-eval.yml.")
+@main.command(name="init", context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--pre-commit", "opt_pre_commit", is_flag=True, help="Configure .pre-commit-config.yaml hook."
+)
+@click.option(
+    "--claude-code",
+    "opt_claude_code",
+    is_flag=True,
+    help="Configure Claude Code safety hook (hooks/hooks.json).",
+)
+@click.option(
+    "--github-action",
+    "opt_github_action",
+    is_flag=True,
+    help="Generate .github/workflows/typesafe-eval.yml.",
+)
 @click.option("--all", "opt_all", is_flag=True, help="Set up all agent and CI integrations.")
 def init(
     opt_pre_commit: bool,

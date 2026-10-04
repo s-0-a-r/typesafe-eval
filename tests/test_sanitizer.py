@@ -1,7 +1,9 @@
 from pathlib import Path
+
 import pytest
 
-from typesafe_eval.sanitizer import mask_sensitive_data, guard_document_length
+from typesafe_eval.sanitizer import guard_document_length, mask_sensitive_data
+
 
 def test_mask_sensitive_data():
     raw = "My API key is apikey_abc1234567890abcdef123456 and email user@example.com."
@@ -11,6 +13,7 @@ def test_mask_sensitive_data():
     assert "user@example.com" not in masked
     assert "[REDACTED_API_KEY]" in masked
     assert "[EMAIL_1]" in masked
+
 
 def test_mask_sensitive_data_details():
     raw = (
@@ -34,6 +37,7 @@ def test_mask_sensitive_data_details():
     assert details["redacted_emails"][0]["domain_type"] == "corporate"
     assert details["redacted_emails"][1]["placeholder"] == "[EMAIL_2]"
     assert details["redacted_emails"][1]["domain_type"] == "free_mail"
+
 
 def test_mask_boundaries_and_placeholder_neutralization():
     # Boundary check: task-... and desk-... must not match sk- pattern
@@ -59,6 +63,7 @@ def test_mask_boundaries_and_placeholder_neutralization():
     assert "Bearer [EXAMPLE_TOKEN]" in masked_ph
     assert "[EXAMPLE_AWS_KEY]" in masked_ph
 
+
 def test_bearer_token_trailing_padding():
     # Issue #20: Trailing '=' padding must not leak outside redaction
     raw = "Authorization: Bearer abcDEF1234567890ghiJKL== next"
@@ -66,17 +71,21 @@ def test_bearer_token_trailing_padding():
     assert count == 1
     assert masked == "Authorization: Bearer [REDACTED_TOKEN] next"
 
+
 def test_classify_email_domain():
     # Issue #18: Free or personal domains should be classified as personal even with role-like local part
     from typesafe_eval.sanitizer import classify_email
+
     assert classify_email("support@gmail.com") == "personal"
     assert classify_email("admin@yahoo.com") == "personal"
     assert classify_email("support@company.com") == "role"
     assert classify_email("hanako.suzuki@acme-corp.com") == "personal"
 
+
 def test_generic_and_team_role_emails():
     # Issue #27: Common generic addresses and team affixes should be role emails
     from typesafe_eval.sanitizer import classify_email, mask_sensitive_data
+
     assert classify_email("hello@company.com") == "role"
     assert classify_email("hi@company.com") == "role"
     assert classify_email("notifications@company.com") == "role"
@@ -92,12 +101,15 @@ def test_generic_and_team_role_emails():
     assert classify_email("team@yahoo.com") == "personal"
 
     # Masking test
-    masked, count, details = mask_sensitive_data("Questions? Write to hello@company.com for help.", return_details=True)
+    masked, count, details = mask_sensitive_data(
+        "Questions? Write to hello@company.com for help.", return_details=True
+    )
     assert count == 1
     assert details["pii_role"] == 1
     assert details["pii_personal"] == 0
     assert "[EMAIL_1]" in masked
     assert "hello@company.com" not in masked
+
 
 def test_example_key_doc_snippet_regression():
     # Issue #17: Example key snippet from README/docs
@@ -117,11 +129,13 @@ def test_example_key_doc_snippet_regression():
     assert "[EXAMPLE_API_KEY]" in masked
     assert "apikey_your_api_key_here_1234567890" not in masked
 
+
 def test_guard_document_length_normal():
     text = "Short document content."
     processed, truncated = guard_document_length(text, max_chars=100)
     assert not truncated
     assert processed == text
+
 
 def test_guard_document_length_truncate():
     text = "A" * 500
@@ -130,8 +144,10 @@ def test_guard_document_length_truncate():
     assert len(processed) < 500
     assert "TRUNCATED" in processed
 
+
 def test_custom_role_email_glob_patterns():
     from typesafe_eval.sanitizer import classify_email, mask_sensitive_data
+
     patterns = ["helpdesk", "ops-*", "*-duty", "*-incident-*"]
 
     # Exact match
@@ -152,7 +168,9 @@ def test_custom_role_email_glob_patterns():
 
     # Masking with custom patterns
     doc = "For assistance reach out to ops-lead@company.com or john@company.com."
-    masked, count, details = mask_sensitive_data(doc, return_details=True, custom_role_patterns=patterns)
+    masked, count, details = mask_sensitive_data(
+        doc, return_details=True, custom_role_patterns=patterns
+    )
     assert count == 2
     assert details["pii_role"] == 1
     assert details["pii_personal"] == 1
@@ -164,6 +182,7 @@ def test_custom_role_email_glob_patterns():
 
 def test_chunk_text_within_limit():
     from typesafe_eval.sanitizer import chunk_text
+
     text = "Short document content."
     chunks = chunk_text(text, max_chars=100)
     assert chunks == [text]
@@ -171,6 +190,7 @@ def test_chunk_text_within_limit():
 
 def test_chunk_text_splits_with_overlap():
     from typesafe_eval.sanitizer import chunk_text
+
     paragraphs = [f"Paragraph {i}: " + ("x" * 100) for i in range(20)]
     text = "\n\n".join(paragraphs)
     chunks = chunk_text(text, max_chars=500, overlap=100)
@@ -184,6 +204,7 @@ def test_chunk_text_splits_with_overlap():
 
 def test_chunk_text_no_newlines():
     from typesafe_eval.sanitizer import chunk_text
+
     text = "a" * 1500
     chunks = chunk_text(text, max_chars=500, overlap=100)
     assert len(chunks) >= 3
@@ -192,26 +213,31 @@ def test_chunk_text_no_newlines():
 
 
 def test_chunk_text_invalid_max_chars():
-    from typesafe_eval.sanitizer import chunk_text
     import pytest
+
+    from typesafe_eval.sanitizer import chunk_text
+
     with pytest.raises(ValueError):
         chunk_text("some text", max_chars=0)
 
 
 def test_strip_html_comments_single_line():
     from typesafe_eval.sanitizer import strip_html_comments
+
     text = "Hello <!-- this is a single-line comment --> World"
     assert strip_html_comments(text) == "Hello  World"
 
 
 def test_strip_html_comments_multi_line():
     from typesafe_eval.sanitizer import strip_html_comments
+
     text = "Line 1\n<!--\nthis is a\nmulti-line\ncomment\n-->\nLine 2"
     assert strip_html_comments(text) == "Line 1\n\nLine 2"
 
 
 def test_strip_html_comments_fenced_block_kept():
     from typesafe_eval.sanitizer import strip_html_comments
+
     backtick_fence = "```python\n# <!-- comment in backticks -->\nx = 1\n```"
     assert strip_html_comments(backtick_fence) == backtick_fence
 
@@ -221,6 +247,7 @@ def test_strip_html_comments_fenced_block_kept():
 
 def test_strip_html_comments_inline_code_span_kept():
     from typesafe_eval.sanitizer import strip_html_comments
+
     single_tick = "Here is `<!-- not a comment -->` inline"
     assert strip_html_comments(single_tick) == single_tick
 
@@ -230,12 +257,14 @@ def test_strip_html_comments_inline_code_span_kept():
 
 def test_strip_html_comments_unclosed_kept():
     from typesafe_eval.sanitizer import strip_html_comments
+
     text = "Hello <!-- unclosed comment without end"
     assert strip_html_comments(text) == text
 
 
 def test_strip_html_comments_no_comments_unchanged():
     from typesafe_eval.sanitizer import strip_html_comments
+
     text = "# Title\n\nThis is a standard document with no comments."
     assert strip_html_comments(text) == text
 
@@ -245,7 +274,7 @@ def test_consecutive_chunks_overlap():
     from typesafe_eval.sanitizer import chunk_text
 
     # 1. Defaults on long text
-    long_text = ("Section Heading\n\nParagraph text line.\n" * 2000)
+    long_text = "Section Heading\n\nParagraph text line.\n" * 2000
     chunks_default = chunk_text(long_text)
     assert len(chunks_default) > 1
     for i in range(len(chunks_default) - 1):
@@ -282,12 +311,16 @@ def test_default_chunks_start_at_line_boundaries():
 )
 def test_every_redacted_placeholder_has_raw_mapping_when_unmasked(path):
     """client._item_in_text relies on this: with mask=False every placeholder in redacted_* has raw values."""
-    _, _, details = mask_sensitive_data(path.read_text(encoding="utf-8"), mask=False, return_details=True)
+    _, _, details = mask_sensitive_data(
+        path.read_text(encoding="utf-8"), mask=False, return_details=True
+    )
     raw_mapping = details["_raw_mapping"]
-    for key in ("redacted_emails", "redacted_phones", "redacted_ips", "redacted_urls", "redacted_secrets"):
+    for key in (
+        "redacted_emails",
+        "redacted_phones",
+        "redacted_ips",
+        "redacted_urls",
+        "redacted_secrets",
+    ):
         for feat in details[key]:
             assert raw_mapping.get(feat["placeholder"]), (key, feat["placeholder"])
-
-
-
-

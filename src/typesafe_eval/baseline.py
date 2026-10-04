@@ -5,16 +5,15 @@ Implements `--baseline` per Issue #39.
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 
-from typesafe_eval.models import DocumentEvalResult, PresetConfig, BaselineDiff, QuestionDiff
+from typesafe_eval.models import BaselineDiff, DocumentEvalResult, PresetConfig, QuestionDiff
 
 
-def _norm_preset(name: Optional[str]) -> str:
+def _norm_preset(name: str | None) -> str:
     return name.lower().replace("-", "_") if name else ""
 
 
-def _check_comparable(doc: DocumentEvalResult, preset_name: Optional[str]) -> None:
+def _check_comparable(doc: DocumentEvalResult, preset_name: str | None) -> None:
     """Raises ValueError if a baseline document cannot be compared with a run of preset_name.
 
     preset_name=None skips the preset check (the dry-run check always applies).
@@ -32,9 +31,9 @@ def _check_comparable(doc: DocumentEvalResult, preset_name: Optional[str]) -> No
 
 
 def load_baseline(
-    baseline_path: Union[str, Path],
-    expected_preset: Optional[str] = None,
-) -> Dict[str, DocumentEvalResult]:
+    baseline_path: str | Path,
+    expected_preset: str | None = None,
+) -> dict[str, DocumentEvalResult]:
     """Loads a previous evaluation report JSON and returns an indexed lookup map."""
     path = Path(baseline_path)
     if not path.is_file():
@@ -44,21 +43,23 @@ def load_baseline(
     try:
         data = json.loads(raw_text)
     except Exception as e:
-        raise ValueError(f"Failed to parse baseline JSON {path}: {e}")
+        raise ValueError(f"Failed to parse baseline JSON {path}: {e}") from e
 
     if isinstance(data, dict):
         items = [data]
     elif isinstance(data, list):
         items = data
     else:
-        raise ValueError(f"Invalid baseline report structure in {path}: expected JSON list or object")
+        raise ValueError(
+            f"Invalid baseline report structure in {path}: expected JSON list or object"
+        )
 
-    lookup: Dict[str, DocumentEvalResult] = {}
+    lookup: dict[str, DocumentEvalResult] = {}
     for item in items:
         try:
             doc_res = DocumentEvalResult(**item)
         except Exception as e:
-            raise ValueError(f"Invalid document result in baseline {path}: {e}")
+            raise ValueError(f"Invalid document result in baseline {path}: {e}") from e
 
         _check_comparable(doc_res, expected_preset)
 
@@ -75,12 +76,12 @@ def load_baseline(
 
 def compare_document_with_baseline(
     result: DocumentEvalResult,
-    baseline_lookup: Dict[str, DocumentEvalResult],
+    baseline_lookup: dict[str, DocumentEvalResult],
     preset: PresetConfig,
     default_max_drop: float = 0.10,
-) -> Tuple[DocumentEvalResult, bool, Optional[str]]:
+) -> tuple[DocumentEvalResult, bool, str | None]:
     """Compares a current document result with its baseline counterpart.
-    
+
     Returns (updated_result, has_regression, optional_truncation_warning).
     """
     # 1. Direct match by exact filepath or resolved absolute path
@@ -121,7 +122,7 @@ def compare_document_with_baseline(
     _check_comparable(prev, preset.name)
 
     # Check truncation mismatch
-    trunc_mismatch = (prev.was_truncated != result.was_truncated)
+    trunc_mismatch = prev.was_truncated != result.was_truncated
     warning_msg = None
     if trunc_mismatch:
         warning_msg = (
@@ -131,19 +132,22 @@ def compare_document_with_baseline(
         )
 
     has_regression = False
-    diff_questions: Dict[str, QuestionDiff] = {}
+    diff_questions: dict[str, QuestionDiff] = {}
 
     for q_id, q_cfg in preset.questions.items():
         threshold = q_cfg.max_drop if (q_cfg and q_cfg.max_drop is not None) else default_max_drop
 
-        curr_val: Optional[float] = None
-        prev_val: Optional[float] = None
+        curr_val: float | None = None
+        prev_val: float | None = None
 
         if q_id in result.scores and q_id in prev.scores:
             curr_val = result.scores[q_id].normalized_score
             prev_val = prev.scores[q_id].normalized_score
         elif q_id in result.nouls and q_id in prev.nouls:
-            if result.nouls[q_id].probability is not None and prev.nouls[q_id].probability is not None:
+            if (
+                result.nouls[q_id].probability is not None
+                and prev.nouls[q_id].probability is not None
+            ):
                 curr_val = result.nouls[q_id].probability
                 prev_val = prev.nouls[q_id].probability
 
