@@ -573,5 +573,55 @@ def init(
     sys.exit(0)
 
 
+@main.command(name="schema", context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "-t",
+    "--type",
+    "schema_type",
+    type=click.Choice(["preset", "labels"], case_sensitive=False),
+    default="preset",
+    help="Schema target type ('preset' for evaluation config YAML, 'labels' for validation labels YAML). Default: preset.",
+)
+@click.option(
+    "-o",
+    "--out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Save JSON schema output to specified file path.",
+)
+@click.option(
+    "--indent",
+    type=int,
+    default=2,
+    help="Indentation spaces for JSON formatting. Default: 2.",
+)
+def schema(schema_type: str, out: Path | None, indent: int):
+    """Outputs JSON Schema for configuration and presets (enables IDE autocomplete)."""
+    import json
+
+    from typesafe_eval.models import PresetConfig
+    from typesafe_eval.validator import ValidationLabelsConfig
+
+    if schema_type.lower() == "labels":
+        schema_dict = ValidationLabelsConfig.model_json_schema()
+        schema_dict["title"] = "TypeSafeEvalValidationLabels"
+        schema_dict["description"] = (
+            "JSON Schema for typesafe-eval ground-truth labels specification (labels.yaml)."
+        )
+    else:
+        schema_dict = PresetConfig.model_json_schema()
+        schema_dict["title"] = "TypeSafeEvalPresetConfig"
+        schema_dict["description"] = (
+            "JSON Schema for typesafe-eval evaluation preset and configuration YAML files."
+        )
+
+    json_str = json.dumps(schema_dict, indent=indent)
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json_str + "\n", encoding="utf-8")
+        click.echo(f"✓ JSON Schema saved to {out}")
+    else:
+        click.echo(json_str)
+
+
 if __name__ == "__main__":
     main()
