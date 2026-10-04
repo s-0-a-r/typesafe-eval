@@ -33,9 +33,11 @@ def test_pyproject_sdist_configuration():
 
         assert "src" in only_include, "sdist must include 'src'"
         assert "tests" in only_include, "sdist should include 'tests' for downstream testing"
+        assert "scripts" in only_include, "sdist must include 'scripts' for test dependencies"
+        assert "hooks" in only_include, "sdist must include 'hooks' for test dependencies"
 
         # Ensure heavy/internal directories are never included in only-include
-        forbidden = ["validation", ".github", ".agents", "skills", "scripts", "hooks"]
+        forbidden = ["validation", ".github", ".agents", "skills"]
         for item in forbidden:
             assert item not in only_include, f"sdist only-include must not contain '{item}'"
     else:

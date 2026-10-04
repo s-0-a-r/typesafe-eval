@@ -451,14 +451,14 @@ def validate_command(
         sys.exit(0)
 
 
-PRE_COMMIT_SNIPPET = """  - repo: https://github.com/s-0-a-r/typesafe-eval
-    rev: v0.6.0
+PRE_COMMIT_SNIPPET = f"""  - repo: https://github.com/s-0-a-r/typesafe-eval
+    rev: v{__version__}
     hooks:
       - id: typesafe-eval
         args: [--preset, safety]
 """
 
-GITHUB_ACTION_WORKFLOW = """name: TypeSafe Evaluation Gate
+GITHUB_ACTION_WORKFLOW = f"""name: TypeSafe Evaluation Gate
 
 on:
   pull_request:
@@ -476,11 +476,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run typesafe-eval safety gate
-        uses: s-0-a-r/typesafe-eval@v0.6.0
+        uses: s-0-a-r/typesafe-eval@v{__version__}
         with:
           preset: safety
         env:
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          TYPESAFE_API_KEY: ${{{{ secrets.TYPESAFE_API_KEY }}}}
 """
 
 CLAUDE_HOOK_CONFIG = """{

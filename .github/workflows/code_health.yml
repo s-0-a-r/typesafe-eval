@@ -18,6 +18,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Switch to active release branch
+        run: |
+          TARGET_BRANCH=$(git branch -r --list 'origin/release/v*' | sed 's#origin/##' | sort -V | tail -n 1 | tr -d ' ')
+          if [ -n "$TARGET_BRANCH" ]; then
+            echo "Switching to active release branch: $TARGET_BRANCH"
+            git checkout "$TARGET_BRANCH"
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
