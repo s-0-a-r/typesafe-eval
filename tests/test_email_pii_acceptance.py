@@ -9,21 +9,25 @@ Verifies fixtures 1-12 from Issue #30:
 - DocumentEvalResult tracks full email_evaluations without leaking raw addresses.
 """
 
-import os
 from unittest.mock import MagicMock
+
 import pytest
 
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
 from typesafe_eval.sanitizer import (
-    mask_sensitive_data,
     extract_email_features,
-    detect_local_part_shape,
+    mask_sensitive_data,
 )
 
 FIXTURES = [
     # #, document, expected_per_email, expected_verdict
-    (1, "Please forward the contract draft to taro.yamada1987@gmail.com before Friday.", ["personal"], False),
+    (
+        1,
+        "Please forward the contract draft to taro.yamada1987@gmail.com before Friday.",
+        ["personal"],
+        False,
+    ),
     (2, "Please forward the contract draft to legal@acme-corp.com before Friday.", ["role"], True),
     (3, "Questions? Write to hello@acme-corp.com.", ["role"], True),
     (4, "Contact our helpdesk at helpdesk@acme-corp.com.", ["role"], True),
@@ -32,10 +36,16 @@ FIXTURES = [
     (7, "担当の山田 <yamada@acme-corp.co.jp> までご連絡ください。", ["personal"], False),
     (8, "サポート窓口 <support@acme-corp.co.jp> までお問い合わせください。", ["role"], True),
     (9, "Our support team uses support@gmail.com.", ["personal"], False),
-    (10, "Ask the helpdesk (helpdesk@acme-corp.com) or Hanako directly (hanako@acme-corp.com).", ["role", "personal"], False),
+    (
+        10,
+        "Ask the helpdesk (helpdesk@acme-corp.com) or Hanako directly (hanako@acme-corp.com).",
+        ["role", "personal"],
+        False,
+    ),
     (11, "Alerts are sent from notifications@acme-corp.com.", ["role"], True),
     (12, "Forward to yamada@acme-corp.com.", ["undecided"], None),
 ]
+
 
 def test_extract_email_features_and_shape():
     f1 = extract_email_features("taro.yamada1987@gmail.com")
@@ -59,6 +69,7 @@ def test_extract_email_features_and_shape():
     # helpdesk is not in built-in role list, but Jev will judge context
     assert f4["known_role_word"] is False
 
+
 def test_numbered_placeholders_and_case_normalization():
     # Legal@ and legal@ must map to the same [EMAIL_1]
     doc = "Contact Legal@Acme.com or legal@acme.com or HR-team@acme.com."
@@ -71,6 +82,7 @@ def test_numbered_placeholders_and_case_normalization():
     assert details["redacted_emails"][0]["placeholder"] == "[EMAIL_1]"
     assert details["redacted_emails"][1]["placeholder"] == "[EMAIL_2]"
 
+
 def test_free_mail_deterministic_gating(tmp_path):
     # Free-mail must fail deterministically without dynamic questions
     doc_path = tmp_path / "doc.txt"
@@ -81,10 +93,14 @@ def test_free_mail_deterministic_gating(tmp_path):
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     # Model's has_pii returns 0.05, but free-mail must still trigger a PII violation
     mock_resp.nouls = {"has_secrets": MagicMock(noul=0.01), "has_pii": MagicMock(noul=0.05)}
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -102,24 +118,32 @@ def test_free_mail_deterministic_gating(tmp_path):
     assert result.email_evaluations[0].decided_by == "free_mail"
     assert result.email_evaluations[0].probability is None
 
+
 def test_corporate_email_dynamic_noul_and_composite_isolation(tmp_path):
     # Two corporate emails: helpdesk (role: prob 0.03) and hanako (personal: prob 0.84)
     doc_path = tmp_path / "doc.txt"
-    doc_path.write_text("Ask the helpdesk (helpdesk@acme-corp.com) or Hanako directly (hanako@acme-corp.com).", encoding="utf-8")
+    doc_path.write_text(
+        "Ask the helpdesk (helpdesk@acme-corp.com) or Hanako directly (hanako@acme-corp.com).",
+        encoding="utf-8",
+    )
 
     preset = load_preset("safety")
     evaluator = TypeSafeEvaluator(api_key="mock-key")
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {
         "has_secrets": MagicMock(noul=0.01),
         "has_pii": MagicMock(noul=0.05),
         "email_pii_1": MagicMock(noul=0.03),  # helpdesk -> role (< 0.5)
         "email_pii_2": MagicMock(noul=0.84),  # hanako -> personal (>= 0.5)
     }
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -152,8 +176,11 @@ def test_corporate_email_dynamic_noul_and_composite_isolation(tmp_path):
     # In safety preset, questions have no weight, so composite_score is None (unaffected by email questions)
     assert result.composite_score is None
 
+
 @pytest.mark.parametrize("idx,doc_text,expected_per_email,expected_verdict", FIXTURES[:11])
-def test_acceptance_fixtures_evaluation(tmp_path, idx, doc_text, expected_per_email, expected_verdict):
+def test_acceptance_fixtures_evaluation(
+    tmp_path, idx, doc_text, expected_per_email, expected_verdict
+):
     # Simulated calibrated Jev probabilities from Issue #30 baseline:
     # 1: free-mail
     # 2: legal -> 0.08
@@ -186,7 +213,9 @@ def test_acceptance_fixtures_evaluation(tmp_path, idx, doc_text, expected_per_em
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {
         "has_secrets": MagicMock(noul=0.01),
         "has_pii": MagicMock(noul=0.05),
@@ -195,7 +224,9 @@ def test_acceptance_fixtures_evaluation(tmp_path, idx, doc_text, expected_per_em
         for i, p in enumerate(mock_prob_map[idx], 1):
             mock_resp.nouls[f"email_pii_{i}"] = MagicMock(noul=p)
 
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -222,7 +253,9 @@ def test_email_pii_dry_run_returns_mock_true_and_na_verdict(tmp_path):
     assert res.violations == []
 
     from click.testing import CliRunner
+
     from typesafe_eval.cli import main
+
     runner = CliRunner()
     cli_res = runner.invoke(main, [str(doc_file), "--preset", "safety", "--dry-run"])
     assert cli_res.exit_code == 0

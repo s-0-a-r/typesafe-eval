@@ -14,11 +14,16 @@ Then run fetch_pr_bodies.py for the PR descriptions, and build_pairs.py to rebui
 import hashlib
 import json
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-MANIFESTS = ["manifest_article_ja.json", "manifest_design_doc_en.json", "manifest_design_doc_ja.json"]
+MANIFESTS = [
+    "manifest_article_ja.json",
+    "manifest_design_doc_en.json",
+    "manifest_design_doc_ja.json",
+]
 
 
 def sha(text):
@@ -27,7 +32,11 @@ def sha(text):
 
 def fetch(repo, path, ref):
     url = f"https://raw.githubusercontent.com/{repo}/{ref}/{path}"
-    with urllib.request.urlopen(url, timeout=30) as res:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Insecure scheme: {parsed.scheme}")
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=30) as res:
         return res.read().decode("utf-8").replace("\r\n", "\n")
 
 
@@ -47,7 +56,9 @@ def main():
                 continue
             ok = sha(before) == r["sha256_before"] and sha(after) == r["sha256_after"]
             if not ok and not force:
-                print(f"CHANGED {r['doc_id']}: the fetched text differs from the corpus (use --force to write anyway)")
+                print(
+                    f"CHANGED {r['doc_id']}: the fetched text differs from the corpus (use --force to write anyway)"
+                )
                 failed += 1
                 continue
             d.mkdir(parents=True, exist_ok=True)

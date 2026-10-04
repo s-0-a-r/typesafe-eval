@@ -2,18 +2,17 @@
 
 import json
 from pathlib import Path
-from click.testing import CliRunner
+
 import pytest
 
-from typesafe_eval.cli import main
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
 from typesafe_eval.sanitizer import (
-    mask_sensitive_data,
-    extract_phone_features,
     extract_ip_features,
-    extract_url_features,
+    extract_phone_features,
     extract_secret_features,
+    extract_url_features,
+    mask_sensitive_data,
 )
 
 
@@ -26,7 +25,9 @@ def test_phone_features():
     f_0800 = extract_phone_features("0800-888-9999")
     assert f_0800["looks_like_support"] is True
 
-    f_switchboard = extract_phone_features("03-3500-1111", surrounding_text="Headquarters switchboard (代表)")
+    f_switchboard = extract_phone_features(
+        "03-3500-1111", surrounding_text="Headquarters switchboard (代表)"
+    )
     assert f_switchboard["looks_like_support"] is True
 
     f_us_support = extract_phone_features("1-800-555-0199", surrounding_text="US Toll Free Support")
@@ -34,13 +35,17 @@ def test_phone_features():
     assert f_us_support["country_format"] == "US"
 
     # Personal mobile numbers
-    f_090 = extract_phone_features("090-1234-5678", surrounding_text="Call Taro at his personal cell")
+    f_090 = extract_phone_features(
+        "090-1234-5678", surrounding_text="Call Taro at his personal cell"
+    )
     assert f_090["looks_like_support"] is False
 
     f_080 = extract_phone_features("080-9876-5432")
     assert f_080["looks_like_support"] is False
 
-    f_us_direct = extract_phone_features("+1-415-555-2671", surrounding_text="Direct line to John Doe")
+    f_us_direct = extract_phone_features(
+        "+1-415-555-2671", surrounding_text="Direct line to John Doe"
+    )
     assert f_us_direct["looks_like_support"] is False
 
 
@@ -185,7 +190,9 @@ def test_decoupled_masking_no_mask_flag(tmp_path):
     assert "hunter2" not in json.dumps(details, default=str)
 
     # Unmasked (--no-mask): raw text is preserved, count is 0, but details are fully extracted
-    unmasked, count_unmasked, details_unmasked = mask_sensitive_data(raw, mask=False, return_details=True)
+    unmasked, count_unmasked, details_unmasked = mask_sensitive_data(
+        raw, mask=False, return_details=True
+    )
     assert count_unmasked == 0
     assert unmasked == raw
     assert len(details_unmasked["redacted_phones"]) == 1
@@ -201,14 +208,19 @@ def test_support_gmail_personal_by_rule_with_no_mask(tmp_path):
     doc.write_text("Our support team uses support@gmail.com for help.", encoding="utf-8")
 
     from unittest.mock import MagicMock
+
     evaluator = TypeSafeEvaluator(api_key="mock-key")
     preset = load_preset("safety")
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {"has_secrets": MagicMock(noul=0.01), "has_pii": MagicMock(noul=0.05)}
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -238,6 +250,7 @@ def test_all_40_fixtures_match_dry_run_mock_rules(tmp_path):
     """
     fixtures_dir = Path("tests/fixtures/pii_secrets")
     import yaml
+
     labels = yaml.safe_load((fixtures_dir / "labels.yaml").read_text(encoding="utf-8"))
 
     evaluator = TypeSafeEvaluator()
@@ -248,11 +261,16 @@ def test_all_40_fixtures_match_dry_run_mock_rules(tmp_path):
         expect = doc_item["expect"]
 
         # Run masked
-        res_masked = evaluator.evaluate_document(str(path), preset=preset, mask_secrets=True, dry_run=True)
+        res_masked = evaluator.evaluate_document(
+            str(path), preset=preset, mask_secrets=True, dry_run=True
+        )
         # Run unmasked (--no-mask)
-        res_unmasked = evaluator.evaluate_document(str(path), preset=preset, mask_secrets=False, dry_run=True)
+        res_unmasked = evaluator.evaluate_document(
+            str(path), preset=preset, mask_secrets=False, dry_run=True
+        )
 
         for q_id, exp_verdict in expect.items():
+
             def is_present(res):
                 q_cfg = preset.questions[q_id]
                 thresh = q_cfg.max_threshold if q_cfg.max_threshold is not None else 0.5
@@ -268,18 +286,26 @@ def test_all_40_fixtures_match_dry_run_mock_rules(tmp_path):
                     has_cand = any(s.outcome == "secret" for s in res.secret_evaluations)
                 noul_obj = res.nouls.get(q_id)
                 is_preflight = noul_obj and noul_obj.overridden_by is not None
-                doc_present = noul_obj and noul_obj.probability is not None and noul_obj.probability > thresh
+                doc_present = (
+                    noul_obj and noul_obj.probability is not None and noul_obj.probability > thresh
+                )
                 return has_cand or is_preflight or doc_present
 
             pres_masked = is_present(res_masked)
             pres_unmasked = is_present(res_unmasked)
 
             if exp_verdict == "absent":
-                assert not pres_masked, f"Masked {doc_item['path']} {q_id} expected absent, was present"
-                assert not pres_unmasked, f"Unmasked {doc_item['path']} {q_id} expected absent, was present"
+                assert not pres_masked, (
+                    f"Masked {doc_item['path']} {q_id} expected absent, was present"
+                )
+                assert not pres_unmasked, (
+                    f"Unmasked {doc_item['path']} {q_id} expected absent, was present"
+                )
             else:
                 assert pres_masked, f"Masked {doc_item['path']} {q_id} expected present, was absent"
-                assert pres_unmasked, f"Unmasked {doc_item['path']} {q_id} expected present, was absent"
+                assert pres_unmasked, (
+                    f"Unmasked {doc_item['path']} {q_id} expected present, was absent"
+                )
 
 
 def test_no_raw_values_in_state_outside_text_when_masking_on(tmp_path):
@@ -315,7 +341,9 @@ Legacy note: the password is {raw_secret_prose}
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {
         "has_secrets": MagicMock(noul=0.1),
         "has_pii": MagicMock(noul=0.1),
@@ -325,7 +353,9 @@ Legacy note: the password is {raw_secret_prose}
         "url_pii_1": MagicMock(noul=0.8),
         "secret_1": MagicMock(noul=0.8),
     }
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -366,8 +396,12 @@ Legacy note: the password is {raw_secret_prose}
     ]
 
     for token in sensitive_tokens:
-        assert token not in state_serialized, f"Sensitive token '{token}' leaked into state outside text: {state_serialized}"
-        assert token not in questions_serialized, f"Sensitive token '{token}' leaked into question instructions: {questions_serialized}"
+        assert token not in state_serialized, (
+            f"Sensitive token '{token}' leaked into state outside text: {state_serialized}"
+        )
+        assert token not in questions_serialized, (
+            f"Sensitive token '{token}' leaked into question instructions: {questions_serialized}"
+        )
 
     # 3. Verify URL feature structure has derived features only (no domain)
     assert "redacted_urls" in state
@@ -387,21 +421,36 @@ def test_chunking_candidate_questions_per_call_masked_and_unmasked(tmp_path):
         def __init__(self):
             self.calls = []
             self.states = []
+
         def system_one(self, state, questions):
             self.calls.append(sorted(list(questions.keys())))
             self.states.append(state)
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
-            nouls = {q: NS(noul=0.1) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
+            nouls = {
+                q: NS(noul=0.1)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
+            }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
     doc = tmp_path / "long_doc.md"
     doc.write_text(
         "Contact taro.yamada@acme-corp.com or call +1-415-555-2671.\n\n"
-        + "A" * 30000 + "\n\n"
+        + "A" * 30000
+        + "\n\n"
         + "Visit http://internal-dashboard.corp.acme/metrics for details.\n\n"
-        + "B" * 30000 + "\n\n",
-        encoding="utf-8"
+        + "B" * 30000
+        + "\n\n",
+        encoding="utf-8",
     )
 
     safety = load_preset("safety")
@@ -416,14 +465,18 @@ def test_chunking_candidate_questions_per_call_masked_and_unmasked(tmp_path):
     ev_masked = TypeSafeEvaluator(api_key="mock")
     fake_masked = RecordingFakeClient()
     ev_masked._client = fake_masked
-    res_masked = ev_masked.evaluate_document(str(doc), preset=safety, mask_secrets=True, max_chars=25000)
+    res_masked = ev_masked.evaluate_document(
+        str(doc), preset=safety, mask_secrets=True, max_chars=25000
+    )
     assert fake_masked.calls == expected_calls
 
     # 2. Unmasked
     ev_unmasked = TypeSafeEvaluator(api_key="mock")
     fake_unmasked = RecordingFakeClient()
     ev_unmasked._client = fake_unmasked
-    res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=safety, mask_secrets=False, max_chars=25000)
+    res_unmasked = ev_unmasked.evaluate_document(
+        str(doc), preset=safety, mask_secrets=False, max_chars=25000
+    )
     assert fake_unmasked.calls == expected_calls
 
     # 3. Verify internal raw mapping does not leak into redaction_details or state, and email/phone don't leak outside text
@@ -447,13 +500,23 @@ def test_long_document_unmasked_candidate_evaluation_email_and_url(tmp_path):
         def __init__(self, target_prefix):
             self.target_prefix = target_prefix
             self.calls = []
+
         def system_one(self, state, questions):
             self.calls.append(list(questions.keys()))
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
             nouls = {
                 q: NS(noul=0.95 if q.startswith(self.target_prefix) else 0.05)
-                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
             }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
@@ -461,7 +524,10 @@ def test_long_document_unmasked_candidate_evaluation_email_and_url(tmp_path):
 
     # Email test
     doc_email = tmp_path / "long_email.md"
-    doc_email.write_text("Contact taro.yamada@acme-corp.com for access.\n\n" + ("filler paragraph text.\n\n" * 2000), encoding="utf-8")
+    doc_email.write_text(
+        "Contact taro.yamada@acme-corp.com for access.\n\n" + ("filler paragraph text.\n\n" * 2000),
+        encoding="utf-8",
+    )
     for mask in (True, False):
         ev = TypeSafeEvaluator(api_key="mock")
         ev._client = MockClient(target_prefix="email_pii")
@@ -473,7 +539,11 @@ def test_long_document_unmasked_candidate_evaluation_email_and_url(tmp_path):
 
     # Internal URL test
     doc_url = tmp_path / "long_url.md"
-    doc_url.write_text("Visit http://internal-dashboard.corp.acme/metrics for access.\n\n" + ("filler paragraph text.\n\n" * 2000), encoding="utf-8")
+    doc_url.write_text(
+        "Visit http://internal-dashboard.corp.acme/metrics for access.\n\n"
+        + ("filler paragraph text.\n\n" * 2000),
+        encoding="utf-8",
+    )
     for mask in (True, False):
         ev = TypeSafeEvaluator(api_key="mock")
         ev._client = MockClient(target_prefix="url_pii")
@@ -492,18 +562,34 @@ def test_delimiter_matching_ip_substring_unmasked(tmp_path):
 
     FILL = "filler text here.\n\n" * 1500
     doc = tmp_path / "ip_test.md"
-    doc.write_text(f"Doc sample IP 10.0.0.1 in example.\n\n{FILL}Prod DB at 10.0.0.15.\n", encoding="utf-8")
+    doc.write_text(
+        f"Doc sample IP 10.0.0.1 in example.\n\n{FILL}Prod DB at 10.0.0.15.\n", encoding="utf-8"
+    )
 
     class RecordingFake:
         def __init__(self):
             self.calls = []
+
         def system_one(self, state, questions):
             self.calls.append(sorted(questions.keys()))
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
             nouls = {
-                q: NS(noul=0.9 if (q.startswith("ip_") and "Prod DB" in state.get("document", "")) else 0.1)
-                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+                q: NS(
+                    noul=0.9
+                    if (q.startswith("ip_") and "Prod DB" in state.get("document", ""))
+                    else 0.1
+                )
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
             }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
@@ -521,7 +607,9 @@ def test_delimiter_matching_ip_substring_unmasked(tmp_path):
 
     assert fake_masked.calls == fake_unmasked.calls
     masked_outcomes = [(e.placeholder, e.outcome, e.probability) for e in res_masked.ip_evaluations]
-    unmasked_outcomes = [(e.placeholder, e.outcome, e.probability) for e in res_unmasked.ip_evaluations]
+    unmasked_outcomes = [
+        (e.placeholder, e.outcome, e.probability) for e in res_unmasked.ip_evaluations
+    ]
     assert masked_outcomes == unmasked_outcomes
     assert masked_outcomes == [("[IP_1]", "safe", 0.1), ("[IP_2]", "sensitive", 0.9)]
 
@@ -534,18 +622,34 @@ def test_delimiter_matching_secret_substring_unmasked(tmp_path):
 
     FILL = "filler text here.\n\n" * 1500
     doc = tmp_path / "secret_test.md"
-    doc.write_text(f"Config: password=1 in setup.\n\n{FILL}Release Version 1 notes.\n", encoding="utf-8")
+    doc.write_text(
+        f"Config: password=1 in setup.\n\n{FILL}Release Version 1 notes.\n", encoding="utf-8"
+    )
 
     class RecordingFake:
         def __init__(self):
             self.calls = []
+
         def system_one(self, state, questions):
             self.calls.append(sorted(questions.keys()))
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
             nouls = {
-                q: NS(noul=0.9 if (q.startswith("secret_") and "Version 1" in state.get("document", "")) else 0.1)
-                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+                q: NS(
+                    noul=0.9
+                    if (q.startswith("secret_") and "Version 1" in state.get("document", ""))
+                    else 0.1
+                )
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
             }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
@@ -562,8 +666,12 @@ def test_delimiter_matching_secret_substring_unmasked(tmp_path):
     res_unmasked = ev_unmasked.evaluate_document(str(doc), preset=preset, mask_secrets=False)
 
     assert fake_masked.calls == fake_unmasked.calls
-    masked_outcomes = [(s.placeholder, s.outcome, s.probability) for s in res_masked.secret_evaluations]
-    unmasked_outcomes = [(s.placeholder, s.outcome, s.probability) for s in res_unmasked.secret_evaluations]
+    masked_outcomes = [
+        (s.placeholder, s.outcome, s.probability) for s in res_masked.secret_evaluations
+    ]
+    unmasked_outcomes = [
+        (s.placeholder, s.outcome, s.probability) for s in res_unmasked.secret_evaluations
+    ]
     assert masked_outcomes == unmasked_outcomes
     assert len(masked_outcomes) == 1
     assert masked_outcomes[0] == ("[SECRET_1]", "safe", 0.1)
@@ -581,12 +689,21 @@ def test_candidate_omitted_raises(tmp_path, long, mask):
 
     class DropCandidateClient:
         def system_one(self, state, questions):
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
             nouls = {
                 q: NS(noul=0.05)
                 for q in questions
-                if q not in ("confidentiality_risk", "policy_compliance") and not q.startswith("email_pii")
+                if q not in ("confidentiality_risk", "policy_compliance")
+                and not q.startswith("email_pii")
             }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
@@ -608,9 +725,18 @@ def test_chunk_single_omitted_question_raises(tmp_path):
     class DropInSecondChunkClient:
         def __init__(self):
             self.call_count = 0
+
         def system_one(self, state, questions):
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
             if "has_pii" in questions:
                 self.call_count += 1
             # If chunk 2, omit has_pii
@@ -641,9 +767,21 @@ def test_missing_score_choice_raises(tmp_path, q, long):
 
     class DropClient:
         def system_one(self, state, questions):
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk" and k != q}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance" and k != q}
-            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance") and k != q}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk" and k != q
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance" and k != q
+            }
+            no = {
+                k: NS(noul=0.05)
+                for k in questions
+                if k not in ("confidentiality_risk", "policy_compliance") and k != q
+            }
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
     ev = TypeSafeEvaluator(api_key="mock")
@@ -662,9 +800,21 @@ def test_chunked_cred_override_when_model_omits(tmp_path):
 
     class DropSecretsClient:
         def system_one(self, state, questions):
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
-            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance") and k != "has_secrets"}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
+            no = {
+                k: NS(noul=0.05)
+                for k in questions
+                if k not in ("confidentiality_risk", "policy_compliance") and k != "has_secrets"
+            }
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
     ev = TypeSafeEvaluator(api_key="mock")
@@ -686,12 +836,25 @@ def test_unmasked_chunk_state_has_features(tmp_path):
         def __init__(self):
             self.states = []
             self.calls = []
+
         def system_one(self, state, questions):
             self.states.append(state)
             self.calls.append(list(questions.keys()))
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
-            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance")}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
+            no = {
+                k: NS(noul=0.05)
+                for k in questions
+                if k not in ("confidentiality_risk", "policy_compliance")
+            }
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
     c = CaptureClient()
@@ -705,10 +868,13 @@ def test_unmasked_chunk_state_has_features(tmp_path):
     )
 
 
-@pytest.mark.parametrize("text,prefix,attr", [
-    ("Server at 10.1.2.3 internal host.\n\n", "ip_pii", "ip_evaluations"),
-    ("db_password=Xk9vLq2Tz8Wm\n\n", "secret", "secret_evaluations"),
-])
+@pytest.mark.parametrize(
+    "text,prefix,attr",
+    [
+        ("Server at 10.1.2.3 internal host.\n\n", "ip_pii", "ip_evaluations"),
+        ("db_password=Xk9vLq2Tz8Wm\n\n", "secret", "secret_evaluations"),
+    ],
+)
 def test_unmasked_long_ip_secret_candidates(tmp_path, text, prefix, attr):
     """IP and key=val secret candidates in a long unmasked document get the model probability."""
     from types import SimpleNamespace as NS
@@ -719,11 +885,20 @@ def test_unmasked_long_ip_secret_candidates(tmp_path, text, prefix, attr):
 
     class TargetHiClient:
         def system_one(self, state, questions):
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
             no = {
                 k: NS(noul=0.95 if k.startswith(prefix) else 0.05)
-                for k in questions if k not in ("confidentiality_risk", "policy_compliance")
+                for k in questions
+                if k not in ("confidentiality_risk", "policy_compliance")
             }
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
@@ -746,9 +921,21 @@ def test_raw_mapping_not_in_result(tmp_path, mask):
 
     class SimpleClient:
         def system_one(self, state, questions):
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
-            no = {k: NS(noul=0.05) for k in questions if k not in ("confidentiality_risk", "policy_compliance")}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
+            no = {
+                k: NS(noul=0.05)
+                for k in questions
+                if k not in ("confidentiality_risk", "policy_compliance")
+            }
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
     ev = TypeSafeEvaluator(api_key="mock")
@@ -759,15 +946,18 @@ def test_raw_mapping_not_in_result(tmp_path, mask):
         assert "taro.yamada@acme-corp.com" not in json.dumps(res.redaction_details, default=str)
 
 
-@pytest.mark.parametrize("text", [
-    "Owners: hanako@acme-corp.com/taro.yamada@acme-corp.com today.",
-    "Owner (cc/taro.yamada@acme-corp.com) today.",
-    "owner -taro.yamada@acme-corp.com",
-    "GET /users/taro.yamada@acme-corp.com/settings",
-    "link x/http://internal-dashboard.corp.acme/metrics",
-    "Prod DB subnet 10.1.2.3/24 internal.",
-    "Start with --password=Xk9vLq2Tz8Wm now.",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Owners: hanako@acme-corp.com/taro.yamada@acme-corp.com today.",
+        "Owner (cc/taro.yamada@acme-corp.com) today.",
+        "owner -taro.yamada@acme-corp.com",
+        "GET /users/taro.yamada@acme-corp.com/settings",
+        "link x/http://internal-dashboard.corp.acme/metrics",
+        "Prod DB subnet 10.1.2.3/24 internal.",
+        "Start with --password=Xk9vLq2Tz8Wm now.",
+    ],
+)
 def test_unmasked_delimiter_regression(tmp_path, text):
     """3a: Unmasked chunk matching accepts raw values adjacent to / or -."""
     from types import SimpleNamespace as NS
@@ -779,13 +969,27 @@ def test_unmasked_delimiter_regression(tmp_path, text):
     class RecordingFakeClient:
         def __init__(self):
             self.calls = []
+
         def system_one(self, state, questions):
             self.calls.append(sorted(list(questions.keys())))
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
             nouls = {
-                q: NS(noul=0.95 if any(q.startswith(p) for p in ("email_pii", "ip_pii", "url_pii", "secret")) else 0.05)
-                for q in questions if q not in ("confidentiality_risk", "policy_compliance")
+                q: NS(
+                    noul=0.95
+                    if any(q.startswith(p) for p in ("email_pii", "ip_pii", "url_pii", "secret"))
+                    else 0.05
+                )
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
             }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
@@ -798,7 +1002,12 @@ def test_unmasked_delimiter_regression(tmp_path, text):
         res = ev.evaluate_document(str(d), preset=preset, mask_secrets=mask)
         evs = [
             (e.placeholder, e.outcome, e.probability)
-            for attr in ("email_evaluations", "ip_evaluations", "url_evaluations", "secret_evaluations")
+            for attr in (
+                "email_evaluations",
+                "ip_evaluations",
+                "url_evaluations",
+                "secret_evaluations",
+            )
             for e in getattr(res, attr)
         ]
         results[mask] = (client.calls, res.passed_thresholds, evs)
@@ -807,11 +1016,14 @@ def test_unmasked_delimiter_regression(tmp_path, text):
     assert results[False][1] is False
 
 
-@pytest.mark.parametrize("val_a,val_b", [
-    ("taro@acme.co", "taro@acme.co.jp"),
-    ("taro@acme.com", "x.taro@acme.com"),
-    ("taro@acme.com", "dev-taro@acme.com"),
-])
+@pytest.mark.parametrize(
+    "val_a,val_b",
+    [
+        ("taro@acme.co", "taro@acme.co.jp"),
+        ("taro@acme.com", "x.taro@acme.com"),
+        ("taro@acme.com", "dev-taro@acme.com"),
+    ],
+)
 def test_substring_discrimination_across_chunks(tmp_path, val_a, val_b):
     """3b: Substring discrimination across chunks: masked and unmasked per-call question lists are equal."""
     from types import SimpleNamespace as NS
@@ -823,11 +1035,24 @@ def test_substring_discrimination_across_chunks(tmp_path, val_a, val_b):
     class RecordingFakeClient:
         def __init__(self):
             self.calls = []
+
         def system_one(self, state, questions):
             self.calls.append(sorted(list(questions.keys())))
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
-            nouls = {q: NS(noul=0.1) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
+            nouls = {
+                q: NS(noul=0.1)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
+            }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
     preset = load_preset("safety")
@@ -849,20 +1074,35 @@ def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
     some chunk or unplaced). The test forces it by patching `_in_chunk_helper`; the
     guard stays as a defensive check.
     """
-    from typesafe_eval import client as client_mod
     from types import SimpleNamespace as NS
+
+    from typesafe_eval import client as client_mod
 
     FILL = "filler paragraph text.\n\n" * 2000
     d = tmp_path / "doc.md"
     d.write_text("Contact taro.yamada@acme-corp.com\n\n" + FILL, encoding="utf-8")
 
-    monkeypatch.setattr(client_mod, "_in_chunk_helper", lambda placeholder, text, unplaced, item_in_text_fn: False)
+    monkeypatch.setattr(
+        client_mod, "_in_chunk_helper", lambda placeholder, text, unplaced, item_in_text_fn: False
+    )
 
     class FakeClient:
         def system_one(self, state, questions):
-            scores = {q: NS(score=0, confidence=0.9, probabilities={}) for q in questions if q == "confidentiality_risk"}
-            choices = {q: NS(choice="compliant", confidence=0.9, probabilities={}) for q in questions if q == "policy_compliance"}
-            nouls = {q: NS(noul=0.05) for q in questions if q not in ("confidentiality_risk", "policy_compliance")}
+            scores = {
+                q: NS(score=0, confidence=0.9, probabilities={})
+                for q in questions
+                if q == "confidentiality_risk"
+            }
+            choices = {
+                q: NS(choice="compliant", confidence=0.9, probabilities={})
+                for q in questions
+                if q == "policy_compliance"
+            }
+            nouls = {
+                q: NS(noul=0.05)
+                for q in questions
+                if q not in ("confidentiality_risk", "policy_compliance")
+            }
             return NS(usage=None, model="fake", scores=scores, choices=choices, nouls=nouls)
 
     preset = load_preset("safety")
@@ -875,6 +1115,7 @@ def test_candidate_never_asked_in_any_chunk_raises(tmp_path, monkeypatch):
 def test_chunked_pii_override_when_model_omits(tmp_path):
     """Chunked preflight exemption for a preflight: pii question omitted in every chunk."""
     from types import SimpleNamespace as NS
+
     from typesafe_eval.models import PresetConfig, QuestionConfig
 
     FILL = "filler paragraph text.\n\n" * 2000
@@ -884,7 +1125,11 @@ def test_chunked_pii_override_when_model_omits(tmp_path):
         name="custom_pii_guard",
         questions={
             "pii_gate": QuestionConfig(
-                type="noul", label="PII Check", instructions="Check for PII", preflight="pii", max_threshold=0.3
+                type="noul",
+                label="PII Check",
+                instructions="Check for PII",
+                preflight="pii",
+                max_threshold=0.3,
             )
         },
     )
@@ -917,11 +1162,24 @@ def test_long_quoted_secret_unplaced_candidate(tmp_path):
 
     class FakeClient:
         def system_one(self, state, questions):
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
             no = {
-                k: NS(noul=0.95 if any(k.startswith(p) for p in ("ip", "secret", "email", "phone", "url")) else 0.05)
-                for k in questions if k not in sc and k not in ch
+                k: NS(
+                    noul=0.95
+                    if any(k.startswith(p) for p in ("ip", "secret", "email", "phone", "url"))
+                    else 0.05
+                )
+                for k in questions
+                if k not in sc and k not in ch
             }
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
@@ -949,8 +1207,16 @@ def test_tiny_max_chars_masked_unplaced_candidate(tmp_path):
     class FakeClient:
         def system_one(self, state, questions):
             asked_questions.extend(questions.keys())
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
             no = {k: NS(noul=0.05) for k in questions if k not in sc and k not in ch}
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
@@ -980,8 +1246,16 @@ def test_unplaced_candidate_asked_and_in_state_for_every_chunk(tmp_path):
     class FakeClient:
         def system_one(self, state, questions):
             calls.append((state, set(questions)))
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
             no = {k: NS(noul=0.95) for k in questions if k not in sc and k not in ch}
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
@@ -1006,10 +1280,19 @@ def test_unmasked_chunk_state_placeholder_syntax_secret(tmp_path):
     class CaptureClient:
         def __init__(self):
             self.states = []
+
         def system_one(self, state, questions):
             self.states.append(state)
-            sc = {k: NS(score=0, confidence=0.9, probabilities={}) for k in questions if k == "confidentiality_risk"}
-            ch = {k: NS(choice="compliant", confidence=0.9, probabilities={}) for k in questions if k == "policy_compliance"}
+            sc = {
+                k: NS(score=0, confidence=0.9, probabilities={})
+                for k in questions
+                if k == "confidentiality_risk"
+            }
+            ch = {
+                k: NS(choice="compliant", confidence=0.9, probabilities={})
+                for k in questions
+                if k == "policy_compliance"
+            }
             no = {k: NS(noul=0.05) for k in questions if k not in sc and k not in ch}
             return NS(usage=None, model="f", scores=sc, choices=ch, nouls=no)
 
@@ -1024,7 +1307,3 @@ def test_unmasked_chunk_state_placeholder_syntax_secret(tmp_path):
 
     assert counts[True] == counts[False]
     assert any(c > 0 for c in counts[True])
-
-
-
-

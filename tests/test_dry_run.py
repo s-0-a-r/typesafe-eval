@@ -1,13 +1,13 @@
 """Comprehensive tests for Issue #45: Dry-run mock, verdict N/A, exit 0 for every preset."""
 
 import json
-from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
 from typesafe_eval.cli import main
 from typesafe_eval.client import TypeSafeEvaluator
-from typesafe_eval.presets import load_preset, list_builtin_presets
+from typesafe_eval.presets import list_builtin_presets, load_preset
 
 
 @pytest.mark.parametrize("preset_name", list_builtin_presets())
@@ -24,7 +24,9 @@ def test_dry_run_exit_0_for_every_builtin_preset(tmp_path, preset_name):
 
     runner = CliRunner()
     result = runner.invoke(main, [str(doc), "--preset", preset_name, "--dry-run"])
-    assert result.exit_code == 0, f"Preset {preset_name} failed with exit code {result.exit_code}: {result.output}"
+    assert result.exit_code == 0, (
+        f"Preset {preset_name} failed with exit code {result.exit_code}: {result.output}"
+    )
 
 
 def test_dry_run_table_shows_mock_and_verdict_na(tmp_path):
@@ -48,7 +50,9 @@ def test_dry_run_markdown_shows_mock_and_verdict_na(tmp_path):
     doc.write_text("# Test Document\nSample body.", encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "safety", "--dry-run", "--format", "markdown"])
+    result = runner.invoke(
+        main, [str(doc), "--preset", "safety", "--dry-run", "--format", "markdown"]
+    )
     assert result.exit_code == 0
     assert "# TypeSafe Evaluation Report (MOCK)" in result.output
     assert "**Mode:** MOCK (dry-run, no API calls made)" in result.output
@@ -66,7 +70,9 @@ def test_dry_run_json_has_mock_true_per_document(tmp_path):
     doc2.write_text("# Doc 2", encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc1), str(doc2), "--preset", "quality", "--dry-run", "--format", "json"])
+    result = runner.invoke(
+        main, [str(doc1), str(doc2), "--preset", "quality", "--dry-run", "--format", "json"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert len(data) == 2
@@ -81,7 +87,9 @@ def test_dry_run_usage_errors_still_exit_2(tmp_path):
     runner = CliRunner()
 
     # Non-existent file
-    res_nofile = runner.invoke(main, ["non_existent_file_xyz123.md", "--preset", "quality", "--dry-run"])
+    res_nofile = runner.invoke(
+        main, ["non_existent_file_xyz123.md", "--preset", "quality", "--dry-run"]
+    )
     assert res_nofile.exit_code == 2
 
     # Invalid preset
@@ -99,7 +107,9 @@ def test_evaluator_direct_dry_run():
     """Verify TypeSafeEvaluator.evaluate_document returns mock=True when dry_run=True."""
     evaluator = TypeSafeEvaluator()
     preset = load_preset("quality")
-    res = evaluator.evaluate_document("tests/fixtures/design_doc/en.md", preset=preset, dry_run=True)
+    res = evaluator.evaluate_document(
+        "tests/fixtures/design_doc/en.md", preset=preset, dry_run=True
+    )
     assert res.mock is True
     assert res.passed_thresholds is True
     assert res.violations == []

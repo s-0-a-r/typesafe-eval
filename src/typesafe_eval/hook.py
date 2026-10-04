@@ -6,6 +6,7 @@ without blocking commits.
 """
 
 import sys
+
 from typesafe_eval.cli import main
 
 
