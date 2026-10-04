@@ -54,39 +54,65 @@ def validator_section(name, rep, public):
     out = [f"## {name} (preset `{rep['preset_name']}`, runs {rep['runs']})", ""]
     s = rep["summary"]
     if s["documents_evaluated"]:
-        out += [f"Documents: {s['documents_evaluated']}. Absent items detected: {s['total_detected']}/"
-                f"{s['total_absent_expected']}. False alarms on present items: {s['total_false_alarms']}/"
-                f"{s['total_present_expected']}.", ""]
+        out += [
+            f"Documents: {s['documents_evaluated']}. Absent items detected: {s['total_detected']}/"
+            f"{s['total_absent_expected']}. False alarms on present items: {s['total_false_alarms']}/"
+            f"{s['total_present_expected']}.",
+            "",
+        ]
         out += ["| Question | Absent detected | Present false alarms |", "|---|---|---|"]
         for q in rep["question_stats"].values():
             if q["pairs_count"]:
                 continue
-            out.append(f"| {q['question_id']} | {q['detected_count']}/{q['total_absent_expected']} | "
-                       f"{q['false_alarm_count']}/{q['total_present_expected']} |")
+            out.append(
+                f"| {q['question_id']} | {q['detected_count']}/{q['total_absent_expected']} | "
+                f"{q['false_alarm_count']}/{q['total_present_expected']} |"
+            )
         out.append("")
         rows = [r for r in rep["presence_results"] if doc_of(r["path"]) in public]
         if rows:
-            out += ["Public specifications, per document:", "", "| Document | Question | Expected | Verdict |",
-                    "|---|---|---|---|"]
-            out += [f"| {doc_of(r['path'])} | {r['question_id']} | {r['expected']} | {r['verdict']} |" for r in rows]
+            out += [
+                "Public specifications, per document:",
+                "",
+                "| Document | Question | Expected | Verdict |",
+                "|---|---|---|---|",
+            ]
+            out += [
+                f"| {doc_of(r['path'])} | {r['question_id']} | {r['expected']} | {r['verdict']} |"
+                for r in rows
+            ]
             out.append("")
     if rep["pair_group_results"]:
-        out += ["| Kind | Question | Expected | n | Mean Δ | 95% CI | Result | Worst pair |",
-                "|---|---|---|---|---|---|---|---|"]
+        out += [
+            "| Kind | Question | Expected | n | Mean Δ | 95% CI | Result | Worst pair |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
         for g in rep["pair_group_results"]:
             worst = g.get("worst_pair_path") or ""
-            doc = worst[1:worst.index("]")] if worst.startswith("[") and "]" in worst else None
-            worst = f"{doc} ({fmt(g.get('worst_pair_delta'))})" if doc in public else HIDDEN if worst else "–"
-            out.append(f"| {g['kind']} | {g.get('question_id') or '–'} | {g['expected']} | {g['n']} | {fmt(g['mean_delta'])} | "
-                       f"{ci(g['ci_95_lower'], g['ci_95_upper'])} | {verdict(g['passed'])} | {worst} |")
+            doc = worst[1 : worst.index("]")] if worst.startswith("[") and "]" in worst else None
+            worst = (
+                f"{doc} ({fmt(g.get('worst_pair_delta'))})"
+                if doc in public
+                else HIDDEN
+                if worst
+                else "–"
+            )
+            out.append(
+                f"| {g['kind']} | {g.get('question_id') or '–'} | {g['expected']} | {g['n']} | {fmt(g['mean_delta'])} | "
+                f"{ci(g['ci_95_lower'], g['ci_95_upper'])} | {verdict(g['passed'])} | {worst} |"
+            )
         out.append("")
     if rep["criteria_results"]:
         out += ["| Criterion | Required | Actual | Result |", "|---|---|---|---|"]
-        out += [f"| {c['name']} | {c['expected']} | {c['actual']} | {verdict(c['passed'])} |"
-                for c in rep["criteria_results"]]
+        out += [
+            f"| {c['name']} | {c['expected']} | {c['actual']} | {verdict(c['passed'])} |"
+            for c in rep["criteria_results"]
+        ]
         out.append("")
-    out.append(f"Overall: {verdict(rep['all_passed'])}. Incomplete pairs: {rep['incomplete_pairs_count']}, "
-               f"truncated pairs: {rep['truncated_pairs_count']}.")
+    out.append(
+        f"Overall: {verdict(rep['all_passed'])}. Incomplete pairs: {rep['incomplete_pairs_count']}, "
+        f"truncated pairs: {rep['truncated_pairs_count']}."
+    )
     return out
 
 
@@ -96,25 +122,40 @@ def feasibility_section(name, rep, public):
     g = rep["within_pair_gap"]
     ho = bool(rep["holdout_docs"])
     held = lambda x, sign=False: (fmt(x) if sign else f"{x:.3f}") if ho else "n/a"
-    out = [f"## {name} (feasibility, preset `{rep['preset']}`, runs {rep['runs']})", "",
-           f"Review pairs: {rep['num_pairs']} (tuning documents {len(rep['tuning_docs'])}, "
-           f"held-out {len(rep['holdout_docs'])}). Δ is worse − better; it is negative when the tool "
-           f"scores the better version higher.",
-           f"Within-pair Δ: {fmt(g['mean_delta'])} {ci(g['ci95_lower'], g['ci95_upper'])}. "
-           f"Between-document spread (σ): {rep['between_doc_spread']:.3f}.",
-           f"Held-out ROC-AUC {held(rep['held_out_roc_auc'])}, false-alarm rate "
-           f"{held(rep['held_out_published_false_alarm_rate'])}. Absolute gate feasible: "
-           f"{'yes' if rep['absolute_gate_feasible'] else 'no'}.", "",
-           "| Document type | Pairs | Mean Δ | 95% CI | Held-out AUC | False alarms | Feasible |",
-           "|---|---|---|---|---|---|---|"]
+    out = [
+        f"## {name} (feasibility, preset `{rep['preset']}`, runs {rep['runs']})",
+        "",
+        f"Review pairs: {rep['num_pairs']} (tuning documents {len(rep['tuning_docs'])}, "
+        f"held-out {len(rep['holdout_docs'])}). Δ is worse − better; it is negative when the tool "
+        f"scores the better version higher.",
+        f"Within-pair Δ: {fmt(g['mean_delta'])} {ci(g['ci95_lower'], g['ci95_upper'])}. "
+        f"Between-document spread (σ): {rep['between_doc_spread']:.3f}.",
+        f"Held-out ROC-AUC {held(rep['held_out_roc_auc'])}, false-alarm rate "
+        f"{held(rep['held_out_published_false_alarm_rate'])}. Absolute gate feasible: "
+        f"{'yes' if rep['absolute_gate_feasible'] else 'no'}.",
+        "",
+        "| Document type | Pairs | Mean Δ | 95% CI | Held-out AUC | False alarms | Feasible |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for dt, d in rep["by_doc_type"].items():
-        out.append(f"| {dt} | {d['num_pairs']} | {fmt(d['mean_delta'])} | {ci(d['ci95_lower'], d['ci95_upper'])} | "
-                   f"{held(d['held_out_roc_auc'])} | {held(d['held_out_false_alarm_rate'])} | "
-                   f"{'yes' if d['feasible'] else 'no'} |")
+        out.append(
+            f"| {dt} | {d['num_pairs']} | {fmt(d['mean_delta'])} | {ci(d['ci95_lower'], d['ci95_upper'])} | "
+            f"{held(d['held_out_roc_auc'])} | {held(d['held_out_false_alarm_rate'])} | "
+            f"{'yes' if d['feasible'] else 'no'} |"
+        )
     rows = [p for p in rep["pairs"] if p["doc_id"] in public]
     if rows:
-        out += ["", "Public specifications, per pair:", "", "| Document | Held-out | Δ (worse − better) |", "|---|---|---|"]
-        out += [f"| {p['doc_id']} | {'yes' if p['is_holdout'] else 'no'} | {fmt(p['degradation_delta'])} |" for p in rows]
+        out += [
+            "",
+            "Public specifications, per pair:",
+            "",
+            "| Document | Held-out | Δ (worse − better) |",
+            "|---|---|---|",
+        ]
+        out += [
+            f"| {p['doc_id']} | {'yes' if p['is_holdout'] else 'no'} | {fmt(p['degradation_delta'])} |"
+            for p in rows
+        ]
     return out
 
 

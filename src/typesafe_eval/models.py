@@ -1,95 +1,109 @@
 """Data models and schemas for configuration and evaluation results."""
 
-from typing import Dict, List, Optional, Union, Any, Literal
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
+
 
 class QuestionConfig(BaseModel):
     type: Literal["score", "noul", "choice"]
-    label: Optional[str] = None
+    label: str | None = None
     instructions: str
-    criteria: Optional[Union[List[str], Dict[str, Optional[str]]]] = None
-    weight: Optional[float] = None
-    min_threshold: Optional[float] = None
-    max_threshold: Optional[float] = None
-    max_drop: Optional[float] = None
-    preflight: Optional[Literal["credentials", "pii"]] = None
+    criteria: list[str] | dict[str, str | None] | None = None
+    weight: float | None = None
+    min_threshold: float | None = None
+    max_threshold: float | None = None
+    max_drop: float | None = None
+    preflight: Literal["credentials", "pii"] | None = None
+
 
 class SanitizerConfig(BaseModel):
-    role_emails: List[str] = Field(default_factory=list)
+    role_emails: list[str] = Field(default_factory=list)
+
 
 NEAR_THRESHOLD_MARGIN: float = 0.1
 CANDIDATE_DECISION_THRESHOLD: float = 0.5
 
+
 class PresetConfig(BaseModel):
     name: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    sanitizer: Optional[SanitizerConfig] = None
+    title: str | None = None
+    description: str | None = None
+    sanitizer: SanitizerConfig | None = None
     thresholds_as_warnings: bool = False
-    questions: Dict[str, QuestionConfig]
+    questions: dict[str, QuestionConfig]
+
 
 class ScoreResult(BaseModel):
     score: float
     max_score: float = 1.0
     normalized_score: float = 0.0
     confidence: float
-    probabilities: Dict[Union[str, int], float]
+    probabilities: dict[str | int, float]
     near_threshold: bool = False
 
+
 class NoulResult(BaseModel):
-    probability: Optional[float] = None
-    overridden_by: Optional[str] = None
+    probability: float | None = None
+    overridden_by: str | None = None
     near_threshold: bool = False
+
 
 class ChoiceResult(BaseModel):
     choice: str
     confidence: float
-    probabilities: Dict[str, float]
+    probabilities: dict[str, float]
+
 
 class EmailEvaluationResult(BaseModel):
     placeholder: str
-    question_id: Optional[str] = None
-    features: Dict[str, Any] = Field(default_factory=dict)
+    question_id: str | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
     outcome: Literal["personal", "role", "undecided"]
-    probability: Optional[float] = None
+    probability: float | None = None
     decided_by: Literal["model", "free_mail"]
     near_threshold: bool = False
 
+
 class PhoneEvaluationResult(BaseModel):
     placeholder: str
-    question_id: Optional[str] = None
-    features: Dict[str, Any] = Field(default_factory=dict)
+    question_id: str | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
     outcome: Literal["personal", "support", "undecided"]
-    probability: Optional[float] = None
+    probability: float | None = None
     decided_by: Literal["model", "rule"]
     near_threshold: bool = False
+
 
 class IPEvaluationResult(BaseModel):
     placeholder: str
-    question_id: Optional[str] = None
-    features: Dict[str, Any] = Field(default_factory=dict)
+    question_id: str | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
     outcome: Literal["sensitive", "safe", "undecided"]
-    probability: Optional[float] = None
+    probability: float | None = None
     decided_by: Literal["model", "rule"]
     near_threshold: bool = False
+
 
 class URLEvaluationResult(BaseModel):
     placeholder: str
-    question_id: Optional[str] = None
-    features: Dict[str, Any] = Field(default_factory=dict)
+    question_id: str | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
     outcome: Literal["sensitive", "safe", "undecided"]
-    probability: Optional[float] = None
+    probability: float | None = None
     decided_by: Literal["model", "rule"]
     near_threshold: bool = False
 
+
 class SecretEvaluationResult(BaseModel):
     placeholder: str
-    question_id: Optional[str] = None
-    features: Dict[str, Any] = Field(default_factory=dict)
+    question_id: str | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
     outcome: Literal["secret", "safe", "undecided"]
-    probability: Optional[float] = None
+    probability: float | None = None
     decided_by: Literal["model", "rule"]
     near_threshold: bool = False
+
 
 class QuestionDiff(BaseModel):
     previous: float
@@ -98,34 +112,36 @@ class QuestionDiff(BaseModel):
     max_drop: float
     regressed: bool
 
+
 class BaselineDiff(BaseModel):
     status: Literal["compared", "new"]
-    baseline_filepath: Optional[str] = None
+    baseline_filepath: str | None = None
     truncation_mismatch: bool = False
-    questions: Dict[str, QuestionDiff] = Field(default_factory=dict)
+    questions: dict[str, QuestionDiff] = Field(default_factory=dict)
+
 
 class DocumentEvalResult(BaseModel):
     schema_version: str = "1.0"
     filepath: str
     filename: str
     preset_name: str
-    scores: Dict[str, ScoreResult] = Field(default_factory=dict)
-    nouls: Dict[str, NoulResult] = Field(default_factory=dict)
-    choices: Dict[str, ChoiceResult] = Field(default_factory=dict)
-    email_evaluations: List[EmailEvaluationResult] = Field(default_factory=list)
-    phone_evaluations: List[PhoneEvaluationResult] = Field(default_factory=list)
-    ip_evaluations: List[IPEvaluationResult] = Field(default_factory=list)
-    url_evaluations: List[URLEvaluationResult] = Field(default_factory=list)
-    secret_evaluations: List[SecretEvaluationResult] = Field(default_factory=list)
-    composite_score: Optional[float] = None
+    scores: dict[str, ScoreResult] = Field(default_factory=dict)
+    nouls: dict[str, NoulResult] = Field(default_factory=dict)
+    choices: dict[str, ChoiceResult] = Field(default_factory=dict)
+    email_evaluations: list[EmailEvaluationResult] = Field(default_factory=list)
+    phone_evaluations: list[PhoneEvaluationResult] = Field(default_factory=list)
+    ip_evaluations: list[IPEvaluationResult] = Field(default_factory=list)
+    url_evaluations: list[URLEvaluationResult] = Field(default_factory=list)
+    secret_evaluations: list[SecretEvaluationResult] = Field(default_factory=list)
+    composite_score: float | None = None
     passed_thresholds: bool = True
-    violations: List[str] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
-    usage: Optional[Dict[str, int]] = None
-    model: Optional[str] = None
+    violations: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    usage: dict[str, int] | None = None
+    model: str | None = None
     was_truncated: bool = False
     api_calls: int = 1
     redactions_count: int = 0
-    redaction_details: Optional[Dict[str, Any]] = None
-    baseline_diff: Optional[BaselineDiff] = None
+    redaction_details: dict[str, Any] | None = None
+    baseline_diff: BaselineDiff | None = None
     mock: bool = False

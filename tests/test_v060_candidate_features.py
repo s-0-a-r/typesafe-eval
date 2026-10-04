@@ -5,30 +5,26 @@
 - CLI init subcommand scaffolding
 """
 
-import json
-from pathlib import Path
-from typing import Dict, Any, List
 from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
 
-from typesafe_eval.sanitizer import (
-    PHONE_PATTERN,
-    extract_phone_features,
-    mask_sensitive_data,
-    PHONE_SUPPORT_PREFIXES,
-)
+from typesafe_eval.baseline import compare_document_with_baseline
+from typesafe_eval.cli import main
+from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.models import (
+    DocumentEvalResult,
     PresetConfig,
     QuestionConfig,
-    DocumentEvalResult,
-    NoulResult,
     ScoreResult,
 )
-from typesafe_eval.client import TypeSafeEvaluator
-from typesafe_eval.baseline import compare_document_with_baseline, load_baseline
-from typesafe_eval.cli import main
+from typesafe_eval.sanitizer import (
+    PHONE_PATTERN,
+    PHONE_SUPPORT_PREFIXES,
+    extract_phone_features,
+    mask_sensitive_data,
+)
 
 
 def test_international_phone_e164_matching():
@@ -110,10 +106,7 @@ def test_candidate_question_batching(tmp_path):
         mock_resp.model = "jev-test"
         mock_resp.scores = {}
         mock_resp.choices = {}
-        mock_resp.nouls = {
-            q_id: MagicMock(noul=0.10)
-            for q_id in questions
-        }
+        mock_resp.nouls = {q_id: MagicMock(noul=0.10) for q_id in questions}
         return mock_resp
 
     mock_client.system_one.side_effect = mock_system_one

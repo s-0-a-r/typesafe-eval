@@ -22,15 +22,51 @@ import yaml
 ROOT = Path(__file__).parent
 
 KEYWORDS = {
-    "goal": ["goal", "motivation", "summary", "abstract", "introduction", "目的", "目標", "背景", "概要"],
-    "non_goals": ["non-goal", "non goal", "out of scope", "scope", "スコープ外", "対象外", "やらないこと", "非目標"],
+    "goal": [
+        "goal",
+        "motivation",
+        "summary",
+        "abstract",
+        "introduction",
+        "目的",
+        "目標",
+        "背景",
+        "概要",
+    ],
+    "non_goals": [
+        "non-goal",
+        "non goal",
+        "out of scope",
+        "scope",
+        "スコープ外",
+        "対象外",
+        "やらないこと",
+        "非目標",
+    ],
     "alternatives": ["alternative", "rejected", "considered", "代替", "検討した", "比較", "他の案"],
     "risks": ["risk", "drawback", "concern", "caveat", "リスク", "懸念", "注意"],
-    "rollback": ["rollback", "roll back", "downgrade", "disable", "ロールバック", "切り戻し", "無効化"],
+    "rollback": [
+        "rollback",
+        "roll back",
+        "downgrade",
+        "disable",
+        "ロールバック",
+        "切り戻し",
+        "無効化",
+    ],
     "metrics": ["metric", "success", "measure", "slo", "sli", "指標", "計測", "成功"],
     "migration": ["migration", "upgrade", "compatibility", "移行", "互換"],
     "open_questions": ["open question", "unresolved", "future", "未解決", "課題", "今後"],
-    "owner_timeline": ["timeline", "schedule", "milestone", "owner", "implementation history", "スケジュール", "担当", "マイルストーン"],
+    "owner_timeline": [
+        "timeline",
+        "schedule",
+        "milestone",
+        "owner",
+        "implementation history",
+        "スケジュール",
+        "担当",
+        "マイルストーン",
+    ],
     "summary": ["summary", "description", "overview", "what", "概要", "説明", "変更内容"],
     "testing": ["test", "verification", "how to test", "テスト", "確認", "動作確認", "検証"],
     "impact": ["impact", "affect", "user-facing", "影響"],
@@ -77,15 +113,21 @@ def presence(path):
             hit = has_item(text, q)
             s = per_q.setdefault(q, [0, 0, 0, 0])
             if exp == "absent":
-                absent += 1; s[1] += 1
+                absent += 1
+                s[1] += 1
                 if not hit:
-                    det += 1; s[0] += 1
+                    det += 1
+                    s[0] += 1
             else:
-                present += 1; s[3] += 1
+                present += 1
+                s[3] += 1
                 if not hit:
-                    fa += 1; s[2] += 1
-    print(f"## {path.stem} (baseline)\n\nAbsent detected {det}/{absent}, false alarms {fa}/{present}, "
-          f"min_detected {doc['criteria']['min_detected']}.\n")
+                    fa += 1
+                    s[2] += 1
+    print(
+        f"## {path.stem} (baseline)\n\nAbsent detected {det}/{absent}, false alarms {fa}/{present}, "
+        f"min_detected {doc['criteria']['min_detected']}.\n"
+    )
     print("| Question | Absent detected | Present false alarms |\n|---|---|---|")
     for q, (d_, a, f, p) in per_q.items():
         print(f"| {q} | {d_}/{a} | {f}/{p} |")
@@ -102,8 +144,10 @@ def pairs(path):
         exp = next(iter(p["expect"].values()))
         k = by_kind.setdefault(p["kind"], [exp, 0, 0])
         k[1] += 1
-        k[2] += (down if exp == "down" else not down)
-    print(f"## {path.stem} (baseline diff rule)\n\n| Kind | Expected | Pairs | Rule agrees |\n|---|---|---|---|")
+        k[2] += down if exp == "down" else not down
+    print(
+        f"## {path.stem} (baseline diff rule)\n\n| Kind | Expected | Pairs | Rule agrees |\n|---|---|---|---|"
+    )
     for kind, (exp, n, ok) in by_kind.items():
         print(f"| {kind} | {exp} | {n} | {ok}/{n} |")
     print()

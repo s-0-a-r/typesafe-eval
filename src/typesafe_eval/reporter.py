@@ -1,15 +1,15 @@
 """Rich terminal rendering, JSON export, and Markdown report generator."""
 
 import json
-from typing import List, Optional
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
 
-from typesafe_eval.models import DocumentEvalResult, PresetConfig, NEAR_THRESHOLD_MARGIN
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+from typesafe_eval.models import NEAR_THRESHOLD_MARGIN, DocumentEvalResult, PresetConfig
 
 console = Console()
+
 
 def format_score_badge(val: float, invert: bool = False) -> str:
     pct = val * 100
@@ -28,7 +28,8 @@ def format_score_badge(val: float, invert: bool = False) -> str:
         else:
             return f"[bold red]{pct:.0f}%[/bold red]"
 
-def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> None:
+
+def render_table(results: list[DocumentEvalResult], preset: PresetConfig) -> None:
     """Renders evaluation results as an interactive Rich terminal table."""
     is_mock = any(r.mock for r in results)
     title_prefix = "TypeSafe Evaluation Report (MOCK)" if is_mock else "TypeSafe Evaluation Report"
@@ -40,7 +41,7 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
     )
 
     table.add_column("Document", style="cyan", no_wrap=True)
-    
+
     # Add column for each question
     for q_id, q_cfg in preset.questions.items():
         col_name = q_cfg.label or q_id
@@ -50,8 +51,6 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
         table.add_column("Composite", justify="center")
 
     table.add_column("Status", justify="center")
-
-    has_baseline = any(r.baseline_diff is not None for r in results)
 
     for res in results:
         row_cells = []
@@ -67,17 +66,25 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
         b_diff = res.baseline_diff
 
         for q_id, q_cfg in preset.questions.items():
-            diff_info = b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+            diff_info = (
+                b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+            )
             is_risk = q_cfg.max_threshold is not None
 
             if q_cfg.type == "score" and q_id in res.scores:
                 s_obj = res.scores[q_id]
                 badge = format_score_badge(s_obj.normalized_score, invert=is_risk)
                 near_marker = " [yellow]~[/yellow]" if s_obj.near_threshold else ""
-                cell_text = f"{badge}{near_marker}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f}[/dim]"
+                cell_text = (
+                    f"{badge}{near_marker}\n[dim]{s_obj.score:.1f}/{s_obj.max_score:.0f}[/dim]"
+                )
                 if diff_info:
-                    delta_color = "red" if diff_info.regressed else ("green" if diff_info.delta > 0 else "dim")
-                    cell_text += f"\n[{delta_color}]prev: {diff_info.previous*100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
+                    delta_color = (
+                        "red"
+                        if diff_info.regressed
+                        else ("green" if diff_info.delta > 0 else "dim")
+                    )
+                    cell_text += f"\n[{delta_color}]prev: {diff_info.previous * 100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
                 row_cells.append(cell_text)
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 prob = res.nouls[q_id].probability
@@ -86,8 +93,12 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
                     near_marker = " [yellow]~[/yellow]" if res.nouls[q_id].near_threshold else ""
                     cell_text = f"{badge}{near_marker}\n[dim]p(yes)[/dim]"
                     if diff_info:
-                        delta_color = "red" if diff_info.regressed else ("green" if diff_info.delta > 0 else "dim")
-                        cell_text += f"\n[{delta_color}]prev: {diff_info.previous*100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
+                        delta_color = (
+                            "red"
+                            if diff_info.regressed
+                            else ("green" if diff_info.delta > 0 else "dim")
+                        )
+                        cell_text += f"\n[{delta_color}]prev: {diff_info.previous * 100:.0f}% (Δ {diff_info.delta:+.2f})[/{delta_color}]"
                     row_cells.append(cell_text)
                 else:
                     row_cells.append("[dim red]overridden[/dim red]\n[dim]preflight[/dim]")
@@ -123,13 +134,13 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
     if is_mock:
         console.print("[dim]Mode: MOCK (dry-run, no API calls made)[/dim]")
 
-    has_near_threshold = any(
-        s.near_threshold for r in results for s in r.scores.values()
-    ) or any(
+    has_near_threshold = any(s.near_threshold for r in results for s in r.scores.values()) or any(
         n.near_threshold for r in results for n in r.nouls.values()
     )
     if has_near_threshold:
-        console.print(f"[dim]~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)[/dim]")
+        console.print(
+            f"[dim]~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)[/dim]"
+        )
 
     for r in results:
         near_cands = []
@@ -192,7 +203,7 @@ def render_table(results: List[DocumentEvalResult], preset: PresetConfig) -> Non
     console.print()
 
 
-def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> str:
+def render_markdown(results: list[DocumentEvalResult], preset: PresetConfig) -> str:
     """Renders evaluation report into Markdown format."""
     is_mock = any(r.mock for r in results)
     title = "# TypeSafe Evaluation Report (MOCK)" if is_mock else "# TypeSafe Evaluation Report"
@@ -204,13 +215,15 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
     ]
     if is_mock:
         lines.append("**Mode:** MOCK (dry-run, no API calls made)  ")
-    lines.extend([
-        "",
-        f"| Document | " + " | ".join(q.label or q_id for q_id, q in preset.questions.items()) + " | Composite | Status |",
-        f"| :--- | " + " | ".join([":---:"] * len(preset.questions)) + " | :---: | :---: |",
-    ])
-
-    has_baseline = any(r.baseline_diff is not None for r in results)
+    lines.extend(
+        [
+            "",
+            "| Document | "
+            + " | ".join(q.label or q_id for q_id, q in preset.questions.items())
+            + " | Composite | Status |",
+            "| :--- | " + " | ".join([":---:"] * len(preset.questions)) + " | :---: | :---: |",
+        ]
+    )
 
     for res in results:
         doc_cell = res.filename
@@ -222,14 +235,18 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
         b_diff = res.baseline_diff
 
         for q_id, q_cfg in preset.questions.items():
-            diff_info = b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+            diff_info = (
+                b_diff.questions.get(q_id) if b_diff and b_diff.status == "compared" else None
+            )
 
             if q_cfg.type == "score" and q_id in res.scores:
                 s = res.scores[q_id]
                 near_marker = " ~" if s.near_threshold else ""
                 val_str = f"{s.normalized_score * 100:.0f}%{near_marker}"
                 if diff_info:
-                    val_str += f"<br>(prev: {diff_info.previous*100:.0f}%, Δ: {diff_info.delta:+.2f})"
+                    val_str += (
+                        f"<br>(prev: {diff_info.previous * 100:.0f}%, Δ: {diff_info.delta:+.2f})"
+                    )
                 cells.append(val_str)
             elif q_cfg.type == "noul" and q_id in res.nouls:
                 n = res.nouls[q_id]
@@ -237,7 +254,7 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
                     near_marker = " ~" if n.near_threshold else ""
                     val_str = f"{n.probability * 100:.0f}%{near_marker}"
                     if diff_info:
-                        val_str += f"<br>(prev: {diff_info.previous*100:.0f}%, Δ: {diff_info.delta:+.2f})"
+                        val_str += f"<br>(prev: {diff_info.previous * 100:.0f}%, Δ: {diff_info.delta:+.2f})"
                     cells.append(val_str)
                 else:
                     cells.append(f"overridden ({n.overridden_by or 'preflight'})")
@@ -247,7 +264,9 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
             else:
                 cells.append("-")
 
-        composite_str = f"{res.composite_score * 100:.0f}%" if res.composite_score is not None else "-"
+        composite_str = (
+            f"{res.composite_score * 100:.0f}%" if res.composite_score is not None else "-"
+        )
         status_suffix = " (new)" if (b_diff and b_diff.status == "new") else ""
         if res.mock:
             status_str = f"N/A{status_suffix}"
@@ -262,13 +281,13 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
 
     lines.append("")
 
-    has_near_threshold = any(
-        s.near_threshold for r in results for s in r.scores.values()
-    ) or any(
+    has_near_threshold = any(s.near_threshold for r in results for s in r.scores.values()) or any(
         n.near_threshold for r in results for n in r.nouls.values()
     )
     if has_near_threshold:
-        lines.append(f"*~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)*")
+        lines.append(
+            f"*~: value is within ±{NEAR_THRESHOLD_MARGIN:.2f} of threshold (near_threshold)*"
+        )
         lines.append("")
 
     for r in results:
@@ -296,7 +315,9 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
     if compared_docs:
         lines.append("## Baseline Comparison Details")
         lines.append("")
-        lines.append("| Document | Question | Previous | Current | Δ (Drop) | Max Allowed Drop | Result |")
+        lines.append(
+            "| Document | Question | Previous | Current | Δ (Drop) | Max Allowed Drop | Result |"
+        )
         lines.append("| :--- | :--- | :---: | :---: | :---: | :---: | :---: |")
         for r in compared_docs:
             for q_id, q_diff in r.baseline_diff.questions.items():
@@ -328,7 +349,7 @@ def render_markdown(results: List[DocumentEvalResult], preset: PresetConfig) -> 
     return "\n".join(lines)
 
 
-def render_json(results: List[DocumentEvalResult]) -> str:
+def render_json(results: list[DocumentEvalResult]) -> str:
     """Exports results as structured JSON string."""
     data = [res.model_dump() for res in results]
     return json.dumps(data, indent=2, ensure_ascii=False)

@@ -1,9 +1,12 @@
 from unittest.mock import MagicMock
+
 from click.testing import CliRunner
-from typesafe_eval.client import TypeSafeEvaluator
-from typesafe_eval.presets import load_preset
+
 from typesafe_eval.cli import main
-from typesafe_eval.models import NoulResult, ScoreResult, ChoiceResult, PresetConfig, QuestionConfig
+from typesafe_eval.client import TypeSafeEvaluator
+from typesafe_eval.models import PresetConfig, QuestionConfig
+from typesafe_eval.presets import load_preset
+
 
 def test_deterministic_credential_override(tmp_path):
     doc = tmp_path / "secret.txt"
@@ -11,13 +14,17 @@ def test_deterministic_credential_override(tmp_path):
 
     preset = load_preset("safety")
     evaluator = TypeSafeEvaluator(api_key="mock-key")
-    
+
     # Mock TypeSafe client response where Jev returned 0.38 for has_secrets
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=1.5, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=1.5, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {"has_secrets": MagicMock(noul=0.38), "has_pii": MagicMock(noul=0.15)}
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="violating", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="violating", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -39,6 +46,7 @@ def test_deterministic_credential_override(tmp_path):
     assert any("detected by pre-flight scan (model: 0.38)" in v for v in result.violations)
     assert result.redaction_details["credentials"] >= 1
 
+
 def test_preflight_override_when_model_absent(tmp_path):
     doc = tmp_path / "secret_unanswered.txt"
     doc.write_text("Here is sk-abcdef1234567890abcdef123456 confidential data", encoding="utf-8")
@@ -48,9 +56,13 @@ def test_preflight_override_when_model_absent(tmp_path):
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {"has_pii": MagicMock(noul=0.01)}  # Jev did not return has_secrets
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -63,6 +75,7 @@ def test_preflight_override_when_model_absent(tmp_path):
     assert result.nouls["has_secrets"].overridden_by == "preflight_scan"
     assert not result.passed_thresholds
     assert any("detected by pre-flight scan" in v for v in result.violations)
+
 
 def test_custom_preset_preflight_override(tmp_path):
     doc = tmp_path / "custom_secret.txt"
@@ -78,7 +91,7 @@ def test_custom_preset_preflight_override(tmp_path):
                 preflight="credentials",
                 max_threshold=0.2,
             )
-        }
+        },
     )
     evaluator = TypeSafeEvaluator(api_key="mock-key")
     mock_client = MagicMock()
@@ -95,11 +108,16 @@ def test_custom_preset_preflight_override(tmp_path):
     assert not res.passed_thresholds
     assert res.nouls["custom_secret_check"].probability == 0.10
     assert res.nouls["custom_secret_check"].overridden_by == "preflight_scan"
-    assert any("1 credential(s) detected by pre-flight scan (model: 0.10)" in v for v in res.violations)
+    assert any(
+        "1 credential(s) detected by pre-flight scan (model: 0.10)" in v for v in res.violations
+    )
+
 
 def test_cli_no_mask_flag(tmp_path):
     doc = tmp_path / "test.md"
-    doc.write_text("# Test Document\nSample content with apikey_1234567890abcdef123456.", encoding="utf-8")
+    doc.write_text(
+        "# Test Document\nSample content with apikey_1234567890abcdef123456.", encoding="utf-8"
+    )
 
     runner = CliRunner()
     # Default (masking enabled): output shows (N masked) indicator
@@ -108,13 +126,18 @@ def test_cli_no_mask_flag(tmp_path):
     assert "masked" in result_default.output
 
     # With --no-mask: output does not show masked indicator
-    result_no_mask = runner.invoke(main, [str(doc), "--preset", "quality", "--dry-run", "--no-mask"])
+    result_no_mask = runner.invoke(
+        main, [str(doc), "--preset", "quality", "--dry-run", "--no-mask"]
+    )
     assert result_no_mask.exit_code == 0
     assert "masked" not in result_no_mask.output
 
+
 def test_safety_preset_dry_run_exits_0_and_shows_mock(tmp_path):
     doc = tmp_path / "secret_doc.md"
-    doc.write_text("API token: apikey_1234567890abcdef123456 in production runbook.", encoding="utf-8")
+    doc.write_text(
+        "API token: apikey_1234567890abcdef123456 in production runbook.", encoding="utf-8"
+    )
 
     runner = CliRunner()
     # Safety preset in dry-run mode must exit 0, display MOCK, and have verdict N/A (Issue #45)
@@ -125,24 +148,34 @@ def test_safety_preset_dry_run_exits_0_and_shows_mock(tmp_path):
     assert "FAIL" not in result.output
     assert "PASS" not in result.output
 
+
 def test_context_free_email_classification_regression(tmp_path):
     doc_personal = tmp_path / "personal.txt"
-    doc_personal.write_text("Please forward the contract draft to taro.yamada1987@gmail.com for review.", encoding="utf-8")
+    doc_personal.write_text(
+        "Please forward the contract draft to taro.yamada1987@gmail.com for review.",
+        encoding="utf-8",
+    )
     doc_role = tmp_path / "role.txt"
-    doc_role.write_text("Please forward the contract draft to billing@company.com for review.", encoding="utf-8")
+    doc_role.write_text(
+        "Please forward the contract draft to billing@company.com for review.", encoding="utf-8"
+    )
 
     preset = load_preset("safety")
     evaluator = TypeSafeEvaluator(api_key="mock-key")
-    
+
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {
         "has_secrets": MagicMock(noul=0.01),
         "has_pii": MagicMock(noul=0.15),
         "email_pii_1": MagicMock(noul=0.1),
     }
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -178,9 +211,13 @@ def test_example_key_evaluation_regression(tmp_path):
 
     mock_client = MagicMock()
     mock_resp = MagicMock()
-    mock_resp.scores = {"confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})}
+    mock_resp.scores = {
+        "confidentiality_risk": MagicMock(score=0.1, confidence=0.9, probabilities={})
+    }
     mock_resp.nouls = {"has_secrets": MagicMock(noul=0.04), "has_pii": MagicMock(noul=0.01)}
-    mock_resp.choices = {"policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})}
+    mock_resp.choices = {
+        "policy_compliance": MagicMock(choice="compliant", confidence=0.9, probabilities={})
+    }
     mock_resp.usage = None
     mock_resp.model = "mock-jev"
     mock_client.system_one.return_value = mock_resp
@@ -292,7 +329,9 @@ def test_evaluator_with_preset_custom_role_emails(tmp_path):
     from typesafe_eval.models import SanitizerConfig
 
     doc = tmp_path / "contact.txt"
-    doc.write_text("Escalate to incident-commander@company.com or duty-lead@company.com", encoding="utf-8")
+    doc.write_text(
+        "Escalate to incident-commander@company.com or duty-lead@company.com", encoding="utf-8"
+    )
 
     preset = PresetConfig(
         name="custom_ops_audit",
@@ -329,6 +368,3 @@ def test_evaluator_with_preset_custom_role_emails(tmp_path):
     assert state["redactions"]["pii_personal"] == 0
     assert res.nouls["check"].overridden_by is None
     assert res.passed_thresholds
-
-
-

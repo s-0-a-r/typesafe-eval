@@ -2,20 +2,19 @@
 
 import json
 from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
+from typesafe_eval.baseline import (
+    compare_document_with_baseline,
+    load_baseline,
+)
 from typesafe_eval.cli import main
 from typesafe_eval.models import (
     DocumentEvalResult,
-    ScoreResult,
     NoulResult,
-    PresetConfig,
-    QuestionConfig,
-)
-from typesafe_eval.baseline import (
-    load_baseline,
-    compare_document_with_baseline,
+    ScoreResult,
 )
 from typesafe_eval.presets import load_preset
 
@@ -71,6 +70,7 @@ def test_baseline_drop_exceeding_threshold_fails(tmp_path, monkeypatch):
 
     # Current: clarity dropped to 0.75 (drop 0.15 > 0.10 default threshold)
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -78,7 +78,9 @@ def test_baseline_drop_exceeding_threshold_fails(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    result = runner.invoke(
+        main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)]
+    )
     assert result.exit_code == 1
     assert "Baseline drop: 'clarity' dropped by 0.15" in result.output
     assert "FAIL" in result.output
@@ -95,6 +97,7 @@ def test_baseline_drop_within_threshold_passes(tmp_path, monkeypatch):
 
     # Current: clarity dropped to 0.85 (drop 0.05 <= 0.10 default threshold)
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -102,7 +105,9 @@ def test_baseline_drop_within_threshold_passes(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    result = runner.invoke(
+        main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)]
+    )
     assert result.exit_code == 0
     assert "PASS" in result.output
 
@@ -129,6 +134,7 @@ def test_baseline_custom_max_drop_in_yaml(tmp_path, monkeypatch):
 
     # Current clarity: 0.72 (drop 0.18 <= 0.25 custom threshold)
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -155,6 +161,7 @@ def test_baseline_truncation_warning(tmp_path, monkeypatch):
 
     # Current was truncated
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -162,7 +169,9 @@ def test_baseline_truncation_warning(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    result = runner.invoke(
+        main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)]
+    )
     assert result.exit_code == 0
     assert "Truncation status differs" in (result.stderr or result.output)
 
@@ -177,6 +186,7 @@ def test_baseline_missing_document_marked_new(tmp_path, monkeypatch):
     baseline_file.write_text(json.dumps([prev_res.model_dump()]), encoding="utf-8")
 
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -184,7 +194,9 @@ def test_baseline_missing_document_marked_new(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc_new), "--preset", "quality", "--baseline", str(baseline_file)])
+    result = runner.invoke(
+        main, [str(doc_new), "--preset", "quality", "--baseline", str(baseline_file)]
+    )
     assert "PASS" in result.output
     assert "(new)" in result.output
 
@@ -198,6 +210,7 @@ def test_baseline_json_format_details(tmp_path, monkeypatch):
     baseline_file.write_text(json.dumps([prev_res.model_dump()]), encoding="utf-8")
 
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -231,6 +244,7 @@ def test_baseline_markdown_format(tmp_path, monkeypatch):
     baseline_file.write_text(json.dumps([prev_res.model_dump()]), encoding="utf-8")
 
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -278,7 +292,9 @@ def test_baseline_risk_question_rise_and_drop(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    res1 = runner.invoke(main, [str(doc), "--preset", "safety", "--baseline", str(baseline_file_low)])
+    res1 = runner.invoke(
+        main, [str(doc), "--preset", "safety", "--baseline", str(baseline_file_low)]
+    )
     assert res1.exit_code == 1
     assert "Baseline risk rise: 'has_pii' rose by 0.78" in res1.output
 
@@ -287,7 +303,9 @@ def test_baseline_risk_question_rise_and_drop(tmp_path, monkeypatch):
     baseline_file_high = tmp_path / "baseline_high.json"
     baseline_file_high.write_text(json.dumps([prev_res_high.model_dump()]), encoding="utf-8")
 
-    res2 = runner.invoke(main, [str(doc), "--preset", "safety", "--baseline", str(baseline_file_high)])
+    res2 = runner.invoke(
+        main, [str(doc), "--preset", "safety", "--baseline", str(baseline_file_high)]
+    )
     assert res2.exit_code == 0
     assert "Baseline risk rise" not in res2.output
     assert "Baseline drop" not in res2.output
@@ -333,7 +351,17 @@ def test_baseline_multiple_same_filename_no_collision(tmp_path, monkeypatch):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        [str(doc_a), str(doc_b), str(doc_c), "--preset", "quality", "--baseline", str(baseline_file), "--format", "json"],
+        [
+            str(doc_a),
+            str(doc_b),
+            str(doc_c),
+            "--preset",
+            "quality",
+            "--baseline",
+            str(baseline_file),
+            "--format",
+            "json",
+        ],
     )
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -359,7 +387,9 @@ def test_baseline_with_mock_rejected(tmp_path):
     baseline_file.write_text(json.dumps([data]), encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    result = runner.invoke(
+        main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)]
+    )
     assert result.exit_code == 2
     assert "mock=true" in result.output.lower() or "dry-run" in result.output.lower()
 
@@ -374,7 +404,9 @@ def test_baseline_with_mismatched_preset_rejected(tmp_path):
     baseline_file.write_text(json.dumps([res.model_dump()]), encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)])
+    result = runner.invoke(
+        main, [str(doc), "--preset", "quality", "--baseline", str(baseline_file)]
+    )
     assert result.exit_code == 2
     assert "preset" in result.output.lower()
     assert "safety" in result.output.lower()
@@ -413,6 +445,3 @@ def test_baseline_v030_dry_run_without_mock_key_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="mock"):
         load_baseline(baseline_file, expected_preset="quality")
-
-
-

@@ -147,4 +147,17 @@ All autonomous agents (and developers) operating in this repository **must verif
 - **PR Inclusion**: Agents must execute `python scripts/verify_ac.py` and attach the generated Acceptance Criteria Verification Matrix table into the PR description.
 - **Zero Regression Rule**: 100% of acceptance criteria (all 14 items) must report `**PASS**`. Any failure blocks review approval and release.
 
+---
 
+## 8. Mandatory Release Branch Workflow
+
+All autonomous coding agents operating in this repository **must follow the release branch development lifecycle**:
+
+### The Branching Contract
+1. **Never Branch Directly from `main` for Development**:
+   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v0.7.0`).
+2. **Never Target `main` for Feature PRs**:
+   - Pull requests for feature work, fixes, and refactoring must target `base: release/v<version>`.
+   - Direct PRs to `main` from non-release branches are strictly prohibited and automatically blocked by CI (`.github/workflows/branch_policy.yml`).
+3. **Release Promotion**:
+   - Only release branches (`release/v*`) may target `main` when initiating the final release PR.

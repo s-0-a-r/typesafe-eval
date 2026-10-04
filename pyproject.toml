@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "typesafe-eval"
-version = "0.6.0"
+version = "0.7.0"
 description = "Fast, typed multi-dimensional document evaluation CLI powered by TypeSafe System One (Jev)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +44,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
+    "ruff>=0.16.0",
+    "tomli>=1.1.0; python_version < '3.11'",
 ]
 
 [project.scripts]
@@ -54,8 +56,46 @@ typesafe-eval-hook = "typesafe_eval.hook:pre_commit_main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/typesafe_eval"]
 
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src",
+    "tests",
+    "scripts",
+    "hooks",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 markers = [
     "acceptance: End-to-end real CLI process acceptance tests",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [
+    ".venv",
+    "dist",
+    "build",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports, unused vars)
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade (modern Python 3.10+ syntax)
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (formatter / regex / tables)
+    "B008",  # function call in argument defaults (Click options)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B018", "B011", "E501", "B023", "B905", "C414", "B026"]
+"validation/**" = ["ALL"]
+

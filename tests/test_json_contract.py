@@ -2,14 +2,13 @@
 
 import json
 from pathlib import Path
+
 import yaml
 from click.testing import CliRunner
-import pytest
 
 from typesafe_eval.cli import main
-from typesafe_eval.models import DocumentEvalResult, ScoreResult, NoulResult, ChoiceResult
+from typesafe_eval.models import DocumentEvalResult
 from typesafe_eval.validator import ValidationReport
-
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -150,7 +149,7 @@ def test_pre_commit_hooks_yaml_structure():
     hook_file = REPO_ROOT / ".pre-commit-hooks.yaml"
     assert hook_file.is_file(), ".pre-commit-hooks.yaml must exist in repo root"
 
-    with open(hook_file, "r", encoding="utf-8") as f:
+    with open(hook_file, encoding="utf-8") as f:
         hooks = yaml.safe_load(f)
 
     assert isinstance(hooks, list)
@@ -172,7 +171,7 @@ def test_action_yml_structure():
     action_file = REPO_ROOT / "action.yml"
     assert action_file.is_file(), "action.yml must exist in repo root"
 
-    with open(action_file, "r", encoding="utf-8") as f:
+    with open(action_file, encoding="utf-8") as f:
         action = yaml.safe_load(f)
 
     assert isinstance(action, dict)

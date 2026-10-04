@@ -19,14 +19,13 @@ Usage:
 
 import argparse
 import json
-import math
 import random
 import re
 import statistics
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.presets import load_preset
@@ -40,12 +39,12 @@ FILLER = (
 )
 
 
-def split_frontmatter(text: str) -> Tuple[str, str]:
+def split_frontmatter(text: str) -> tuple[str, str]:
     m = re.match(r"^---\n.*?\n---\n", text, re.S)
-    return (m.group(0), text[m.end():]) if m else ("", text)
+    return (m.group(0), text[m.end() :]) if m else ("", text)
 
 
-def extract_blocks(body: str) -> List[str]:
+def extract_blocks(body: str) -> list[str]:
     """Split markdown into paragraph/code blocks."""
     out, cur, in_code = [], [], False
     for line in body.split("\n"):
@@ -76,7 +75,7 @@ def make_no_headings(text: str) -> str:
         if b.startswith("```"):
             cleaned.append(b)
         else:
-            lines = [l for l in b.split("\n") if not l.strip().startswith("#")]
+            lines = [line for line in b.split("\n") if not line.strip().startswith("#")]
             if lines:
                 cleaned.append("\n".join(lines))
     return front + "\n\n".join(cleaned)
@@ -89,7 +88,7 @@ def make_padded(text: str) -> str:
     return front + "\n\n".join(padded_blocks)
 
 
-def compute_roc_auc(pos_scores: List[float], neg_scores: List[float]) -> float:
+def compute_roc_auc(pos_scores: list[float], neg_scores: list[float]) -> float:
     """Computes ROC-AUC treating pos_scores as positive class (higher is better)."""
     if not pos_scores or not neg_scores:
         return 0.5
@@ -117,7 +116,7 @@ def compute_roc_auc(pos_scores: List[float], neg_scores: List[float]) -> float:
     return round(u / (n_pos * n_neg), 4)
 
 
-def compute_ci95(values: List[float]) -> Tuple[float, float, float]:
+def compute_ci95(values: list[float]) -> tuple[float, float, float]:
     """Returns (mean, lower_95_ci, upper_95_ci) using Student's t distribution."""
     m, lo, hi = compute_ci_95(values)
     return round(m, 4), round(lo, 4), round(hi, 4)
@@ -174,16 +173,16 @@ def infer_doc_type(path_or_name: str, default: str = "generic") -> str:
 
 
 def run_feasibility(
-    pairs_file: Optional[Path] = None,
-    doc_paths: Optional[List[Path]] = None,
+    pairs_file: Path | None = None,
+    doc_paths: list[Path] | None = None,
     default_doc_type: str = "generic",
     preset_name: str = "quality",
-    question_id: Optional[str] = None,
+    question_id: str | None = None,
     runs: int = 3,
     holdout_fraction: float = 0.3,
     dry_run: bool = False,
-    evaluator: Optional[TypeSafeEvaluator] = None,
-) -> Dict[str, Any]:
+    evaluator: TypeSafeEvaluator | None = None,
+) -> dict[str, Any]:
     preset = load_preset(preset_name)
     if evaluator is None:
         evaluator = TypeSafeEvaluator()
@@ -206,14 +205,16 @@ def run_feasibility(
             )
         target_question = "clarity"
 
-    pairs: List[Dict[str, Any]] = []
+    pairs: list[dict[str, Any]] = []
 
     # 1. Load explicit pairs if provided
     has_explicit_splits = False
     if pairs_file and pairs_file.is_file():
         raw_data = json.loads(pairs_file.read_text(encoding="utf-8"))
         base_dir = pairs_file.parent
-        has_explicit_splits = bool(raw_data) and all(item.get("split") in ("tuning", "heldout") for item in raw_data)
+        has_explicit_splits = bool(raw_data) and all(
+            item.get("split") in ("tuning", "heldout") for item in raw_data
+        )
 
         for item in raw_data:
             if "before" in item:
@@ -242,16 +243,18 @@ def run_feasibility(
             doc_type = item.get("doc_type", infer_doc_type(str(doc_id), default_doc_type))
             better = item.get("better", "after")  # default for review pairs is 'after'
 
-            pairs.append({
-                "id": item.get("id", f"pair_{len(pairs)}"),
-                "doc_id": doc_id,
-                "doc_type": doc_type,
-                "better": better,
-                "before_text": before_text,
-                "after_text": after_text,
-                "degradation": item.get("degradation", None),
-                "split": item.get("split", None),
-            })
+            pairs.append(
+                {
+                    "id": item.get("id", f"pair_{len(pairs)}"),
+                    "doc_id": doc_id,
+                    "doc_type": doc_type,
+                    "better": better,
+                    "before_text": before_text,
+                    "after_text": after_text,
+                    "degradation": item.get("degradation", None),
+                    "split": item.get("split", None),
+                }
+            )
 
     # 2. Or generate synthetic degradation pairs from doc_paths
     if doc_paths:
@@ -268,21 +271,23 @@ def run_feasibility(
                 ("padded", make_padded),
             ]:
                 deg_text = deg_fn(orig_text)
-                pairs.append({
-                    "id": f"{base_id}_{deg_name}",
-                    "doc_id": base_id,
-                    "doc_type": doc_type,
-                    "better": "before",  # original is 'before', which is better
-                    "before_text": orig_text,
-                    "after_text": deg_text,
-                    "degradation": deg_name,
-                })
+                pairs.append(
+                    {
+                        "id": f"{base_id}_{deg_name}",
+                        "doc_id": base_id,
+                        "doc_type": doc_type,
+                        "better": "before",  # original is 'before', which is better
+                        "before_text": orig_text,
+                        "after_text": deg_text,
+                        "degradation": deg_name,
+                    }
+                )
 
     if not pairs:
         raise ValueError("No review pairs or documents provided to feasibility check.")
 
     # Distinct documents and train/test split by document ID (never by pair)
-    distinct_doc_ids = sorted(list({p["doc_id"] for p in pairs}))
+    distinct_doc_ids = sorted({p["doc_id"] for p in pairs})
     if has_explicit_splits:
         tuning_doc_ids = {p["doc_id"] for p in pairs if p.get("split") == "tuning"}
         holdout_doc_ids = {p["doc_id"] for p in pairs if p.get("split") == "heldout"}
@@ -320,20 +325,22 @@ def run_feasibility(
             worse_score = s_after
             degradation_delta = s_after - s_before  # <= 0 if worse is lower
 
-        evaluated_pairs.append({
-            "id": p["id"],
-            "doc_id": p["doc_id"],
-            "doc_type": p["doc_type"],
-            "better": p["better"],
-            "degradation": p.get("degradation"),
-            "is_holdout": p["doc_id"] in holdout_doc_ids,
-            "before_score": s_before,
-            "after_score": s_after,
-            "better_score": better_score,
-            "worse_score": worse_score,
-            "delta": round(delta_after_minus_before, 4),
-            "degradation_delta": round(degradation_delta, 4),
-        })
+        evaluated_pairs.append(
+            {
+                "id": p["id"],
+                "doc_id": p["doc_id"],
+                "doc_type": p["doc_type"],
+                "better": p["better"],
+                "degradation": p.get("degradation"),
+                "is_holdout": p["doc_id"] in holdout_doc_ids,
+                "before_score": s_before,
+                "after_score": s_after,
+                "better_score": better_score,
+                "worse_score": worse_score,
+                "delta": round(delta_after_minus_before, 4),
+                "degradation_delta": round(degradation_delta, 4),
+            }
+        )
 
     # Item (2): Compute spread over distinct documents (one mean score per document)
     doc_better_means = []
@@ -350,11 +357,11 @@ def run_feasibility(
     all_deg_deltas = [p["degradation_delta"] for p in evaluated_pairs]
     mean_delta, ci95_lower, ci95_upper = compute_ci95(all_deg_deltas)
     gap_to_spread_ratio = (
-        round(abs(mean_delta) / between_doc_spread, 2)
-        if between_doc_spread > 0
-        else None
+        round(abs(mean_delta) / between_doc_spread, 2) if between_doc_spread > 0 else None
     )
-    within_pair_clearly_larger = bool(gap_to_spread_ratio is not None and gap_to_spread_ratio >= 1.5)
+    within_pair_clearly_larger = bool(
+        gap_to_spread_ratio is not None and gap_to_spread_ratio >= 1.5
+    )
 
     # Item (3): Split by document into tuning and held-out
     tuning_pairs = [p for p in evaluated_pairs if p["doc_id"] in tuning_doc_ids]
@@ -370,14 +377,16 @@ def run_feasibility(
         held_out_worse = [p["worse_score"] for p in holdout_pairs]
         held_out_auc = compute_roc_auc(held_out_better, held_out_worse)
         false_alarms = sum(1 for s in held_out_better if s <= candidate_threshold)
-        held_out_fa_rate = round(false_alarms / len(held_out_better), 4) if held_out_better else None
+        held_out_fa_rate = (
+            round(false_alarms / len(held_out_better), 4) if held_out_better else None
+        )
     else:
         held_out_auc = None
         held_out_fa_rate = None
 
     # Group by document type
     by_doc_type = {}
-    distinct_doc_types = sorted(list({p["doc_type"] for p in evaluated_pairs}))
+    distinct_doc_types = sorted({p["doc_type"] for p in evaluated_pairs})
     for dt in distinct_doc_types:
         dt_pairs = [p for p in evaluated_pairs if p["doc_type"] == dt]
         dt_tuning = [p for p in dt_pairs if p["doc_id"] in tuning_doc_ids]
@@ -397,7 +406,12 @@ def run_feasibility(
             dt_auc = compute_roc_auc(dt_ho_better, dt_ho_worse)
             dt_fa = sum(1 for s in dt_ho_better if s <= dt_thresh)
             dt_fa_rate = round(dt_fa / len(dt_ho_better), 4) if dt_ho_better else None
-            dt_feasible = bool(dt_auc is not None and dt_fa_rate is not None and dt_auc >= 0.75 and dt_fa_rate <= 0.10)
+            dt_feasible = bool(
+                dt_auc is not None
+                and dt_fa_rate is not None
+                and dt_auc >= 0.75
+                and dt_fa_rate <= 0.10
+            )
         else:
             dt_auc = None
             dt_fa_rate = None
@@ -417,8 +431,8 @@ def run_feasibility(
     return {
         "num_pairs": len(evaluated_pairs),
         "num_distinct_docs": len(distinct_doc_ids),
-        "tuning_docs": sorted(list(tuning_doc_ids)),
-        "holdout_docs": sorted(list(holdout_doc_ids)),
+        "tuning_docs": sorted(tuning_doc_ids),
+        "holdout_docs": sorted(holdout_doc_ids),
         "preset": preset_name,
         "runs": runs,
         "dry_run": dry_run,
@@ -446,15 +460,27 @@ def run_feasibility(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Feasibility check for quality regression detection (#42)")
+    parser = argparse.ArgumentParser(
+        description="Feasibility check for quality regression detection (#42)"
+    )
     parser.add_argument("--pairs", type=Path, help="JSON file with pairs to evaluate")
-    parser.add_argument("--doc", action="append", type=Path, help="Document(s) to generate degradations for")
-    parser.add_argument("--doc-type", default="generic", help="Default doc_type for documents (default: generic)")
+    parser.add_argument(
+        "--doc", action="append", type=Path, help="Document(s) to generate degradations for"
+    )
+    parser.add_argument(
+        "--doc-type", default="generic", help="Default doc_type for documents (default: generic)"
+    )
     parser.add_argument("--preset", default="quality", help="Preset name (default: quality)")
-    parser.add_argument("--question", type=str, default=None, help="Question ID to evaluate (e.g. clarity)")
+    parser.add_argument(
+        "--question", type=str, default=None, help="Question ID to evaluate (e.g. clarity)"
+    )
     parser.add_argument("--runs", type=int, default=3, help="Number of runs per doc (default: 3)")
-    parser.add_argument("--holdout-fraction", type=float, default=0.3, help="Fraction of documents in holdout set")
-    parser.add_argument("--dry-run", action="store_true", help="Use mock evaluation without API calls")
+    parser.add_argument(
+        "--holdout-fraction", type=float, default=0.3, help="Fraction of documents in holdout set"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Use mock evaluation without API calls"
+    )
     parser.add_argument("--out", type=Path, help="Path to save JSON output")
 
     args = parser.parse_args()
@@ -487,36 +513,64 @@ def main():
         sys.exit(2)
 
     print("=== Feasibility Check Summary (Issue #42) ===")
-    print(f"Evaluated Pairs: {report['num_pairs']} (across {report['num_distinct_docs']} distinct documents)")
-    print(f"Tuning Docs: {len(report['tuning_docs'])}, Held-out Docs: {len(report['holdout_docs'])}")
-    print(f"Mean Δ (worse − better): {report['within_pair_gap']['mean_delta']} "
-          f"[95% CI: {report['within_pair_gap']['ci95_lower']}, {report['within_pair_gap']['ci95_upper']}]")
+    print(
+        f"Evaluated Pairs: {report['num_pairs']} (across {report['num_distinct_docs']} distinct documents)"
+    )
+    print(
+        f"Tuning Docs: {len(report['tuning_docs'])}, Held-out Docs: {len(report['holdout_docs'])}"
+    )
+    print(
+        f"Mean Δ (worse − better): {report['within_pair_gap']['mean_delta']} "
+        f"[95% CI: {report['within_pair_gap']['ci95_lower']}, {report['within_pair_gap']['ci95_upper']}]"
+    )
     print(f"Between-document spread (σ): {report['between_doc_spread']}")
-    ratio_str = f"{report['gap_to_spread_ratio']}" if report['gap_to_spread_ratio'] is not None else "N/A"
-    print(f"Gap / Spread Ratio: {ratio_str} "
-          f"({'Clearly larger (≥1.5)' if report['within_pair_clearly_larger'] else 'Not clearly larger (<1.5)'})")
+    ratio_str = (
+        f"{report['gap_to_spread_ratio']}" if report["gap_to_spread_ratio"] is not None else "N/A"
+    )
+    print(
+        f"Gap / Spread Ratio: {ratio_str} "
+        f"({'Clearly larger (≥1.5)' if report['within_pair_clearly_larger'] else 'Not clearly larger (<1.5)'})"
+    )
     print(f"Tuning Candidate Threshold: {report['tuning_candidate_threshold']}")
     auc_str = f"{report['held_out_roc_auc']}" if report["held_out_roc_auc"] is not None else "n/a"
     print(f"Held-out ROC-AUC (better vs worse): {auc_str} (Target: ≥ 0.75)")
-    fa_str = f"{report['held_out_published_false_alarm_rate'] * 100:.1f}%" if report["held_out_published_false_alarm_rate"] is not None else "n/a"
+    fa_str = (
+        f"{report['held_out_published_false_alarm_rate'] * 100:.1f}%"
+        if report["held_out_published_false_alarm_rate"] is not None
+        else "n/a"
+    )
     print(f"Held-out Published False Alarm Rate: {fa_str} (Target: ≤ 10%)")
-    print(f"Absolute Gate Feasible: {'YES' if report['absolute_gate_feasible'] else 'NO (Spotting regressions only)'}")
+    print(
+        f"Absolute Gate Feasible: {'YES' if report['absolute_gate_feasible'] else 'NO (Spotting regressions only)'}"
+    )
 
-    if len(report['holdout_docs']) < 5:
-        print(f"\n[Warning] Held-out set has fewer than 5 documents ({len(report['holdout_docs'])} found). "
-              f"ROC-AUC is not statistically reliable at this sample size.")
+    if len(report["holdout_docs"]) < 5:
+        print(
+            f"\n[Warning] Held-out set has fewer than 5 documents ({len(report['holdout_docs'])} found). "
+            f"ROC-AUC is not statistically reliable at this sample size."
+        )
 
     if report["by_doc_type"]:
         print("\n--- By Document Type ---")
         for dt, dt_stats in report["by_doc_type"].items():
-            dt_auc_str = f"{dt_stats['held_out_roc_auc']}" if dt_stats['held_out_roc_auc'] is not None else "n/a"
-            dt_fa_str = f"{dt_stats['held_out_false_alarm_rate'] * 100:.1f}%" if dt_stats['held_out_false_alarm_rate'] is not None else "n/a"
-            print(f"• {dt} ({dt_stats['num_pairs']} pairs): "
-                  f"Mean Δ: {dt_stats['mean_delta']} [95% CI: {dt_stats['ci95_lower']}, {dt_stats['ci95_upper']}] | "
-                  f"Threshold: {dt_stats['candidate_threshold']} | "
-                  f"Held-out AUC: {dt_auc_str} | "
-                  f"False Alarm: {dt_fa_str} | "
-                  f"Feasible: {'YES' if dt_stats['feasible'] else 'NO'}")
+            dt_auc_str = (
+                f"{dt_stats['held_out_roc_auc']}"
+                if dt_stats["held_out_roc_auc"] is not None
+                else "n/a"
+            )
+            dt_fa_str = (
+                f"{dt_stats['held_out_false_alarm_rate'] * 100:.1f}%"
+                if dt_stats["held_out_false_alarm_rate"] is not None
+                else "n/a"
+            )
+            print(
+                f"• {dt} ({dt_stats['num_pairs']} pairs): "
+                f"Mean Δ: {dt_stats['mean_delta']} [95% CI: {dt_stats['ci95_lower']}, {dt_stats['ci95_upper']}] | "
+                f"Threshold: {dt_stats['candidate_threshold']} | "
+                f"Held-out AUC: {dt_auc_str} | "
+                f"False Alarm: {dt_fa_str} | "
+                f"Feasible: {'YES' if dt_stats['feasible'] else 'NO'}"
+            )
 
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

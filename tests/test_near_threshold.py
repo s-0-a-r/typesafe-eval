@@ -1,27 +1,23 @@
 """Tests for near_threshold indicator, margin constant, and reporting (Issue #44)."""
 
 import json
-from pathlib import Path
-import pytest
+
 from click.testing import CliRunner
 
+from typesafe_eval.cli import main
+from typesafe_eval.client import TypeSafeEvaluator, _is_candidate_near_threshold
 from typesafe_eval.models import (
-    NEAR_THRESHOLD_MARGIN,
     CANDIDATE_DECISION_THRESHOLD,
+    NEAR_THRESHOLD_MARGIN,
+    DocumentEvalResult,
+    EmailEvaluationResult,
+    NoulResult,
     PresetConfig,
     QuestionConfig,
     ScoreResult,
-    NoulResult,
-    EmailEvaluationResult,
-    PhoneEvaluationResult,
-    IPEvaluationResult,
-    URLEvaluationResult,
     SecretEvaluationResult,
-    DocumentEvalResult,
+    URLEvaluationResult,
 )
-from typesafe_eval.client import TypeSafeEvaluator, _is_candidate_near_threshold
-from typesafe_eval.reporter import render_table, render_markdown, render_json
-from typesafe_eval.cli import main
 
 
 def test_near_threshold_constant():
@@ -178,29 +174,34 @@ def test_near_threshold_cli_json_table_markdown(tmp_path, monkeypatch):
 
     custom_preset_yaml = tmp_path / "custom.yaml"
     import yaml
+
     custom_preset_yaml.write_text(
-        yaml.dump({
-            "name": "custom-quality",
-            "questions": {
-                "clarity": {
-                    "type": "score",
-                    "instructions": "Clarity",
-                    "min_threshold": 0.5,
+        yaml.dump(
+            {
+                "name": "custom-quality",
+                "questions": {
+                    "clarity": {
+                        "type": "score",
+                        "instructions": "Clarity",
+                        "min_threshold": 0.5,
+                    },
+                    "completeness": {
+                        "type": "score",
+                        "instructions": "Completeness",
+                        "min_threshold": 0.5,
+                    },
                 },
-                "completeness": {
-                    "type": "score",
-                    "instructions": "Completeness",
-                    "min_threshold": 0.5,
-                },
-            },
-        }),
+            }
+        ),
         encoding="utf-8",
     )
 
     runner = CliRunner()
 
     # 1. JSON output
-    res_json = runner.invoke(main, [str(doc), "--config", str(custom_preset_yaml), "--format", "json"])
+    res_json = runner.invoke(
+        main, [str(doc), "--config", str(custom_preset_yaml), "--format", "json"]
+    )
     assert res_json.exit_code == 0
     data = json.loads(res_json.stdout)
     assert len(data) == 1
@@ -209,7 +210,9 @@ def test_near_threshold_cli_json_table_markdown(tmp_path, monkeypatch):
     assert scores_data["completeness"]["near_threshold"] is False
 
     # 2. Markdown output
-    res_md = runner.invoke(main, [str(doc), "--config", str(custom_preset_yaml), "--format", "markdown"])
+    res_md = runner.invoke(
+        main, [str(doc), "--config", str(custom_preset_yaml), "--format", "markdown"]
+    )
     assert res_md.exit_code == 0
     assert "51% ~" in res_md.stdout
     assert "90%" in res_md.stdout
@@ -217,7 +220,9 @@ def test_near_threshold_cli_json_table_markdown(tmp_path, monkeypatch):
     assert "near_threshold" in res_md.stdout
 
     # 3. Table output
-    res_table = runner.invoke(main, [str(doc), "--config", str(custom_preset_yaml), "--format", "table"])
+    res_table = runner.invoke(
+        main, [str(doc), "--config", str(custom_preset_yaml), "--format", "table"]
+    )
     assert res_table.exit_code == 0
     assert "~" in res_table.stdout
     assert "near_threshold" in res_table.stdout
@@ -229,17 +234,20 @@ def test_near_threshold_preserves_exit_codes(tmp_path, monkeypatch):
 
     custom_preset_yaml = tmp_path / "custom.yaml"
     import yaml
+
     custom_preset_yaml.write_text(
-        yaml.dump({
-            "name": "gate-test",
-            "questions": {
-                "clarity": {
-                    "type": "score",
-                    "instructions": "Clarity",
-                    "min_threshold": 0.50,
+        yaml.dump(
+            {
+                "name": "gate-test",
+                "questions": {
+                    "clarity": {
+                        "type": "score",
+                        "instructions": "Clarity",
+                        "min_threshold": 0.50,
+                    },
                 },
-            },
-        }),
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -484,4 +492,3 @@ def test_candidate_near_threshold_preserves_exit_codes(tmp_path, monkeypatch):
     res_fail = runner.invoke(main, [str(doc), "--preset", "safety"])
     assert res_fail.exit_code == 1
     assert "~ near threshold: [EMAIL_1] personal (p=0.55)" in res_fail.stdout
-

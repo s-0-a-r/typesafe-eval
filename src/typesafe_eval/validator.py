@@ -3,25 +3,24 @@
 Implements `typesafe-eval validate` per Issue #38.
 """
 
+import hashlib
+import json
 import math
 import re
-import sys
-import json
-import hashlib
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union, Literal
+from typing import Any, Literal
 
-import yaml
 import click
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich.markup import escape
+from rich.panel import Panel
+from rich.table import Table
 
-from typesafe_eval.presets import load_preset, PresetConfig
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.models import DocumentEvalResult
+from typesafe_eval.presets import PresetConfig, load_preset
 
 err_console = Console(stderr=True)
 console = Console()
@@ -91,7 +90,7 @@ def get_t_crit_95(df: int) -> float:
     return 1.960
 
 
-def compute_ci_95(deltas: List[float]) -> Tuple[float, float, float]:
+def compute_ci_95(deltas: list[float]) -> tuple[float, float, float]:
     """Computes mean delta, and lower/upper bounds of 95% confidence interval."""
     n = len(deltas)
     if n == 0:
@@ -109,60 +108,62 @@ def compute_ci_95(deltas: List[float]) -> Tuple[float, float, float]:
 
 # --- Schema for labels.yaml ---
 
+
 class ValidationDocumentExpectation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str
-    expect: Dict[str, Literal["present", "absent"]]
+    expect: dict[str, Literal["present", "absent"]]
 
 
 class ValidationPairExpectation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     before: str
     after: str
-    expect: Dict[str, Literal["down", "neutral"]]
-    kind: Optional[str] = None
-    doc_id: Optional[str] = None
-    runs: Optional[int] = None
+    expect: dict[str, Literal["down", "neutral"]]
+    kind: str | None = None
+    doc_id: str | None = None
+    runs: int | None = None
 
 
 class QuestionCriteria(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    min_detected: Optional[Union[int, float]] = None
-    max_false_alarms: Optional[Union[int, float]] = None
-    max_neutral_delta: Optional[float] = None
-    min_degradation_drop: Optional[float] = None
-    max_spread: Optional[float] = None
+    min_detected: int | float | None = None
+    max_false_alarms: int | float | None = None
+    max_neutral_delta: float | None = None
+    min_degradation_drop: float | None = None
+    max_spread: float | None = None
 
 
 class ValidationCriteria(QuestionCriteria):
     model_config = ConfigDict(extra="forbid")
     group_by: Literal["kind", "pair"] = "pair"
-    degradation_ci_upper_max: Optional[float] = None
-    neutral_ci_abs_max: Optional[float] = None
+    degradation_ci_upper_max: float | None = None
+    neutral_ci_abs_max: float | None = None
     min_group_size: int = 6
-    pair_guard_neutral_abs_max: Optional[float] = None
+    pair_guard_neutral_abs_max: float | None = None
     pair_guard_down_tolerance: float = 0.0
-    report_only_kinds: List[str] = Field(default_factory=list)
-    per_pair_kinds: List[str] = Field(default_factory=list)
+    report_only_kinds: list[str] = Field(default_factory=list)
+    per_pair_kinds: list[str] = Field(default_factory=list)
 
 
 class ValidationLabelsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    preset: Optional[str] = None
-    config: Optional[str] = None
+    preset: str | None = None
+    config: str | None = None
     runs: int = 3
-    criteria: Optional[ValidationCriteria] = None
-    documents: List[ValidationDocumentExpectation] = Field(default_factory=list)
-    pairs: List[ValidationPairExpectation] = Field(default_factory=list)
+    criteria: ValidationCriteria | None = None
+    documents: list[ValidationDocumentExpectation] = Field(default_factory=list)
+    pairs: list[ValidationPairExpectation] = Field(default_factory=list)
 
 
 # --- Results Models ---
+
 
 class DocumentPresenceResult(BaseModel):
     path: str
     question_id: str
     expected: Literal["present", "absent"]
-    probabilities: List[float]
+    probabilities: list[float]
     spread: float
     verdict: Literal["detected", "missed", "correct_present", "false_alarm"]
 
@@ -172,11 +173,11 @@ class PairScoreResult(BaseModel):
     after_path: str
     question_id: str
     expected: Literal["down", "neutral"]
-    kind: Optional[str] = None
-    doc_id: Optional[str] = None
-    before_scores: List[float]
-    after_scores: List[float]
-    deltas: List[float]
+    kind: str | None = None
+    doc_id: str | None = None
+    before_scores: list[float]
+    after_scores: list[float]
+    deltas: list[float]
     mean_delta: float
     ci_95_lower: float
     ci_95_upper: float
@@ -190,13 +191,13 @@ class PairScoreResult(BaseModel):
 
 class PairGroupResult(BaseModel):
     kind: str
-    question_id: Optional[str] = None
+    question_id: str | None = None
     expected: Literal["down", "neutral"]
     n: int
     mean_delta: float
     ci_95_lower: float
     ci_95_upper: float
-    passed: Optional[bool] = None
+    passed: bool | None = None
     worst_pair_path: str
     worst_pair_delta: float
 
@@ -210,8 +211,8 @@ class QuestionValidationStats(BaseModel):
     total_present_expected: int = 0
     false_alarm_count: int = 0
     max_spread: float = 0.0
-    mean_delta: Optional[float] = None
-    ci_95: Optional[Tuple[float, float]] = None
+    mean_delta: float | None = None
+    ci_95: tuple[float, float] | None = None
     pairs_count: int = 0
 
 
@@ -219,7 +220,7 @@ class CriterionEvaluationResult(BaseModel):
     name: str
     expected: Any
     actual: Any
-    passed: Optional[bool] = None
+    passed: bool | None = None
     message: str
 
 
@@ -227,31 +228,32 @@ class ValidationReport(BaseModel):
     schema_version: str = "1.0"
     preset_name: str
     runs: int
-    all_passed: Optional[bool] = None
-    summary: Dict[str, Any]
-    presence_results: List[DocumentPresenceResult] = Field(default_factory=list)
-    pair_results: List[PairScoreResult] = Field(default_factory=list)
-    pair_group_results: List[PairGroupResult] = Field(default_factory=list)
+    all_passed: bool | None = None
+    summary: dict[str, Any]
+    presence_results: list[DocumentPresenceResult] = Field(default_factory=list)
+    pair_results: list[PairScoreResult] = Field(default_factory=list)
+    pair_group_results: list[PairGroupResult] = Field(default_factory=list)
     incomplete_pairs_count: int = 0
     truncated_pairs_count: int = 0
-    question_stats: Dict[str, QuestionValidationStats] = Field(default_factory=dict)
-    criteria_results: List[CriterionEvaluationResult] = Field(default_factory=list)
-    choice_distributions: Dict[str, Dict[str, int]] = Field(default_factory=dict)
-    unplaced_warnings: List[str] = Field(default_factory=list)
+    question_stats: dict[str, QuestionValidationStats] = Field(default_factory=dict)
+    criteria_results: list[CriterionEvaluationResult] = Field(default_factory=list)
+    choice_distributions: dict[str, dict[str, int]] = Field(default_factory=dict)
+    unplaced_warnings: list[str] = Field(default_factory=list)
     mock: bool = False
 
 
 # --- Execution Engine ---
 
-def load_labels_file(labels_path: Union[str, Path]) -> Tuple[ValidationLabelsConfig, Path]:
+
+def load_labels_file(labels_path: str | Path) -> tuple[ValidationLabelsConfig, Path]:
     """Loads and validates a labels.yaml configuration file."""
     path = Path(labels_path)
     if not path.is_file():
         raise FileNotFoundError(f"Labels file not found: {path}")
-    
-    with open(path, "r", encoding="utf-8") as f:
+
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    
+
     if not isinstance(data, dict):
         raise ValueError(f"Invalid labels configuration in {path}: expected YAML mapping")
 
@@ -276,9 +278,7 @@ def load_labels_file(labels_path: Union[str, Path]) -> Tuple[ValidationLabelsCon
             loc_str = " -> ".join(loc_parts) if loc_parts else "root"
             msg = err.get("msg", "Validation error")
             err_msgs.append(f"{loc_str}: {msg}")
-        raise ValueError(
-            f"Invalid labels configuration in {path}:\n" + "\n".join(err_msgs)
-        ) from e
+        raise ValueError(f"Invalid labels configuration in {path}:\n" + "\n".join(err_msgs)) from e
     return config, path.parent
 
 
@@ -352,11 +352,11 @@ def run_validation(
     labels_cfg: ValidationLabelsConfig,
     base_dir: Path,
     evaluator: TypeSafeEvaluator,
-    runs_override: Optional[int] = None,
+    runs_override: int | None = None,
     dry_run: bool = False,
-    preset_cfg: Optional[PresetConfig] = None,
+    preset_cfg: PresetConfig | None = None,
     mask_secrets: bool = True,
-) -> Tuple[ValidationReport, bool]:
+) -> tuple[ValidationReport, bool]:
     """Runs validation over documents and pairs across N runs."""
     runs = runs_override if runs_override is not None else labels_cfg.runs
     if runs < 1:
@@ -365,13 +365,15 @@ def run_validation(
     if preset_cfg is None:
         preset_cfg = validate_labels_preset(labels_cfg, base_dir)
 
-    presence_results: List[DocumentPresenceResult] = []
-    pair_results: List[PairScoreResult] = []
-    choice_distributions: Dict[str, Dict[str, int]] = {}
-    unplaced_warnings: List[str] = []
+    presence_results: list[DocumentPresenceResult] = []
+    pair_results: list[PairScoreResult] = []
+    choice_distributions: dict[str, dict[str, int]] = {}
+    unplaced_warnings: list[str] = []
     has_runtime_error = False
 
-    def _check_unplaced(res_obj: DocumentEvalResult, doc_label: str, r_idx: int, n_runs: int) -> None:
+    def _check_unplaced(
+        res_obj: DocumentEvalResult, doc_label: str, r_idx: int, n_runs: int
+    ) -> None:
         nonlocal has_runtime_error
         for w in res_obj.warnings:
             if is_unplaced_warning(w):
@@ -380,14 +382,14 @@ def run_validation(
                     unplaced_warnings.append(formatted)
                 if mask_secrets:
                     click.echo(
-                        f"{doc_label} (run {r_idx+1}/{n_runs}): Unplaced item in masked mode: {w}",
+                        f"{doc_label} (run {r_idx + 1}/{n_runs}): Unplaced item in masked mode: {w}",
                         err=True,
                     )
                     has_runtime_error = True
 
     # Cache for unchanged file evaluations within this validate run
     # Key: (resolved_path, file_sha256, questions_hash, mask_secrets, run_index)
-    eval_cache: Dict[Tuple[str, str, str, bool, int], DocumentEvalResult] = {}
+    eval_cache: dict[tuple[str, str, str, bool, int], DocumentEvalResult] = {}
 
     questions_hash = compute_questions_hash(preset_cfg)
 
@@ -405,7 +407,7 @@ def run_validation(
             )
         return eval_cache[cache_key]
 
-    def _extract_q_val(res: DocumentEvalResult, q_id: str) -> Optional[float]:
+    def _extract_q_val(res: DocumentEvalResult, q_id: str) -> float | None:
         if q_id in res.scores:
             return res.scores[q_id].normalized_score
         elif q_id in res.nouls and res.nouls[q_id].probability is not None:
@@ -417,9 +419,11 @@ def run_validation(
     max_runs = max([runs] + pair_runs_list) if (labels_cfg.documents or labels_cfg.pairs) else runs
 
     # Run-major evaluation: doc_idx -> run_idx -> DocumentEvalResult
-    doc_eval_runs: Dict[int, Dict[int, DocumentEvalResult]] = {i: {} for i in range(len(labels_cfg.documents))}
+    doc_eval_runs: dict[int, dict[int, DocumentEvalResult]] = {
+        i: {} for i in range(len(labels_cfg.documents))
+    }
     # pair_idx -> run_idx -> (res_b, res_a)
-    pair_eval_runs: Dict[int, Dict[int, Tuple[DocumentEvalResult, DocumentEvalResult]]] = {
+    pair_eval_runs: dict[int, dict[int, tuple[DocumentEvalResult, DocumentEvalResult]]] = {
         i: {} for i in range(len(labels_cfg.pairs))
     }
 
@@ -436,7 +440,7 @@ def run_validation(
                         q_dist[ch_obj.choice] = q_dist.get(ch_obj.choice, 0) + 1
                     _check_unplaced(res, str(doc_item.path), r, runs)
                 except Exception as e:
-                    click.echo(f"{doc_path} (run {r+1}/{runs}): {e}", err=True)
+                    click.echo(f"{doc_path} (run {r + 1}/{runs}): {e}", err=True)
                     has_runtime_error = True
 
         # 2. Pairs for run r
@@ -456,13 +460,16 @@ def run_validation(
                     _check_unplaced(res_b, str(pair_item.before), r, p_runs)
                     _check_unplaced(res_a, str(pair_item.after), r, p_runs)
                 except Exception as e:
-                    click.echo(f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{p_runs}): {e}", err=True)
+                    click.echo(
+                        f"Pair ({pair_item.before} -> {pair_item.after}, run {r + 1}/{p_runs}): {e}",
+                        err=True,
+                    )
                     has_runtime_error = True
 
     # Process presence document results
     for d_idx, doc_item in enumerate(labels_cfg.documents):
         doc_path = resolve_file_path(base_dir, doc_item.path)
-        probs_by_question: Dict[str, List[float]] = {q: [] for q in doc_item.expect}
+        probs_by_question: dict[str, list[float]] = {q: [] for q in doc_item.expect}
 
         for r in range(runs):
             if r not in doc_eval_runs[d_idx]:
@@ -476,7 +483,11 @@ def run_validation(
                     threshold = (
                         q_cfg.max_threshold
                         if is_max_threshold
-                        else (q_cfg.min_threshold if q_cfg and q_cfg.min_threshold is not None else 0.5)
+                        else (
+                            q_cfg.min_threshold
+                            if q_cfg and q_cfg.min_threshold is not None
+                            else 0.5
+                        )
                     )
 
                     has_cand_violation = False
@@ -488,17 +499,23 @@ def run_validation(
                             or any(u.outcome == "sensitive" for u in res.url_evaluations)
                         )
                     elif q_id == "has_secrets":
-                        has_cand_violation = any(s.outcome == "secret" for s in res.secret_evaluations)
+                        has_cand_violation = any(
+                            s.outcome == "secret" for s in res.secret_evaluations
+                        )
 
                     is_preflight = noul_obj.overridden_by is not None
                     if has_cand_violation or is_preflight:
-                        p_val = max(noul_obj.probability, 1.0) if noul_obj.probability is not None else 1.0
+                        p_val = (
+                            max(noul_obj.probability, 1.0)
+                            if noul_obj.probability is not None
+                            else 1.0
+                        )
                         probs_by_question[q_id].append(p_val)
                     elif noul_obj.probability is not None:
                         probs_by_question[q_id].append(noul_obj.probability)
                     else:
                         click.echo(
-                            f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' probability is None without preflight decision",
+                            f"{doc_path} (run {r + 1}/{runs}): Question '{q_id}' probability is None without preflight decision",
                             err=True,
                         )
                         has_runtime_error = True
@@ -506,7 +523,7 @@ def run_validation(
                     probs_by_question[q_id].append(res.scores[q_id].normalized_score)
                 else:
                     click.echo(
-                        f"{doc_path} (run {r+1}/{runs}): Question '{q_id}' was not returned by evaluator",
+                        f"{doc_path} (run {r + 1}/{runs}): Question '{q_id}' was not returned by evaluator",
                         err=True,
                     )
                     has_runtime_error = True
@@ -521,12 +538,16 @@ def run_validation(
 
             if is_max_threshold:
                 threshold = q_cfg.max_threshold
-                is_present = lambda p, t=threshold: p > t
-                is_absent = lambda p, t=threshold: p <= t
+
+                def is_absent(p: float, t: float = threshold) -> bool:
+                    return p <= t
             else:
-                threshold = q_cfg.min_threshold if (q_cfg and q_cfg.min_threshold is not None) else 0.5
-                is_present = lambda p, t=threshold: p >= t
-                is_absent = lambda p, t=threshold: p < t
+                threshold = (
+                    q_cfg.min_threshold if (q_cfg and q_cfg.min_threshold is not None) else 0.5
+                )
+
+                def is_absent(p: float, t: float = threshold) -> bool:
+                    return p < t
 
             spread = max(probs) - min(probs) if probs else 0.0
 
@@ -558,7 +579,7 @@ def run_validation(
     for p_idx, pair_item in enumerate(labels_cfg.pairs):
         p_runs = pair_runs_list[p_idx]
         for q_id, expected in pair_item.expect.items():
-            valid_runs: List[Tuple[float, float]] = []
+            valid_runs: list[tuple[float, float]] = []
             has_trunc_b = False
             has_trunc_a = False
 
@@ -577,7 +598,7 @@ def run_validation(
                         valid_runs.append((val_b, val_a))
                     else:
                         click.echo(
-                            f"Pair ({pair_item.before} -> {pair_item.after}, run {r+1}/{p_runs}): Question '{q_id}' not returned in pair",
+                            f"Pair ({pair_item.before} -> {pair_item.after}, run {r + 1}/{p_runs}): Question '{q_id}' not returned in pair",
                             err=True,
                         )
                         has_runtime_error = True
@@ -603,7 +624,11 @@ def run_validation(
                 guard_neutral = (
                     crit_cfg.pair_guard_neutral_abs_max
                     if crit_cfg and crit_cfg.pair_guard_neutral_abs_max is not None
-                    else (crit_cfg.max_neutral_delta if crit_cfg and crit_cfg.max_neutral_delta is not None else 0.05)
+                    else (
+                        crit_cfg.max_neutral_delta
+                        if crit_cfg and crit_cfg.max_neutral_delta is not None
+                        else 0.05
+                    )
                 )
                 pair_passed = abs(mean_d) <= guard_neutral
 
@@ -634,7 +659,7 @@ def run_validation(
     truncated_pairs_count = sum(1 for p in pair_results if p.was_truncated)
 
     # 3. Aggregate per-question statistics (across all active pairs for each question)
-    question_stats: Dict[str, QuestionValidationStats] = {}
+    question_stats: dict[str, QuestionValidationStats] = {}
 
     for pr in presence_results:
         q_id = pr.question_id
@@ -656,7 +681,11 @@ def run_validation(
     # Question stats for score questions: compute aggregate across all active pair mean deltas
     score_q_ids = {p.question_id for p in pair_results}
     for q_id in sorted(score_q_ids):
-        q_active_pairs = [p for p in pair_results if p.question_id == q_id and not p.incomplete and not p.was_truncated]
+        q_active_pairs = [
+            p
+            for p in pair_results
+            if p.question_id == q_id and not p.incomplete and not p.was_truncated
+        ]
         if q_id not in question_stats:
             question_stats[q_id] = QuestionValidationStats(question_id=q_id, type="score")
         stat = question_stats[q_id]
@@ -671,13 +700,13 @@ def run_validation(
             stat.ci_95 = None
 
     # 4. Grouping & Pair Group Results
-    pair_group_results: List[PairGroupResult] = []
+    pair_group_results: list[PairGroupResult] = []
     group_by = crit_cfg.group_by if crit_cfg else "pair"
     report_only = set(crit_cfg.report_only_kinds) if crit_cfg else set()
     per_pair_kinds = set(crit_cfg.per_pair_kinds) if crit_cfg else set()
     min_grp_size = crit_cfg.min_group_size if crit_cfg else 6
 
-    def _eval_pair_ci_passed(p: PairScoreResult) -> Optional[bool]:
+    def _eval_pair_ci_passed(p: PairScoreResult) -> bool | None:
         if p.incomplete or p.was_truncated or (p.kind and p.kind in report_only):
             return None
         if p.expected == "down":
@@ -700,7 +729,7 @@ def run_validation(
         regular_pairs = [p for p in pair_results if not (p.kind and p.kind in per_pair_kinds)]
         per_pair_items = [p for p in pair_results if p.kind and p.kind in per_pair_kinds]
 
-        groups_dict: Dict[Tuple[str, str], List[PairScoreResult]] = {}
+        groups_dict: dict[tuple[str, str], list[PairScoreResult]] = {}
         for p in regular_pairs:
             k = p.kind or "default"
             groups_dict.setdefault((k, p.question_id), []).append(p)
@@ -809,7 +838,7 @@ def run_validation(
             )
 
     # 5. Evaluate Pass Criteria
-    criteria_results: List[CriterionEvaluationResult] = []
+    criteria_results: list[CriterionEvaluationResult] = []
     all_criteria_passed = True
 
     total_absent = sum(s.total_absent_expected for s in question_stats.values())
@@ -827,8 +856,8 @@ def run_validation(
                 criteria_results.append(
                     CriterionEvaluationResult(
                         name="min_detected (rate)",
-                        expected=f"{exp_det*100:.0f}%",
-                        actual=f"{act_det_rate*100:.1f}% ({total_detected}/{total_absent})",
+                        expected=f"{exp_det * 100:.0f}%",
+                        actual=f"{act_det_rate * 100:.1f}% ({total_detected}/{total_absent})",
                         passed=None if dry_run else passed,
                         message=f"Detected {total_detected}/{total_absent} absent items",
                     )
@@ -866,8 +895,12 @@ def run_validation(
         # max_neutral_delta (applies to active gating neutral pairs; zero pairs must not pass)
         if crit_cfg.max_neutral_delta is not None:
             active_neutrals = [
-                p for p in pair_results
-                if p.expected == "neutral" and not p.incomplete and not p.was_truncated and (not p.kind or p.kind not in report_only)
+                p
+                for p in pair_results
+                if p.expected == "neutral"
+                and not p.incomplete
+                and not p.was_truncated
+                and (not p.kind or p.kind not in report_only)
             ]
             if len(active_neutrals) == 0:
                 passed = False
@@ -891,8 +924,12 @@ def run_validation(
         # min_degradation_drop (applies to active gating down pairs; zero pairs must not pass)
         if crit_cfg.min_degradation_drop is not None:
             active_downs = [
-                p for p in pair_results
-                if p.expected == "down" and not p.incomplete and not p.was_truncated and (not p.kind or p.kind not in report_only)
+                p
+                for p in pair_results
+                if p.expected == "down"
+                and not p.incomplete
+                and not p.was_truncated
+                and (not p.kind or p.kind not in report_only)
             ]
             min_drop = crit_cfg.min_degradation_drop
             if len(active_downs) == 0:
@@ -916,7 +953,9 @@ def run_validation(
 
         # degradation_ci_upper_max
         if crit_cfg.degradation_ci_upper_max is not None:
-            gating_down_groups = [g for g in pair_group_results if g.expected == "down" and g.passed is not None]
+            gating_down_groups = [
+                g for g in pair_group_results if g.expected == "down" and g.passed is not None
+            ]
             down_groups = [g for g in pair_group_results if g.expected == "down"]
             if len(down_groups) == 0:
                 passed = False
@@ -942,7 +981,9 @@ def run_validation(
 
         # neutral_ci_abs_max
         if crit_cfg.neutral_ci_abs_max is not None:
-            gating_neutral_groups = [g for g in pair_group_results if g.expected == "neutral" and g.passed is not None]
+            gating_neutral_groups = [
+                g for g in pair_group_results if g.expected == "neutral" and g.passed is not None
+            ]
             neutral_groups = [g for g in pair_group_results if g.expected == "neutral"]
             if len(neutral_groups) == 0:
                 passed = False
@@ -952,7 +993,9 @@ def run_validation(
                 act_str = "no gating groups (all report-only or small)"
             else:
                 passed = all(g.passed for g in gating_neutral_groups)
-                max_ci_abs = max(max(abs(g.ci_95_lower), abs(g.ci_95_upper)) for g in gating_neutral_groups)
+                max_ci_abs = max(
+                    max(abs(g.ci_95_lower), abs(g.ci_95_upper)) for g in gating_neutral_groups
+                )
                 act_str = f"max CI abs {max_ci_abs:.3f}"
             criteria_results.append(
                 CriterionEvaluationResult(
@@ -969,13 +1012,19 @@ def run_validation(
         # pair_guard_neutral_abs_max
         if crit_cfg.pair_guard_neutral_abs_max is not None:
             active_gating_pairs = [
-                p for p in pair_results
-                if not p.incomplete and not p.was_truncated and (not p.kind or p.kind not in report_only)
+                p
+                for p in pair_results
+                if not p.incomplete
+                and not p.was_truncated
+                and (not p.kind or p.kind not in report_only)
             ]
             violating_pairs = []
             guard_down_tol = crit_cfg.pair_guard_down_tolerance
             for p in active_gating_pairs:
-                if p.expected == "neutral" and abs(p.mean_delta) > crit_cfg.pair_guard_neutral_abs_max:
+                if (
+                    p.expected == "neutral"
+                    and abs(p.mean_delta) > crit_cfg.pair_guard_neutral_abs_max
+                ):
                     violating_pairs.append(f"{Path(p.after_path).name} ({p.mean_delta:+.3f})")
                 elif p.expected == "down" and p.mean_delta > guard_down_tol:
                     violating_pairs.append(f"{Path(p.after_path).name} ({p.mean_delta:+.3f})")
@@ -987,7 +1036,9 @@ def run_validation(
                     expected=f"neutral <= {crit_cfg.pair_guard_neutral_abs_max:.3f}, down <= {guard_down_tol:.3f}",
                     actual=act_str,
                     passed=None if dry_run else passed,
-                    message=f"Pair guard check ({', '.join(violating_pairs[:3])})" if violating_pairs else "All pairs satisfied pair guard",
+                    message=f"Pair guard check ({', '.join(violating_pairs[:3])})"
+                    if violating_pairs
+                    else "All pairs satisfied pair guard",
                 )
             )
             if not passed:
@@ -1050,6 +1101,7 @@ def run_validation(
 
 # --- Reporting ---
 
+
 def render_validation_table(report: ValidationReport) -> None:
     """Renders validation report as rich tables to console."""
     console.print()
@@ -1088,8 +1140,16 @@ def render_validation_table(report: ValidationReport) -> None:
         table.add_column("Max Spread", justify="center")
 
         for s in presence_stats:
-            det_rate = f"{(s.detected_count / s.total_absent_expected * 100):.0f}%" if s.total_absent_expected > 0 else "N/A"
-            fa_rate = f"{(s.false_alarm_count / s.total_present_expected * 100):.0f}%" if s.total_present_expected > 0 else "0%"
+            det_rate = (
+                f"{(s.detected_count / s.total_absent_expected * 100):.0f}%"
+                if s.total_absent_expected > 0
+                else "N/A"
+            )
+            fa_rate = (
+                f"{(s.false_alarm_count / s.total_present_expected * 100):.0f}%"
+                if s.total_present_expected > 0
+                else "0%"
+            )
             table.add_row(
                 s.question_id,
                 str(s.total_absent_expected),
@@ -1214,7 +1274,9 @@ def render_validation_table(report: ValidationReport) -> None:
         dist_texts = []
         for q_id, counts in sorted(report.choice_distributions.items()):
             total = sum(counts.values())
-            parts = [f"{choice}: {c} ({(c/total*100):.1f}%)" for choice, c in sorted(counts.items())]
+            parts = [
+                f"{choice}: {c} ({(c / total * 100):.1f}%)" for choice, c in sorted(counts.items())
+            ]
             dist_texts.append(f"• [bold cyan]{q_id}[/bold cyan]: " + ", ".join(parts))
         console.print(
             Panel(
@@ -1270,11 +1332,21 @@ def render_validation_markdown(report: ValidationReport) -> str:
     if presence_stats:
         lines.append("## Presence Questions (Noul)")
         lines.append("")
-        lines.append("| Question | Expected Absent | Detected | Missed | Expected Present | False Alarms | Max Spread |")
+        lines.append(
+            "| Question | Expected Absent | Detected | Missed | Expected Present | False Alarms | Max Spread |"
+        )
         lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
         for s in presence_stats:
-            det_rate = f"{(s.detected_count / s.total_absent_expected * 100):.0f}%" if s.total_absent_expected > 0 else "N/A"
-            fa_rate = f"{(s.false_alarm_count / s.total_present_expected * 100):.0f}%" if s.total_present_expected > 0 else "0%"
+            det_rate = (
+                f"{(s.detected_count / s.total_absent_expected * 100):.0f}%"
+                if s.total_absent_expected > 0
+                else "N/A"
+            )
+            fa_rate = (
+                f"{(s.false_alarm_count / s.total_present_expected * 100):.0f}%"
+                if s.total_present_expected > 0
+                else "0%"
+            )
             lines.append(
                 f"| `{s.question_id}` | {s.total_absent_expected} | {s.detected_count} ({det_rate}) | {s.missed_count} | {s.total_present_expected} | {s.false_alarm_count} ({fa_rate}) | {s.max_spread:.3f} |"
             )
@@ -1283,7 +1355,9 @@ def render_validation_markdown(report: ValidationReport) -> str:
     if report.pair_group_results:
         lines.append("## Pair Groups (Direction & CI)")
         lines.append("")
-        lines.append("| Group (Kind) | Question | Expected | n | Mean Δ | 95% CI | Status | Worst Pair |")
+        lines.append(
+            "| Group (Kind) | Question | Expected | n | Mean Δ | 95% CI | Status | Worst Pair |"
+        )
         lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |")
         for g in report.pair_group_results:
             if report.mock:
@@ -1320,7 +1394,9 @@ def render_validation_markdown(report: ValidationReport) -> str:
             else:
                 status = "FAIL"
             ci_str = f"[{p.ci_95_lower:.2f}, {p.ci_95_upper:.2f}]"
-            lines.append(f"| {pair_name} | `{p.question_id}` | `{p.expected}` | {p.mean_delta:+.3f} | {ci_str} | **{status}** |")
+            lines.append(
+                f"| {pair_name} | `{p.question_id}` | `{p.expected}` | {p.mean_delta:+.3f} | {ci_str} | **{status}** |"
+            )
         if report.incomplete_pairs_count > 0 or report.truncated_pairs_count > 0:
             lines.append("")
             lines.append(
@@ -1344,7 +1420,10 @@ def render_validation_markdown(report: ValidationReport) -> str:
         lines.append("")
         for q_id, counts in sorted(report.choice_distributions.items()):
             total = sum(counts.values())
-            parts = [f"`{choice}`: {c} ({(c/total*100):.1f}%)" for choice, c in sorted(counts.items())]
+            parts = [
+                f"`{choice}`: {c} ({(c / total * 100):.1f}%)"
+                for choice, c in sorted(counts.items())
+            ]
             lines.append(f"- **`{q_id}`**: " + ", ".join(parts))
         lines.append("")
 
@@ -1360,16 +1439,17 @@ def render_validation_markdown(report: ValidationReport) -> str:
 
 # --- Ablation Generator ---
 
-def split_markdown_by_h2(content: str) -> Tuple[str, List[Tuple[str, str, str]]]:
+
+def split_markdown_by_h2(content: str) -> tuple[str, list[tuple[str, str, str]]]:
     """Splits markdown content by '## ' headings.
-    
+
     Returns (preamble, list_of_(title, slug, section_content)).
     """
     lines = content.splitlines(keepends=True)
-    preamble_lines: List[str] = []
-    sections: List[Tuple[str, str, str]] = []
-    current_title: Optional[str] = None
-    current_lines: List[str] = []
+    preamble_lines: list[str] = []
+    sections: list[tuple[str, str, str]] = []
+    current_title: str | None = None
+    current_lines: list[str] = []
 
     for line in lines:
         m = re.match(r"^##\s+(.+)$", line.strip())
@@ -1395,11 +1475,11 @@ def split_markdown_by_h2(content: str) -> Tuple[str, List[Tuple[str, str, str]]]
 
 def generate_ablation_variants(
     doc_path: Path,
-    out_dir: Optional[Path] = None,
+    out_dir: Path | None = None,
     preset_name: str = "design_doc",
-) -> Tuple[List[Path], str]:
+) -> tuple[list[Path], str]:
     """Builds 'one section removed' variants from a markdown document split on '## ' headings.
-    
+
     Outputs variant markdown files and starter labels.yaml content.
     """
     doc_path = doc_path.resolve()
@@ -1415,22 +1495,24 @@ def generate_ablation_variants(
     target_dir = out_dir.resolve() if out_dir else doc_path.parent
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    variant_paths: List[Path] = []
-    expect_full: Dict[str, str] = {}
-    variant_docs: List[Dict[str, Any]] = []
+    variant_paths: list[Path] = []
+    expect_full: dict[str, str] = {}
+    variant_docs: list[dict[str, Any]] = []
 
     # Full document expectation: all sections present
-    for title, slug, _ in sections:
+    for _title, slug, _ in sections:
         expect_full[slug] = "present"
 
     full_doc_entry = {
-        "path": str(doc_path.relative_to(target_dir)) if target_dir in doc_path.parents else str(doc_path.name),
+        "path": str(doc_path.relative_to(target_dir))
+        if target_dir in doc_path.parents
+        else str(doc_path.name),
         "expect": expect_full,
     }
     variant_docs.append(full_doc_entry)
 
     # For each section, build variant omitting that section
-    for idx, (title, slug, _) in enumerate(sections):
+    for idx, (_title, slug, _) in enumerate(sections):
         variant_content = preamble + "".join(
             sec_body for j, (_, _, sec_body) in enumerate(sections) if j != idx
         )
@@ -1443,10 +1525,12 @@ def generate_ablation_variants(
         for _, other_slug, _ in sections:
             variant_expect[other_slug] = "absent" if other_slug == slug else "present"
 
-        variant_docs.append({
-            "path": variant_filename,
-            "expect": variant_expect,
-        })
+        variant_docs.append(
+            {
+                "path": variant_filename,
+                "expect": variant_expect,
+            }
+        )
 
     labels_data = {
         "preset": preset_name,

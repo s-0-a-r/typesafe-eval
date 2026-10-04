@@ -2,15 +2,16 @@
 
 import json
 from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
 from typesafe_eval.cli import main
-from typesafe_eval.models import DocumentEvalResult, ScoreResult, NoulResult
+from typesafe_eval.models import DocumentEvalResult, NoulResult, ScoreResult
 from typesafe_eval.validator import (
     compute_ci_95,
-    get_t_crit_95,
     generate_ablation_variants,
+    get_t_crit_95,
 )
 
 
@@ -20,7 +21,9 @@ def dummy_api_key(monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-api-key")
 
 
-def _make_noul_result(filepath: str, prob: float, question_id: str = "has_pii") -> DocumentEvalResult:
+def _make_noul_result(
+    filepath: str, prob: float, question_id: str = "has_pii"
+) -> DocumentEvalResult:
     p = Path(filepath)
     return DocumentEvalResult(
         filepath=filepath,
@@ -31,7 +34,9 @@ def _make_noul_result(filepath: str, prob: float, question_id: str = "has_pii") 
     )
 
 
-def _make_score_result(filepath: str, score_val: float, question_id: str = "clarity") -> DocumentEvalResult:
+def _make_score_result(
+    filepath: str, score_val: float, question_id: str = "clarity"
+) -> DocumentEvalResult:
     p = Path(filepath)
     return DocumentEvalResult(
         filepath=filepath,
@@ -116,13 +121,23 @@ def test_ablation_generator(tmp_path):
 
 def test_cli_validate_ablate_flag(tmp_path):
     doc = tmp_path / "doc.md"
-    doc.write_text("# Title\n\n## Section One\nContent 1\n\n## Section Two\nContent 2\n", encoding="utf-8")
+    doc.write_text(
+        "# Title\n\n## Section One\nContent 1\n\n## Section Two\nContent 2\n", encoding="utf-8"
+    )
 
     labels_out = tmp_path / "custom_labels.yaml"
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["validate", "--ablate", str(doc), "--ablate-out-dir", str(tmp_path / "variants"), "--ablate-labels-out", str(labels_out)],
+        [
+            "validate",
+            "--ablate",
+            str(doc),
+            "--ablate-out-dir",
+            str(tmp_path / "variants"),
+            "--ablate-labels-out",
+            str(labels_out),
+        ],
     )
     assert result.exit_code == 0
     assert "Generated 2 ablation variants:" in result.output
@@ -330,10 +345,7 @@ def test_validate_exit_code_3_runtime_error(tmp_path, monkeypatch):
 
     labels_file = tmp_path / "labels.yaml"
     labels_file.write_text(
-        f"preset: safety\n"
-        f"documents:\n"
-        f"  - path: {doc.name}\n"
-        f"    expect: {{has_pii: present}}\n",
+        f"preset: safety\ndocuments:\n  - path: {doc.name}\n    expect: {{has_pii: present}}\n",
         encoding="utf-8",
     )
 
@@ -393,6 +405,7 @@ def test_validate_max_threshold_prob_0_4(tmp_path, monkeypatch):
     doc_absent.write_text("Absent doc", encoding="utf-8")
 
     from typesafe_eval.client import TypeSafeEvaluator
+
     monkeypatch.setattr(
         TypeSafeEvaluator,
         "evaluate_document",
@@ -602,6 +615,8 @@ def test_validate_without_api_key_exits_3_with_one_message(tmp_path, monkeypatch
     assert result.output.count("No TypeSafe API key provided") == 1
     # Verify it did not proceed to criteria evaluation or show FAIL report
     assert "TypeSafe Validation Report" not in result.output
+
+
 def test_validate_confidentiality_labels_dry_run_and_no_mask():
     labels_file = Path("tests/fixtures/confidentiality/labels.yaml")
     assert labels_file.exists()
@@ -615,7 +630,9 @@ def test_validate_confidentiality_labels_dry_run_and_no_mask():
     assert "Verdict: N/A (MOCK)" in res_masked.output
 
     # Unmasked (--no-mask) dry run with json format
-    res_unmasked = runner.invoke(main, ["validate", str(labels_file), "--dry-run", "--no-mask", "-f", "json"])
+    res_unmasked = runner.invoke(
+        main, ["validate", str(labels_file), "--dry-run", "--no-mask", "-f", "json"]
+    )
     assert res_unmasked.exit_code == 0
     assert "confidentiality_risk" in res_unmasked.output
     data = json.loads(res_unmasked.output)
@@ -627,15 +644,12 @@ def test_criteria_questions_field_rejected_at_load_time(tmp_path):
     """S5: criteria.questions is removed and forbidden by extra='forbid'."""
     labels_file = tmp_path / "labels_forbidden.yaml"
     labels_file.write_text(
-        "preset: quality\n"
-        "criteria:\n"
-        "  questions:\n"
-        "    clarity:\n"
-        "      min_detected: 1\n",
+        "preset: quality\ncriteria:\n  questions:\n    clarity:\n      min_detected: 1\n",
         encoding="utf-8",
     )
 
     from typesafe_eval.validator import load_labels_file
+
     with pytest.raises(ValueError) as excinfo:
         load_labels_file(labels_file)
 
@@ -658,7 +672,10 @@ def test_is_unplaced_warning():
     assert is_unplaced_warning("item [EMAIL_1] was not found in any chunk") is True
 
     # Threshold warnings should NOT match
-    assert is_unplaced_warning("Clarity & Structure: score 0.40 is below minimum 0.60 (warning)") is False
+    assert (
+        is_unplaced_warning("Clarity & Structure: score 0.40 is below minimum 0.60 (warning)")
+        is False
+    )
     assert is_unplaced_warning("Summary: probability 0.85 is above maximum 0.50 (warning)") is False
     assert is_unplaced_warning("Baseline contains dry-run document") is False
 
@@ -829,5 +846,3 @@ def test_validate_unplaced_warning_in_pairs(tmp_path, monkeypatch):
     assert len(data["unplaced_warnings"]) == 1
     assert after.name in data["unplaced_warnings"][0]
     assert "were not found in any of 2 chunks" in data["unplaced_warnings"][0]
-
-

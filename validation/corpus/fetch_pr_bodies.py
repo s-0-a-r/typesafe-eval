@@ -13,6 +13,7 @@ Afterwards run build_pairs.py to rebuild the synthetic variants.
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,8 +29,25 @@ def sha(text):
 
 def fetch(repo, num):
     owner, name = repo.split("/")
-    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"owner={owner}",
-                          "-f", f"name={name}", "-F", f"num={num}"], check=True, capture_output=True, text=True)
+    gh_bin = shutil.which("gh") or "/usr/local/bin/gh"
+    out = subprocess.run(
+        [
+            gh_bin,
+            "api",
+            "graphql",
+            "-f",
+            f"query={QUERY}",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+            "-F",
+            f"num={num}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     pr = json.loads(out.stdout)["data"]["repository"]["pullRequest"]
     nodes = pr["userContentEdits"]["nodes"]  # newest first
     if not nodes:
@@ -45,7 +63,9 @@ def main():
     force = "--force" in sys.argv
     failed = 0
     for lang in ("en", "ja"):
-        for r in json.loads((ROOT / f"manifest_pr_description_{lang}.json").read_text(encoding="utf-8")):
+        for r in json.loads(
+            (ROOT / f"manifest_pr_description_{lang}.json").read_text(encoding="utf-8")
+        ):
             d = ROOT / "pr_description" / lang / r["doc_id"]
             try:
                 before, after = fetch(r["repo"], r["pr_number"])
@@ -55,7 +75,9 @@ def main():
                 continue
             ok = sha(before) == r["sha256_before"] and sha(after) == r["sha256_after"]
             if not ok and not force:
-                print(f"CHANGED {r['doc_id']}: the fetched text differs from the corpus (use --force to write anyway)")
+                print(
+                    f"CHANGED {r['doc_id']}: the fetched text differs from the corpus (use --force to write anyway)"
+                )
                 failed += 1
                 continue
             d.mkdir(parents=True, exist_ok=True)

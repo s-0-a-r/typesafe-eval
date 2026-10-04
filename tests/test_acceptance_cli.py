@@ -12,8 +12,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -49,7 +47,15 @@ def test_ac_03_invalid_preset_exit_2(tmp_path):
     doc = tmp_path / "doc.md"
     doc.write_text("# Doc\nClean.", encoding="utf-8")
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "invalid_preset_404", "--dry-run"],
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "invalid_preset_404",
+            "--dry-run",
+        ],
         capture_output=True,
         text=True,
     )
@@ -63,7 +69,17 @@ def test_ac_04_clean_doc_dry_run_pass(tmp_path):
     doc = tmp_path / "clean.md"
     doc.write_text("# Clean Architecture\nPublic system specification.", encoding="utf-8")
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety", "--dry-run", "-f", "json"],
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )
@@ -82,7 +98,17 @@ def test_ac_05_quoted_secret_masking(tmp_path):
     raw_secret = "ConfidentialApiKey9999!"
     doc.write_text(f'{{"api_key": "{raw_secret}"}}', encoding="utf-8")
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety", "--dry-run", "-f", "json"],
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )
@@ -101,7 +127,17 @@ def test_ac_06_slack_token_detection(tmp_path):
     raw_token = "xox" + "b-1234567890-abcdefghijklmn"
     doc.write_text(f"Slack bot: {raw_token}", encoding="utf-8")
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety", "--dry-run", "-f", "json"],
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )
@@ -111,7 +147,9 @@ def test_ac_06_slack_token_detection(tmp_path):
     data = json.loads(cp.stdout)
     sec_evals = data[0].get("secret_evaluations", [])
     assert any(
-        s["placeholder"] == "[REDACTED_SLACK_TOKEN]" and s["outcome"] == "secret" and s["decided_by"] == "rule"
+        s["placeholder"] == "[REDACTED_SLACK_TOKEN]"
+        and s["outcome"] == "secret"
+        and s["decided_by"] == "rule"
         for s in sec_evals
     )
 
@@ -123,7 +161,17 @@ def test_ac_07_international_phone_pii(tmp_path):
     raw_phone = "+44 20 7946 0991"
     doc.write_text(f"Phone: {raw_phone}", encoding="utf-8")
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety", "--dry-run", "-f", "json"],
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )
@@ -133,7 +181,8 @@ def test_ac_07_international_phone_pii(tmp_path):
     data = json.loads(cp.stdout)
     phone_evals = data[0].get("phone_evaluations", [])
     assert any(
-        p["placeholder"] == "[PHONE_1]" and p.get("features", {}).get("country_format") == "international"
+        p["placeholder"] == "[PHONE_1]"
+        and p.get("features", {}).get("country_format") == "international"
         for p in phone_evals
     )
 
@@ -224,7 +273,17 @@ def test_ac_11_stdout_json_purity(tmp_path):
     doc = tmp_path / "pure.md"
     doc.write_text("# Doc\nValid.", encoding="utf-8")
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety", "--dry-run", "-f", "json"],
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )

@@ -7,20 +7,19 @@ Maps typesafe-eval exit codes to Claude Code hook semantics:
   - Exit 0 (clean) -> exit 0.
 """
 
-import sys
-import os
 import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
-from typing import List, Optional
 
 
-def extract_files_from_stdin() -> List[str]:
+def extract_files_from_stdin() -> list[str]:
     """Extracts target markdown files from stdin (Claude Code hook JSON or text stream)."""
     if sys.stdin.isatty():
         return []
-    
+
     try:
         raw = sys.stdin.read().strip()
     except Exception:
@@ -60,7 +59,7 @@ def extract_files_from_stdin() -> List[str]:
     return found
 
 
-def extract_files_from_git() -> List[str]:
+def extract_files_from_git() -> list[str]:
     """Inspects git status/diff for changed and untracked markdown files."""
     found_files = []
     seen = set()
@@ -72,10 +71,12 @@ def extract_files_from_git() -> List[str]:
                 seen.add(cleaned)
                 found_files.append(cleaned)
 
+    git_bin = shutil.which("git") or "/usr/bin/git"
+
     # 1. Staged and unstaged tracked changes
     try:
         res = subprocess.run(
-            ["git", "diff", "--name-only", "HEAD"],
+            [git_bin, "diff", "--name-only", "HEAD"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -89,7 +90,7 @@ def extract_files_from_git() -> List[str]:
     # 2. Untracked files and unstaged status
     try:
         res = subprocess.run(
-            ["git", "status", "--porcelain"],
+            [git_bin, "status", "--porcelain"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -107,13 +108,13 @@ def extract_files_from_git() -> List[str]:
     return found_files
 
 
-def run_hook(args: Optional[List[str]] = None) -> int:
+def run_hook(args: list[str] | None = None) -> int:
     """Executes typesafe-eval safety preset and maps exit codes."""
     if args is None:
         args = sys.argv[1:]
 
     # 1. Collect markdown files to evaluate
-    target_files: List[str] = []
+    target_files: list[str] = []
     for a in args:
         if (a.endswith(".md") or a.endswith(".markdown")) and Path(a).is_file():
             target_files.append(a)
@@ -131,7 +132,9 @@ def run_hook(args: Optional[List[str]] = None) -> int:
     # 2. Check TYPESAFE_API_KEY
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
-        sys.stderr.write("typesafe-eval: TYPESAFE_API_KEY is not set; skipping Claude Code safety check.\n")
+        sys.stderr.write(
+            "typesafe-eval: TYPESAFE_API_KEY is not set; skipping Claude Code safety check.\n"
+        )
         return 0
 
     # 3. Locate CLI
@@ -139,7 +142,17 @@ def run_hook(args: Optional[List[str]] = None) -> int:
     if cli_bin:
         cmd = [cli_bin, "eval", *target_files, "--preset", "safety", "-f", "json"]
     else:
-        cmd = [sys.executable, "-m", "typesafe_eval.cli", "eval", *target_files, "--preset", "safety", "-f", "json"]
+        cmd = [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            "eval",
+            *target_files,
+            "--preset",
+            "safety",
+            "-f",
+            "json",
+        ]
 
     # 4. Run evaluation
     try:

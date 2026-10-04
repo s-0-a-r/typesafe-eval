@@ -1,17 +1,14 @@
 """Unit tests for Issue #35: Agent integrations (Claude Code plugin, AGENTS.md, skill, hook)."""
 
 import json
-import os
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import MagicMock, patch
 
 from hooks.claude_safety_hook import (
     extract_files_from_stdin,
     run_hook,
 )
-
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -21,7 +18,7 @@ def test_hooks_json_validity():
     hook_cfg_file = REPO_ROOT / "hooks" / "hooks.json"
     assert hook_cfg_file.is_file(), "hooks/hooks.json must exist"
 
-    with open(hook_cfg_file, "r", encoding="utf-8") as f:
+    with open(hook_cfg_file, encoding="utf-8") as f:
         data = json.load(f)
 
     assert "hooks" in data
@@ -96,13 +93,15 @@ def test_hook_stdin_json_extraction(tmp_path: Path, monkeypatch):
     doc = tmp_path / "spec.md"
     doc.write_text("# Spec", encoding="utf-8")
 
-    hook_payload = json.dumps({
-        "tool_name": "Write",
-        "tool_input": {
-            "path": str(doc),
-            "content": "# Spec",
+    hook_payload = json.dumps(
+        {
+            "tool_name": "Write",
+            "tool_input": {
+                "path": str(doc),
+                "content": "# Spec",
+            },
         }
-    })
+    )
 
     monkeypatch.setattr(sys, "stdin", MagicMock(isatty=lambda: False, read=lambda: hook_payload))
     found = extract_files_from_stdin()
@@ -129,12 +128,14 @@ def test_hook_exit_code_1_maps_to_2_with_stderr(tmp_path: Path, monkeypatch, cap
 
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
 
-    mock_json_out = json.dumps([
-        {
-            "filename": doc.name,
-            "violations": ["Credential Exposure: [SECRET_1] is exposed"],
-        }
-    ])
+    mock_json_out = json.dumps(
+        [
+            {
+                "filename": doc.name,
+                "violations": ["Credential Exposure: [SECRET_1] is exposed"],
+            }
+        ]
+    )
     mock_proc = MagicMock(returncode=1, stdout=mock_json_out, stderr="")
 
     with patch("subprocess.run", return_value=mock_proc):
