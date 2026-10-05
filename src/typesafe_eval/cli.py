@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -104,11 +105,11 @@ def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
 class DefaultGroup(click.Group):
     """Click Group that defaults to a specified command if no subcommand matches."""
 
-    def __init__(self, *args, **kwargs):
-        self.default_cmd_name = kwargs.pop("default_if_no_match", None)
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.default_cmd_name: str | None = kwargs.pop("default_if_no_match", None)
         super().__init__(*args, **kwargs)
 
-    def parse_args(self, ctx, args):
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         if not args:
             if self.default_cmd_name:
                 args = [self.default_cmd_name]
@@ -127,7 +128,7 @@ class DefaultGroup(click.Group):
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 @click.version_option(version=__version__, prog_name="typesafe-eval")
-def main():
+def main() -> None:
     """Fast, typed multi-dimensional document evaluation CLI using TypeSafe API (Jev)."""
     pass
 
@@ -233,13 +234,15 @@ def eval_command(
     staged: bool,
     changed_since: str | None,
     list_presets: bool,
-):
+) -> None:
     """Evaluate documents against quality, safety, or custom evaluation presets."""
     if list_presets:
         click.echo("Available built-in presets:")
         for name in list_builtin_presets():
-            p = load_preset(name)
-            click.echo(f"  • {name:<12} : {p.title or p.name} ({p.description or ''})")
+            loaded_p = load_preset(name)
+            click.echo(
+                f"  • {name:<12} : {loaded_p.title or loaded_p.name} ({loaded_p.description or ''})"
+            )
         sys.exit(0)
 
     # Git diff resolution if requested
@@ -263,18 +266,18 @@ def eval_command(
     if files:
         for pattern in files:
             if not glob.has_magic(pattern):
-                p = Path(pattern)
-                if not p.is_file():
+                doc_p = Path(pattern)
+                if not doc_p.is_file():
                     err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
                     sys.exit(2)
-                if p not in resolved_paths:
-                    resolved_paths.append(p)
+                if doc_p not in resolved_paths:
+                    resolved_paths.append(doc_p)
             else:
                 matches = glob.glob(pattern, recursive=True)
                 for m in matches:
-                    p = Path(m)
-                    if p.is_file() and p not in resolved_paths:
-                        resolved_paths.append(p)
+                    doc_p = Path(m)
+                    if doc_p.is_file() and doc_p not in resolved_paths:
+                        resolved_paths.append(doc_p)
 
         if git_files is not None:
             git_files_set = {f.resolve() for f in git_files}
@@ -492,7 +495,7 @@ def validate_command(
     dry_run: bool,
     api_key: str | None,
     mask_secrets: bool = True,
-):
+) -> None:
     """Run validation across fixed test documents using a labels.yaml specification or generate ablation variants."""
     # Handle --ablate helper mode
     if ablate:
@@ -671,7 +674,7 @@ def init(
     opt_claude_code: bool,
     opt_github_action: bool,
     opt_all: bool,
-):
+) -> None:
     """Scaffolds agent integrations and CI workflows in the current repository."""
     if opt_all or not (opt_pre_commit or opt_claude_code or opt_github_action):
         opt_pre_commit = True
@@ -747,7 +750,7 @@ def init(
     default=2,
     help="Indentation spaces for JSON formatting. Default: 2.",
 )
-def schema(schema_type: str, out: Path | None, indent: int):
+def schema(schema_type: str, out: Path | None, indent: int) -> None:
     """Outputs JSON Schema for configuration and presets (enables IDE autocomplete)."""
     import json
 

@@ -47,3 +47,9 @@ def test_pyproject_sdist_configuration():
         assert '"src"' in content
         assert '"tests"' in content
         assert '"validation"' not in content
+
+
+def test_py_typed_marker_present():
+    """Verify PEP 561 py.typed marker is present in source and package structure."""
+    py_typed_path = Path(__file__).resolve().parent.parent / "src" / "typesafe_eval" / "py.typed"
+    assert py_typed_path.is_file(), f"py.typed marker must exist at {py_typed_path}"
