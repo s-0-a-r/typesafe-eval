@@ -35,6 +35,7 @@ def test_pyproject_sdist_configuration():
         assert "tests" in only_include, "sdist should include 'tests' for downstream testing"
         assert "scripts" in only_include, "sdist must include 'scripts' for test dependencies"
         assert "hooks" in only_include, "sdist must include 'hooks' for test dependencies"
+        assert "CHANGELOG.md" in only_include, "sdist must include 'CHANGELOG.md'"
 
         # Ensure heavy/internal directories are never included in only-include
         forbidden = ["validation", ".github", ".agents", "skills"]
@@ -46,6 +47,7 @@ def test_pyproject_sdist_configuration():
         assert "[tool.hatch.build.targets.sdist]" in content
         assert '"src"' in content
         assert '"tests"' in content
+        assert '"CHANGELOG.md"' in content
         assert '"validation"' not in content
 
 
@@ -53,3 +55,33 @@ def test_py_typed_marker_present():
     """Verify PEP 561 py.typed marker is present in source and package structure."""
     py_typed_path = Path(__file__).resolve().parent.parent / "src" / "typesafe_eval" / "py.typed"
     assert py_typed_path.is_file(), f"py.typed marker must exist at {py_typed_path}"
+
+
+def test_release_please_and_workflow_sanity():
+    """Verify release-please configuration files and release workflow definition."""
+    import json
+
+    repo_root = Path(__file__).resolve().parent.parent
+
+    config_path = repo_root / ".release-please-config.json"
+    manifest_path = repo_root / ".release-please-manifest.json"
+    release_workflow = repo_root / ".github" / "workflows" / "release.yml"
+
+    assert config_path.is_file(), ".release-please-config.json must exist"
+    assert manifest_path.is_file(), ".release-please-manifest.json must exist"
+    assert release_workflow.is_file(), ".github/workflows/release.yml must exist"
+
+    # Verify manifest version is synchronized
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "." in manifest
+    assert manifest["."] == "0.8.0"
+
+    # Verify release-please config specifies python release type
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config.get("release-type") == "python"
+
+    # Verify release workflow has OIDC permissions for Trusted Publishing
+    workflow_content = release_workflow.read_text(encoding="utf-8")
+    assert "id-token: write" in workflow_content
+    assert "pypa/gh-action-pypi-publish" in workflow_content
+    assert "release-please-action" in workflow_content
