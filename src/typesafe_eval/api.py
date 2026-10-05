@@ -16,7 +16,7 @@ from typesafe_eval.exceptions import (
     TypeSafeEvalError,
 )
 from typesafe_eval.models import DocumentEvalResult, PresetConfig
-from typesafe_eval.presets import load_preset, load_project_config
+from typesafe_eval.presets import is_path_excluded, load_preset, load_project_config
 
 
 def _resolve_preset(
@@ -149,6 +149,7 @@ def evaluate_documents(
     paths: Sequence[str | Path],
     preset: str | PresetConfig = "quality",
     *,
+    exclude: Sequence[str] | None = None,
     concurrency: int = 4,
     api_key: str | None = None,
     dry_run: bool = False,
@@ -173,13 +174,22 @@ def evaluate_documents(
             "or pass api_key=..."
         )
 
-    # Validate all file paths upfront
+    # Combine exclusion patterns from argument and preset configuration
+    combined_excludes = list(exclude or []) + (preset_cfg.exclude or [])
+    root = Path(project_root) if project_root else Path.cwd()
+
+    # Validate all file paths upfront (skipping excluded)
     resolved_paths: list[Path] = []
     for p in paths:
         doc_path = Path(p)
+        if combined_excludes and is_path_excluded(doc_path, combined_excludes, root=root):
+            continue
         if not doc_path.is_file():
             raise ConfigurationError(f"Document file not found: {p}")
         resolved_paths.append(doc_path)
+
+    if not resolved_paths:
+        return []
 
     # Shared evaluator for connection pooling across threads
     shared_evaluator = TypeSafeEvaluator(

@@ -275,7 +275,27 @@ When documents exceed `max_chars` (default: 25,000 characters, ~6,000–8,000 to
 - **Scores and Choices**: `Score` and `Choice` questions evaluate overall document quality or categorical choices where taking a `max` across slices would distort the metric. Therefore, Scores and Choices are **not** chunked; they retain head/tail truncation and keep `was_truncated: true`.
 - If a document exceeds `max_chars`, only `Noul` presence questions are evaluated across overlapping chunks. Scores and Choices are evaluated on the head-and-tail truncated document with the middle dropped.
 
-### 10. Validation Command & Ablation Helper (`validate`)
+### 10. File Exclusions & Default Ignores (`--exclude`)
+Exclude specific files, subdirectories, or glob patterns from evaluation:
+
+```bash
+# Exclude draft documents and templates
+typesafe-eval docs/**/*.md --exclude "*.draft.md" -e "docs/templates/**"
+```
+
+- **Project Config Exclusions**: Set `exclude` patterns in `.typesafe-eval.yaml` or `pyproject.toml` (`[tool.typesafe-eval]`):
+  ```yaml
+  preset: quality
+  exclude:
+    - "*.draft.md"
+    - "templates/**"
+    - "archived/*.md"
+  ```
+- **Default Ignores**: Standard dependency, build, and cache directories (`.git`, `node_modules`, `.venv`, `venv`, `env`, `.env`, `__pycache__`, `.pytest_cache`, `.typesafe-eval-cache`, `.mypy_cache`, `.ruff_cache`, `build`, `dist`) are automatically skipped during glob resolution and git diff file matching.
+- **Explicit Override**: Explicitly providing a non-glob path (e.g. `typesafe-eval node_modules/pkg/readme.md`) evaluates the file directly.
+- **Python API Support**: `evaluate_documents(paths, preset="quality", exclude=["*.draft.md"])`.
+
+### 11. Validation Command & Ablation Helper (`validate`)
 `typesafe-eval validate` runs presets over fixed test documents defined in a `labels.yaml` file to verify preset calibration, detection rates, false alarms, and regression direction:
 
 ```bash

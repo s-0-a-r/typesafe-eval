@@ -15,7 +15,13 @@ from typesafe_eval import __version__
 from typesafe_eval.baseline import compare_document_with_baseline, load_baseline
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.models import DocumentEvalResult, PresetConfig
-from typesafe_eval.presets import list_builtin_presets, load_preset, load_project_config
+from typesafe_eval.presets import (
+    is_default_ignored,
+    is_path_excluded,
+    list_builtin_presets,
+    load_preset,
+    load_project_config,
+)
 from typesafe_eval.reporter import (
     render_github_annotations,
     render_json,
@@ -91,7 +97,11 @@ DEFAULT_EVAL_EXTENSIONS = {
 }
 
 
-def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
+def _emit_empty_diff_result(
+    output_format: str,
+    out: Path | None,
+    msg: str = "No modified or staged files matched evaluation criteria.",
+) -> None:
     """Emits clean result when no modified or staged files match criteria."""
     if output_format == "json":
         out_content = render_json([])
@@ -100,7 +110,6 @@ def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
         else:
             click.echo(out_content)
     else:
-        msg = "No modified or staged files matched evaluation criteria."
         if out:
             out.write_text(msg + "\n", encoding="utf-8")
         else:
@@ -241,6 +250,14 @@ def main() -> None:
     default=None,
     help="Custom directory for caching evaluation results.",
 )
+@click.option(
+    "-e",
+    "--exclude",
+    "exclude_patterns",
+    multiple=True,
+    type=str,
+    help="Glob pattern(s) to exclude from evaluation (can be specified multiple times).",
+)
 def eval_command(
     files: list[str],
     preset: str | None,
@@ -260,6 +277,7 @@ def eval_command(
     list_presets: bool,
     cache: bool,
     cache_dir: Path | None,
+    exclude_patterns: tuple[str, ...],
 ) -> None:
     """Evaluate documents against quality, safety, or custom evaluation presets."""
     if list_presets:
@@ -271,57 +289,7 @@ def eval_command(
             )
         sys.exit(0)
 
-    # Git diff resolution if requested
-    git_files: list[Path] | None = None
-    if staged or changed_since:
-        try:
-            raw_git_files = get_git_changed_files(staged=staged, since=changed_since)
-            git_files = [Path(f).resolve() for f in raw_git_files]
-        except RuntimeError as e:
-            err_console.print(f"[bold red]Git Error:[/bold red] {e}")
-            sys.exit(2)
-
-    if not files and git_files is None:
-        err_console.print("[bold red]Error:[/bold red] No files or file patterns specified.")
-        err_console.print("Usage: typesafe-eval [OPTIONS] <FILE_OR_GLOB>...")
-        err_console.print("Example: typesafe-eval docs/*.md --preset quality")
-        sys.exit(2)
-
-    # 1. Resolve matched files
-    resolved_paths: list[Path] = []
-    if files:
-        for pattern in files:
-            if not glob.has_magic(pattern):
-                doc_p = Path(pattern)
-                if not doc_p.is_file():
-                    err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
-                    sys.exit(2)
-                if doc_p not in resolved_paths:
-                    resolved_paths.append(doc_p)
-            else:
-                matches = glob.glob(pattern, recursive=True)
-                for m in matches:
-                    doc_p = Path(m)
-                    if doc_p.is_file() and doc_p not in resolved_paths:
-                        resolved_paths.append(doc_p)
-
-        if git_files is not None:
-            git_files_set = {f.resolve() for f in git_files}
-            resolved_paths = [p for p in resolved_paths if p.resolve() in git_files_set]
-    else:
-        assert git_files is not None
-        resolved_paths = [p for p in git_files if p.suffix.lower() in DEFAULT_EVAL_EXTENSIONS]
-
-    if not resolved_paths:
-        if staged or changed_since:
-            _emit_empty_diff_result(output_format=output_format, out=out)
-            sys.exit(0)
-        err_console.print(
-            f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"
-        )
-        sys.exit(2)
-
-    # 2. Load preset configuration
+    # 1. Load preset configuration early (needed for project config & exclude list)
     preset_cfg: PresetConfig
     if config:
         try:
@@ -346,7 +314,81 @@ def eval_command(
             err_console.print(f"[bold red]Error loading discovered config:[/bold red] {e}")
             sys.exit(2)
 
-    # 3. Load baseline if specified
+    # Git diff resolution if requested
+    git_files: list[Path] | None = None
+    if staged or changed_since:
+        try:
+            raw_git_files = get_git_changed_files(staged=staged, since=changed_since)
+            git_files = [Path(f).resolve() for f in raw_git_files]
+        except RuntimeError as e:
+            err_console.print(f"[bold red]Git Error:[/bold red] {e}")
+            sys.exit(2)
+
+    if not files and git_files is None:
+        err_console.print("[bold red]Error:[/bold red] No files or file patterns specified.")
+        err_console.print("Usage: typesafe-eval [OPTIONS] <FILE_OR_GLOB>...")
+        err_console.print("Example: typesafe-eval docs/*.md --preset quality")
+        sys.exit(2)
+
+    # 2. Resolve matched files
+    resolved_paths: list[Path] = []
+    had_file_matches = False
+
+    if files:
+        for pattern in files:
+            if not glob.has_magic(pattern):
+                doc_p = Path(pattern)
+                if not doc_p.is_file():
+                    err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
+                    sys.exit(2)
+                if doc_p not in resolved_paths:
+                    resolved_paths.append(doc_p)
+                    had_file_matches = True
+            else:
+                matches = glob.glob(pattern, recursive=True)
+                for m in matches:
+                    doc_p = Path(m)
+                    if doc_p.is_file():
+                        had_file_matches = True
+                        if not is_default_ignored(doc_p) and doc_p not in resolved_paths:
+                            resolved_paths.append(doc_p)
+
+        if git_files is not None:
+            git_files_set = {f.resolve() for f in git_files}
+            resolved_paths = [p for p in resolved_paths if p.resolve() in git_files_set]
+    else:
+        assert git_files is not None
+        had_file_matches = bool(git_files)
+        resolved_paths = [
+            p
+            for p in git_files
+            if p.suffix.lower() in DEFAULT_EVAL_EXTENSIONS and not is_default_ignored(p)
+        ]
+
+    # 3. Apply exclusion rules from CLI options and preset configuration
+    combined_excludes = list(exclude_patterns) + (preset_cfg.exclude or [])
+    if combined_excludes:
+        resolved_paths = [
+            p for p in resolved_paths if not is_path_excluded(p, combined_excludes, root=Path.cwd())
+        ]
+
+    if not resolved_paths:
+        if staged or changed_since:
+            _emit_empty_diff_result(output_format=output_format, out=out)
+            sys.exit(0)
+        if had_file_matches:
+            _emit_empty_diff_result(
+                output_format=output_format,
+                out=out,
+                msg="No files matched evaluation criteria (all matched files were excluded).",
+            )
+            sys.exit(0)
+        err_console.print(
+            f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"
+        )
+        sys.exit(2)
+
+    # 4. Load baseline if specified
     baseline_lookup = None
     if baseline:
         try:
