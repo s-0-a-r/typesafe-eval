@@ -18,6 +18,7 @@ from typesafe_eval.models import (
     PresetConfig,
     QuestionConfig,
     ScoreResult,
+    ViolationItem,
 )
 from typesafe_eval.presets import (
     find_project_config,
@@ -34,6 +35,7 @@ __all__ = [
     "evaluate_documents",
     "TypeSafeEvaluator",
     "DocumentEvalResult",
+    "ViolationItem",
     "ScoreResult",
     "NoulResult",
     "ChoiceResult",

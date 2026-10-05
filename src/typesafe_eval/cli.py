@@ -16,7 +16,12 @@ from typesafe_eval.baseline import compare_document_with_baseline, load_baseline
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.models import DocumentEvalResult, PresetConfig
 from typesafe_eval.presets import list_builtin_presets, load_preset, load_project_config
-from typesafe_eval.reporter import render_json, render_markdown, render_table
+from typesafe_eval.reporter import (
+    render_github_annotations,
+    render_json,
+    render_markdown,
+    render_table,
+)
 from typesafe_eval.validator import (
     generate_ablation_variants,
     load_labels_file,
@@ -151,7 +156,7 @@ def main() -> None:
     "-f",
     "--format",
     "output_format",
-    type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
+    type=click.Choice(["table", "json", "markdown", "github"], case_sensitive=False),
     default="table",
     help="Output presentation format. Default: table.",
 )
@@ -392,7 +397,7 @@ def eval_command(
             has_violations = True
 
     # 5. Output handling
-    if results or output_format == "json":
+    if results or output_format in ("json", "github"):
         if output_format == "table":
             render_table(results, preset_cfg)
         elif output_format == "json":
@@ -401,13 +406,19 @@ def eval_command(
         elif output_format == "markdown":
             md_output = render_markdown(results, preset_cfg)
             click.echo(md_output)
+        elif output_format == "github":
+            github_output = render_github_annotations(results)
+            if github_output:
+                click.echo(github_output)
 
     # 6. Save to out file if requested
-    if out and (results or output_format == "json"):
+    if out and (results or output_format in ("json", "github")):
         if output_format == "json":
             out.write_text(render_json(results), encoding="utf-8")
         elif output_format == "markdown":
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
+        elif output_format == "github":
+            out.write_text(render_github_annotations(results), encoding="utf-8")
         else:
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
