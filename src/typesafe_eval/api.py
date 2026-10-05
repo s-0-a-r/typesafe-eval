@@ -50,6 +50,8 @@ def evaluate(
     api_key: str | None = None,
     dry_run: bool = False,
     offline: bool = False,
+    cache: bool = True,
+    cache_dir: Path | str | None = None,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -72,7 +74,9 @@ def evaluate(
         )
 
     resolved_filepath = str(filepath) if filepath is not None else filename
-    active_evaluator = evaluator or TypeSafeEvaluator(api_key=resolved_api_key)
+    active_evaluator = evaluator or TypeSafeEvaluator(
+        api_key=resolved_api_key, enable_cache=cache, cache_dir=cache_dir
+    )
     try:
         result = active_evaluator.evaluate_content(
             content=content,
@@ -107,6 +111,8 @@ def evaluate_document(
     api_key: str | None = None,
     dry_run: bool = False,
     offline: bool = False,
+    cache: bool = True,
+    cache_dir: Path | str | None = None,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -128,6 +134,8 @@ def evaluate_document(
         api_key=api_key,
         dry_run=dry_run,
         offline=offline,
+        cache=cache,
+        cache_dir=cache_dir,
         mask_secrets=mask_secrets,
         max_chars=max_chars,
         raise_on_violation=raise_on_violation,
@@ -145,6 +153,8 @@ def evaluate_documents(
     api_key: str | None = None,
     dry_run: bool = False,
     offline: bool = False,
+    cache: bool = True,
+    cache_dir: Path | str | None = None,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -172,7 +182,9 @@ def evaluate_documents(
         resolved_paths.append(doc_path)
 
     # Shared evaluator for connection pooling across threads
-    shared_evaluator = TypeSafeEvaluator(api_key=resolved_api_key)
+    shared_evaluator = TypeSafeEvaluator(
+        api_key=resolved_api_key, enable_cache=cache, cache_dir=cache_dir
+    )
 
     def _eval_single(doc_p: Path) -> DocumentEvalResult:
         try:
@@ -186,6 +198,8 @@ def evaluate_documents(
             api_key=resolved_api_key,
             dry_run=dry_run,
             offline=offline,
+            cache=cache,
+            cache_dir=cache_dir,
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             raise_on_violation=False,

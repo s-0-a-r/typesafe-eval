@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 
+from typesafe_eval.cache import EvaluationCache
 from typesafe_eval.exceptions import AuthenticationError
 from typesafe_eval.models import (
     CANDIDATE_DECISION_THRESHOLD,
@@ -113,9 +114,18 @@ class TypeSafeEvaluator:
         self,
         api_key: str | None = None,
         max_candidate_batch_size: int = DEFAULT_CANDIDATE_BATCH_SIZE,
+        cache: EvaluationCache | None = None,
+        enable_cache: bool = False,
+        cache_dir: Path | str | None = None,
     ):
         self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
         self.max_candidate_batch_size = max(1, max_candidate_batch_size)
+        if cache is not None:
+            self.cache: EvaluationCache | None = cache
+        elif enable_cache:
+            self.cache = EvaluationCache(cache_dir=cache_dir, enabled=True)
+        else:
+            self.cache = None
         self._client: TypeSafeClient | None = None
         self._lock = threading.Lock()
 
@@ -165,6 +175,15 @@ class TypeSafeEvaluator:
         offline: bool = False,
     ) -> DocumentEvalResult:
         """Evaluates in-memory document content against the specified preset."""
+        if self.cache and self.cache.enabled and not dry_run and not offline:
+            cached_result = self.cache.get(
+                content, preset, mask_secrets=mask_secrets, max_chars=max_chars
+            )
+            if cached_result is not None:
+                cached_result.filepath = str(filepath)
+                cached_result.filename = filename
+                return cached_result
+
         raw_content = content
 
         # 1. Sanitize (detection & feature extraction run on raw_content before stripping HTML comments)
@@ -1040,7 +1059,7 @@ class TypeSafeEvaluator:
                 "output_tokens": total_output_tokens,
             }
 
-        return DocumentEvalResult(
+        eval_result = DocumentEvalResult(
             filepath=str(filepath),
             filename=filename,
             preset_name=preset.name,
@@ -1063,6 +1082,17 @@ class TypeSafeEvaluator:
             redactions_count=redaction_count,
             redaction_details=redaction_details,
         )
+
+        if self.cache and self.cache.enabled and not dry_run and not offline:
+            self.cache.set(
+                content,
+                preset,
+                eval_result,
+                mask_secrets=mask_secrets,
+                max_chars=max_chars,
+            )
+
+        return eval_result
 
     def _evaluate_thresholds_and_composite(
         self,
