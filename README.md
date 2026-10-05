@@ -22,6 +22,8 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
 
 ### 🚀 What's New in v0.8.0
+- **Public Python API**: Direct programmatic access via `import typesafe_eval` (`evaluate()`, `evaluate_document()`, `evaluate_documents()`) with comprehensive typed exceptions (`TypeSafeEvalError`, `ContentViolationError`).
+- **Strict Typing & PEP 561**: Full PEP 561 support (`py.typed`) and zero-error `mypy --strict` compliance across the entire codebase.
 - **Configuration Auto-Discovery**: Automatically traverses upward to locate `.typesafe-eval.yaml`, `.typesafe-eval.yml`, or `pyproject.toml` (`[tool.typesafe-eval]`), enabling repository-wide defaults without mandatory `--preset` flags. Supports preset extension and field overrides.
 - **Parallel Document Concurrency (`-j` / `--concurrency`)**: Accelerated evaluation using thread pools, executing API calls concurrently while preserving strict input document ordering in reports.
 - **Git Diff Evaluation (`--staged` / `--since`)**: Zero-noise gating for pre-commit hooks and CI pull request workflows by evaluating only modified or staged markdown documents.
@@ -321,7 +323,47 @@ pairs:
     runs: 10
 ```
 
-### 11. Exit Codes & CI Integration
+### 11. Programmatic Python API
+
+`typesafe-eval` can be integrated directly into Python applications, build scripts, or agent workflows:
+
+```python
+import typesafe_eval
+from typesafe_eval import evaluate, evaluate_document, evaluate_documents
+from typesafe_eval.exceptions import ContentViolationError, TypeSafeEvalError
+
+# 1. In-memory content evaluation
+result = evaluate(
+    content="# Architecture\n\nSystem specification...",
+    preset="tech-spec",
+)
+print(f"Passed: {result.passed_thresholds}, Score: {result.composite_score}")
+
+# 2. File evaluation from disk
+doc_result = evaluate_document(
+    "docs/architecture.md",
+    preset="quality",
+    raise_on_violation=True,  # Raises ContentViolationError if gates fail
+)
+
+# 3. Parallel multi-document batch evaluation
+batch_results = evaluate_documents(
+    ["rfc/001.md", "rfc/002.md", "rfc/003.md"],
+    preset="tech-spec",
+    concurrency=4,
+)
+for res in batch_results:
+    print(f"{res.filename}: {res.passed_thresholds}")
+```
+
+#### Typed Exceptions
+All library errors inherit from `TypeSafeEvalError`:
+- `ConfigurationError`: Invalid preset, bad document paths, or missing options.
+- `AuthenticationError`: Missing or invalid `TYPESAFE_API_KEY`.
+- `RuntimeEvalError`: Unrecoverable network or API failures.
+- `ContentViolationError`: Raised when `raise_on_violation=True` and content fails safety or quality thresholds. Contains `.result` (single failure) and `.results` (list of failed results in batch operations).
+
+### 12. Exit Codes & CI Integration
 
 `typesafe-eval` returns distinct exit codes to allow CI pipelines and automated agents to distinguish quality/safety violations from system or configuration failures:
 

@@ -164,7 +164,7 @@ All autonomous coding agents operating in this repository **must follow the rele
 
 ### The Branching Contract
 1. **Never Branch Directly from `main` for Development**:
-   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v0.7.0`).
+   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v0.8.0`).
 2. **Never Target `main` for Feature PRs**:
    - Pull requests for feature work, fixes, and refactoring must target `base: release/v<version>`.
    - Direct PRs to `main` from non-release branches are strictly prohibited and automatically blocked by CI (`.github/workflows/branch_policy.yml`).
