@@ -22,7 +22,7 @@ flowchart TD
     Review --> P2["2. Contract & Output Streams<br/>(Exit 0/1/2/3, stdout JSON purity, schema_version)"]
     Review --> P3["3. Evaluator & Guidance<br/>(The 4 Mandatory Rules, No Goodhart gaming)"]
     Review --> P4["4. Test & Implementation<br/>(100% pytest pass, mock/real parity, boundary overlap)"]
-    Review --> P5["5. Real CLI Acceptance<br/>(Subprocess execution, 14-item AC matrix pass)"]
+    Review --> P5["5. Real CLI Acceptance<br/>(Subprocess execution, 18-item AC matrix pass)"]
 ```
 
 ### Pillar 1: Safety & Sensitive Data Redaction
@@ -98,7 +98,7 @@ Engage the `/boost` review routine by scrutinizing the changes across the four p
    # or
    .venv/bin/pytest -v -m acceptance
    ```
-Check that test execution is fast (< 4s), 100% of the 14 AC items pass, and no unhandled exceptions are emitted.
+Check that test execution is fast (< 4s), 100% of the 18 AC items pass, and no unhandled exceptions are emitted.
 
 ### Step 4: Construct the Review Report
 Synthesize your findings into a clear, actionable review report following this format:
@@ -111,7 +111,7 @@ Synthesize your findings into a clear, actionable review report following this f
 - **Pillar 2 (Contract & Output Streams)**: [PASS / FAIL] — Explanation
 - **Pillar 3 (Evaluator & Guidance Rules)**: [PASS / FAIL] — Explanation
 - **Pillar 4 (Test Coverage & Parity)**: [PASS / FAIL] — Explanation
-- **Pillar 5 (Real CLI Acceptance Verification)**: [PASS / FAIL] — 14/14 AC items verified via subprocess
+- **Pillar 5 (Real CLI Acceptance Verification)**: [PASS / FAIL] — 18/18 AC items verified via subprocess
 
 #### 2. Acceptance Criteria (AC) Verification Matrix
 <!-- Paste output of python scripts/verify_ac.py here -->
