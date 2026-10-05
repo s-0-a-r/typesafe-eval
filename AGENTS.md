@@ -160,7 +160,7 @@ All autonomous agents (and developers) operating in this repository **must verif
   pytest -v -m acceptance
   ```
 - **PR Inclusion**: Agents must execute `python scripts/verify_ac.py` and attach the generated Acceptance Criteria Verification Matrix table into the PR description.
-- **Zero Regression Rule**: 100% of acceptance criteria (all 14 items) must report `**PASS**`. Any failure blocks review approval and release.
+- **Zero Regression Rule**: 100% of acceptance criteria (all 18 items) must report `**PASS**`. Any failure blocks review approval and release.
 
 ---
 

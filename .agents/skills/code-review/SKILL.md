@@ -60,7 +60,7 @@ flowchart TD
   # or
   .venv/bin/pytest -v -m acceptance
   ```
-- **Zero Regression**: All acceptance criteria (14 items) must report **PASS**. Unit test mocks alone cannot satisfy review approval.
+- **Zero Regression**: All acceptance criteria (18 items) must report **PASS**. Unit test mocks alone cannot satisfy review approval.
 - **Matrix Inclusion**: The generated AC verification matrix must be attached to the review report.
 
 ---
