@@ -15,6 +15,7 @@ class QuestionConfig(BaseModel):
     max_threshold: float | None = None
     max_drop: float | None = None
     preflight: Literal["credentials", "pii"] | None = None
+    advisory: bool = False
 
 
 class SanitizerConfig(BaseModel):

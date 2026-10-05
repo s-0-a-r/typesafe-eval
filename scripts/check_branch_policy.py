@@ -19,8 +19,8 @@ def validate_branch_policy(base_ref: str, head_ref: str) -> tuple[bool, str]:
     """Validates whether a PR's base and head branch comply with repository policy.
 
     Args:
-        base_ref: Target branch name (e.g. 'main', 'release/v0.7.0').
-        head_ref: Source branch name (e.g. 'feat/foo', 'release/v0.7.0').
+        base_ref: Target branch name (e.g. 'main', 'release/v0.8.0').
+        head_ref: Source branch name (e.g. 'feat/foo', 'release/v0.8.0').
 
     Returns:
         (is_valid, message)
@@ -37,7 +37,7 @@ def validate_branch_policy(base_ref: str, head_ref: str) -> tuple[bool, str]:
             False,
             f"❌ Branch Policy Violation:\n"
             f"Direct pull requests to '{clean_base}' from '{clean_head}' are forbidden.\n"
-            f"All development and feature branches must target an active release branch (e.g. 'release/v0.7.0').\n"
+            f"All development and feature branches must target an active release branch (e.g. 'release/v0.8.0').\n"
             f"Only release branches ('release/*') are permitted to target '{clean_base}'.",
         )
 

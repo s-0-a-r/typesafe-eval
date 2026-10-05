@@ -305,7 +305,7 @@ def validate_labels_preset(
         preset_cfg = load_preset(target_preset)
 
     # Validate question IDs against preset
-    label_q_ids = set()
+    label_q_ids: set[str] = set()
     for doc_item in labels_cfg.documents:
         label_q_ids.update(doc_item.expect.keys())
     for pair_item in labels_cfg.pairs:
@@ -478,18 +478,6 @@ def run_validation(
             for q_id in doc_item.expect:
                 if q_id in res.nouls:
                     noul_obj = res.nouls[q_id]
-                    q_cfg = preset_cfg.questions.get(q_id)
-                    is_max_threshold = bool(q_cfg and q_cfg.max_threshold is not None)
-                    threshold = (
-                        q_cfg.max_threshold
-                        if is_max_threshold
-                        else (
-                            q_cfg.min_threshold
-                            if q_cfg and q_cfg.min_threshold is not None
-                            else 0.5
-                        )
-                    )
-
                     has_cand_violation = False
                     if q_id == "has_pii":
                         has_cand_violation = (
@@ -536,21 +524,25 @@ def run_validation(
             q_cfg = preset_cfg.questions.get(q_id)
             is_max_threshold = bool(q_cfg and q_cfg.max_threshold is not None)
 
+            threshold_val: float
             if is_max_threshold:
-                threshold = q_cfg.max_threshold
+                max_t = q_cfg.max_threshold if q_cfg else 0.5
+                assert max_t is not None
+                threshold_val = max_t
 
-                def is_absent(p: float, t: float = threshold) -> bool:
+                def is_absent(p: float, t: float = threshold_val) -> bool:
                     return p <= t
             else:
-                threshold = (
+                threshold_val = (
                     q_cfg.min_threshold if (q_cfg and q_cfg.min_threshold is not None) else 0.5
                 )
 
-                def is_absent(p: float, t: float = threshold) -> bool:
+                def is_absent(p: float, t: float = threshold_val) -> bool:
                     return p < t
 
             spread = max(probs) - min(probs) if probs else 0.0
 
+            verdict: Literal["detected", "missed", "correct_present", "false_alarm"]
             if expected == "absent":
                 if all(is_absent(p) for p in probs):
                     verdict = "detected"
@@ -578,7 +570,7 @@ def run_validation(
     # Process pairs: pairing only runs where both sides evaluated the question
     for p_idx, pair_item in enumerate(labels_cfg.pairs):
         p_runs = pair_runs_list[p_idx]
-        for q_id, expected in pair_item.expect.items():
+        for q_id, pair_expected in pair_item.expect.items():
             valid_runs: list[tuple[float, float]] = []
             has_trunc_b = False
             has_trunc_a = False
@@ -613,7 +605,7 @@ def run_validation(
             mean_d, ci_low, ci_high = compute_ci_95(deltas)
 
             # Determine each pair's own passed status via the pair guard
-            if expected == "down":
+            if pair_expected == "down":
                 guard_down_tol = (
                     crit_cfg.pair_guard_down_tolerance
                     if crit_cfg and crit_cfg.pair_guard_down_tolerance is not None
@@ -637,7 +629,7 @@ def run_validation(
                     before_path=str(pair_item.before),
                     after_path=str(pair_item.after),
                     question_id=q_id,
-                    expected=expected,
+                    expected=pair_expected,
                     kind=pair_item.kind,
                     doc_id=pair_item.doc_id,
                     before_scores=b_list,
@@ -798,7 +790,7 @@ def run_validation(
             grp_passed = _eval_pair_ci_passed(p)
             pair_group_results.append(
                 PairGroupResult(
-                    kind=p.kind,
+                    kind=p.kind or "pair",
                     question_id=p.question_id,
                     expected=exp,
                     n=len(p.deltas),
