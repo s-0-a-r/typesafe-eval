@@ -39,3 +39,6 @@ ENV/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# TypeSafe Eval Cache
+.typesafe-eval-cache/

@@ -230,6 +230,17 @@ def main() -> None:
     is_flag=True,
     help="List all available built-in evaluation presets and exit.",
 )
+@click.option(
+    "--cache/--no-cache",
+    default=True,
+    help="Enable or disable evaluation result cache. Default: enabled.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Custom directory for caching evaluation results.",
+)
 def eval_command(
     files: list[str],
     preset: str | None,
@@ -247,6 +258,8 @@ def eval_command(
     staged: bool,
     changed_since: str | None,
     list_presets: bool,
+    cache: bool,
+    cache_dir: Path | None,
 ) -> None:
     """Evaluate documents against quality, safety, or custom evaluation presets."""
     if list_presets:
@@ -346,7 +359,7 @@ def eval_command(
             sys.exit(2)
 
     # 4. Initialize Evaluator
-    evaluator = TypeSafeEvaluator(api_key=api_key)
+    evaluator = TypeSafeEvaluator(api_key=api_key, enable_cache=cache, cache_dir=cache_dir)
 
     # 5. Evaluate documents (concurrent or sequential)
     def _eval_single(target_path: Path) -> tuple[Path, DocumentEvalResult | None, str | None]:
@@ -797,6 +810,28 @@ def schema(schema_type: str, out: Path | None, indent: int) -> None:
         click.echo(f"✓ JSON Schema saved to {out}")
     else:
         click.echo(json_str)
+
+
+@main.group(name="cache")
+def cache_group() -> None:
+    """Manage local evaluation result cache."""
+    pass
+
+
+@cache_group.command(name="clear")
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Custom directory for caching evaluation results.",
+)
+def cache_clear_command(cache_dir: Path | None) -> None:
+    """Clear all cached evaluation results."""
+    from typesafe_eval.cache import EvaluationCache
+
+    c = EvaluationCache(cache_dir=cache_dir)
+    count = c.clear()
+    click.echo(f"Cleared {count} cached evaluation result(s).")
 
 
 if __name__ == "__main__":
