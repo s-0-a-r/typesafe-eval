@@ -174,6 +174,7 @@ class DocumentEvalResult(BaseModel):
     redaction_details: dict[str, Any] | None = None
     baseline_diff: BaselineDiff | None = None
     mock: bool = False
+    cached: bool = False
 
     @model_validator(mode="before")
     @classmethod
