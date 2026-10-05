@@ -184,6 +184,13 @@ def main() -> None:
     help="Validate files and inputs using mock results without sending requests to TypeSafe API.",
 )
 @click.option(
+    "--offline",
+    "--rules-only",
+    is_flag=True,
+    default=False,
+    help="Run static regex rule checks offline without TypeSafe API (no API key required).",
+)
+@click.option(
     "--api-key",
     envvar="TYPESAFE_API_KEY",
     help="TypeSafe API key (falls back to TYPESAFE_API_KEY environment variable).",
@@ -232,6 +239,7 @@ def eval_command(
     mask_secrets: bool,
     max_chars: int,
     dry_run: bool,
+    offline: bool,
     api_key: str | None,
     fail_on_threshold: bool,
     baseline: Path | None,
@@ -349,6 +357,7 @@ def eval_command(
                 mask_secrets=mask_secrets,
                 max_chars=max_chars,
                 dry_run=dry_run,
+                offline=offline,
             )
             return (target_path, res, None)
         except Exception as e:

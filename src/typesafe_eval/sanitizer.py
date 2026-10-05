@@ -548,7 +548,7 @@ def mask_sensitive_data(
                 details["credentials"] += 1
                 details["by_type"][type_name] = details["by_type"].get(type_name, 0) + 1
                 sec_idx = len(distinct_secrets) + 1
-                placeholder = f"[SECRET_{sec_idx}]"
+                placeholder = default_repl
                 rule_violations.append(
                     f"Credential Exposure: {placeholder} is a known {type_name} credential"
                 )
