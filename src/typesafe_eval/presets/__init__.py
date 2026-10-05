@@ -1,5 +1,4 @@
-"""Preset loader and custom configuration parser."""
-
+import fnmatch
 import sys
 from pathlib import Path
 
@@ -14,10 +13,80 @@ else:
 
 BUILTIN_PRESETS_DIR = Path(__file__).parent
 
+DEFAULT_IGNORE_DIRS = frozenset(
+    {
+        ".git",
+        "node_modules",
+        ".venv",
+        "venv",
+        "env",
+        ".env",
+        "__pycache__",
+        ".pytest_cache",
+        ".typesafe-eval-cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        "build",
+        "dist",
+    }
+)
+
+
+def is_default_ignored(path: Path) -> bool:
+    """Returns True if the path contains standard dependency, build, or cache directories."""
+    return any(part in DEFAULT_IGNORE_DIRS for part in path.parts)
+
+
+def is_path_excluded(path: Path, patterns: list[str], root: Path | None = None) -> bool:
+    """Returns True if the path matches any of the given glob or directory exclusion patterns."""
+    if not patterns:
+        return False
+
+    base_root = root or Path.cwd()
+    try:
+        rel_path = path.relative_to(base_root)
+        rel_str = str(rel_path).replace("\\", "/")
+    except ValueError:
+        rel_str = str(path).replace("\\", "/")
+
+    abs_str = str(path.resolve()).replace("\\", "/")
+    file_name = path.name
+
+    for pat in patterns:
+        pat = pat.strip()
+        if not pat:
+            continue
+        clean_pat = pat.replace("\\", "/").rstrip("/")
+
+        # Direct filename match (e.g. "*.draft.md")
+        if fnmatch.fnmatch(file_name, pat):
+            return True
+
+        # Relative or absolute path match
+        if fnmatch.fnmatch(rel_str, pat) or fnmatch.fnmatch(abs_str, pat):
+            return True
+
+        # Leading slash normalization
+        if fnmatch.fnmatch(f"/{rel_str}", pat):
+            return True
+
+        # Directory / prefix match (e.g. "templates" or "docs/templates")
+        if rel_str == clean_pat or rel_str.startswith(f"{clean_pat}/"):
+            return True
+        if fnmatch.fnmatch(rel_str, f"{clean_pat}/*") or fnmatch.fnmatch(
+            rel_str, f"*/{clean_pat}/*"
+        ):
+            return True
+
+    return False
+
 
 __all__ = [
     "PresetConfig",
     "BUILTIN_PRESETS_DIR",
+    "DEFAULT_IGNORE_DIRS",
+    "is_default_ignored",
+    "is_path_excluded",
     "list_builtin_presets",
     "load_preset",
     "find_project_config",
@@ -102,7 +171,7 @@ def load_project_config(start_dir: Path | None = None) -> tuple[PresetConfig | N
     if base_preset_name:
         base_cfg = load_preset(base_preset_name)
         merged = base_cfg.model_dump()
-        for k in ("name", "title", "description", "thresholds_as_warnings"):
+        for k in ("name", "title", "description", "thresholds_as_warnings", "exclude"):
             if k in cfg_dict:
                 merged[k] = cfg_dict[k]
         if "sanitizer" in cfg_dict:

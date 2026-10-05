@@ -30,6 +30,12 @@ typesafe-eval --since origin/main
 # Parallel document evaluation (concurrency)
 typesafe-eval docs/*.md -j 8
 
+# Exclude files or patterns
+typesafe-eval docs/*.md --exclude "*.draft.md" -e "docs/templates/**"
+
+# Offline / rules-only mode (zero API calls, deterministic rules only)
+typesafe-eval docs/*.md --preset safety --offline
+
 # Dry-run validation (does not require external API call)
 typesafe-eval docs/*.md --dry-run
 ```

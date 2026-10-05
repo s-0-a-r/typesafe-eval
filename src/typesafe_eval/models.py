@@ -31,6 +31,7 @@ class PresetConfig(BaseModel):
     description: str | None = None
     sanitizer: SanitizerConfig | None = None
     thresholds_as_warnings: bool = False
+    exclude: list[str] = Field(default_factory=list)
     questions: dict[str, QuestionConfig]
 
 
