@@ -137,6 +137,7 @@ class TypeSafeEvaluator:
         mask_secrets: bool = True,
         max_chars: int = 25000,
         dry_run: bool = False,
+        offline: bool = False,
     ) -> DocumentEvalResult:
         """Evaluates a single document file against the specified preset."""
         path = Path(filepath)
@@ -149,6 +150,7 @@ class TypeSafeEvaluator:
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             dry_run=dry_run,
+            offline=offline,
         )
 
     def evaluate_content(
@@ -160,6 +162,7 @@ class TypeSafeEvaluator:
         mask_secrets: bool = True,
         max_chars: int = 25000,
         dry_run: bool = False,
+        offline: bool = False,
     ) -> DocumentEvalResult:
         """Evaluates in-memory document content against the specified preset."""
         raw_content = content
@@ -349,13 +352,24 @@ class TypeSafeEvaluator:
             api_calls = 1
             was_truncated = False
 
-        # 4. Dry run bypass
+        # 4. Dry run & offline bypass
         if dry_run:
             return self._build_mock_result(
                 filepath=str(filepath),
                 preset=preset,
                 was_truncated=was_truncated,
                 api_calls=api_calls,
+                redaction_count=redaction_count,
+                redaction_details=redaction_details,
+                filename=filename,
+                content=raw_content,
+            )
+
+        if offline:
+            return self._build_offline_result(
+                filepath=str(filepath),
+                preset=preset,
+                was_truncated=was_truncated,
                 redaction_count=redaction_count,
                 redaction_details=redaction_details,
                 filename=filename,
@@ -1505,4 +1519,217 @@ class TypeSafeEvaluator:
             redactions_count=redaction_count,
             redaction_details=redaction_details,
             mock=True,
+        )
+
+    def _build_offline_result(
+        self,
+        filepath: str,
+        preset: PresetConfig,
+        was_truncated: bool,
+        redaction_count: int,
+        redaction_details: dict[str, Any] | None,
+        filename: str | None = None,
+        content: str | None = None,
+    ) -> DocumentEvalResult:
+        """Constructs an offline evaluation result using only local regex rules and sanitization."""
+        doc_filename = filename or Path(filepath).name
+        email_evaluations: list[EmailEvaluationResult] = []
+        secret_evaluations: list[SecretEvaluationResult] = []
+        phone_evaluations: list[PhoneEvaluationResult] = []
+        ip_evaluations: list[IPEvaluationResult] = []
+        url_evaluations: list[URLEvaluationResult] = []
+        violations: list[str] = []
+        warnings: list[str] = []
+
+        redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
+        for feature in redacted_emails:
+            placeholder = feature["placeholder"]
+            if feature.get("domain_type") == "free_mail":
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="personal",
+                        decided_by="free_mail",
+                    )
+                )
+                violations.append(
+                    f"PII Exposure: {placeholder} is an individual address (free-mail)"
+                )
+            elif feature.get("known_role_word") or feature.get("matches_custom_role"):
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="role",
+                        decided_by="free_mail",
+                    )
+                )
+            else:
+                email_evaluations.append(
+                    EmailEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="undecided",
+                        decided_by="model",
+                    )
+                )
+
+        redacted_secrets = (
+            redaction_details.get("redacted_secrets", []) if redaction_details else []
+        )
+        for feature in redacted_secrets:
+            placeholder = feature["placeholder"]
+            if feature.get("is_known_format"):
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="secret",
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("placeholder_syntax"):
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="safe",
+                        decided_by="rule",
+                    )
+                )
+            else:
+                secret_evaluations.append(
+                    SecretEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="undecided",
+                        decided_by="rule",
+                    )
+                )
+
+        redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
+        for feature in redacted_phones:
+            placeholder = feature["placeholder"]
+            if feature.get("is_support_prefix") or feature.get("looks_like_support"):
+                phone_evaluations.append(
+                    PhoneEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="support",
+                        decided_by="rule",
+                    )
+                )
+            else:
+                phone_evaluations.append(
+                    PhoneEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="personal",
+                        decided_by="rule",
+                    )
+                )
+                violations.append(f"PII Exposure: {placeholder} is an individual phone number")
+
+        redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
+        for feature in redacted_ips:
+            placeholder = feature["placeholder"]
+            if feature.get("is_documentation") or feature.get("is_loopback"):
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="safe",
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("is_private"):
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="sensitive",
+                        decided_by="rule",
+                    )
+                )
+                violations.append(
+                    f"PII Exposure: {placeholder} is an internal/sensitive IP address"
+                )
+            else:
+                ip_evaluations.append(
+                    IPEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="safe",
+                        decided_by="rule",
+                    )
+                )
+
+        redacted_urls = redaction_details.get("redacted_urls", []) if redaction_details else []
+        for feature in redacted_urls:
+            placeholder = feature["placeholder"]
+            if (
+                feature.get("is_example_domain")
+                or feature.get("is_public_common")
+                or feature.get("is_loopback")
+                or feature.get("is_documentation")
+            ):
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="safe",
+                        decided_by="rule",
+                    )
+                )
+            elif feature.get("is_internal_tld"):
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="sensitive",
+                        decided_by="rule",
+                    )
+                )
+                violations.append(f"PII Exposure: {placeholder} is an internal/sensitive URL")
+            else:
+                url_evaluations.append(
+                    URLEvaluationResult(
+                        placeholder=placeholder,
+                        features=feature,
+                        outcome="safe",
+                        decided_by="rule",
+                    )
+                )
+
+        if redaction_details and "rule_violations" in redaction_details:
+            for rv in redaction_details["rule_violations"]:
+                if rv not in violations:
+                    violations.append(rv)
+
+        passed = len(violations) == 0
+
+        return DocumentEvalResult(
+            filepath=filepath,
+            filename=doc_filename,
+            preset_name=preset.name,
+            scores={},
+            nouls={},
+            choices={},
+            email_evaluations=email_evaluations,
+            phone_evaluations=phone_evaluations,
+            ip_evaluations=ip_evaluations,
+            url_evaluations=url_evaluations,
+            secret_evaluations=secret_evaluations,
+            composite_score=None,
+            passed_thresholds=passed,
+            violations=violations,
+            warnings=warnings,
+            usage={"input_tokens": 0, "output_tokens": 0},
+            model="offline-rules",
+            was_truncated=was_truncated,
+            api_calls=0,
+            redactions_count=redaction_count,
+            redaction_details=redaction_details,
+            mock=False,
         )

@@ -49,6 +49,7 @@ def evaluate(
     *,
     api_key: str | None = None,
     dry_run: bool = False,
+    offline: bool = False,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -64,7 +65,7 @@ def evaluate(
     preset_cfg = _resolve_preset(preset, project_root=project_root)
 
     resolved_api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
-    if not dry_run and not resolved_api_key:
+    if not dry_run and not offline and not resolved_api_key:
         raise AuthenticationError(
             "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
             "or pass api_key=..."
@@ -81,6 +82,7 @@ def evaluate(
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             dry_run=dry_run,
+            offline=offline,
         )
     except TypeSafeEvalError:
         raise
@@ -104,6 +106,7 @@ def evaluate_document(
     *,
     api_key: str | None = None,
     dry_run: bool = False,
+    offline: bool = False,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -124,6 +127,7 @@ def evaluate_document(
         preset=preset,
         api_key=api_key,
         dry_run=dry_run,
+        offline=offline,
         mask_secrets=mask_secrets,
         max_chars=max_chars,
         raise_on_violation=raise_on_violation,
@@ -140,6 +144,7 @@ def evaluate_documents(
     concurrency: int = 4,
     api_key: str | None = None,
     dry_run: bool = False,
+    offline: bool = False,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -152,7 +157,7 @@ def evaluate_documents(
     preset_cfg = _resolve_preset(preset, project_root=project_root)
 
     resolved_api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
-    if not dry_run and not resolved_api_key:
+    if not dry_run and not offline and not resolved_api_key:
         raise AuthenticationError(
             "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
             "or pass api_key=..."
@@ -180,6 +185,7 @@ def evaluate_documents(
             preset=preset_cfg,
             api_key=resolved_api_key,
             dry_run=dry_run,
+            offline=offline,
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             raise_on_violation=False,
