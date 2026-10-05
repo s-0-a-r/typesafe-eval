@@ -354,3 +354,24 @@ def render_json(results: list[DocumentEvalResult]) -> str:
     """Exports results as structured JSON string."""
     data = [res.model_dump() for res in results]
     return json.dumps(data, indent=2, ensure_ascii=False)
+
+
+def render_github_annotations(results: list[DocumentEvalResult]) -> str:
+    """Exports violations as GitHub Actions workflow commands (::error / ::warning)."""
+    lines: list[str] = []
+    for res in results:
+        target_path = res.filepath or res.filename
+        for v in res.structured_violations:
+            loc_parts = [f"file={target_path}"]
+            if v.line is not None:
+                loc_parts.append(f"line={v.line}")
+            if v.column is not None:
+                loc_parts.append(f"col={v.column}")
+            if v.end_line is not None:
+                loc_parts.append(f"endLine={v.end_line}")
+            if v.end_column is not None:
+                loc_parts.append(f"endColumn={v.end_column}")
+            loc_str = ",".join(loc_parts)
+            cmd = "error" if v.level == "error" else "warning"
+            lines.append(f"::{cmd} {loc_str}::{v.message}")
+    return "\n".join(lines)
