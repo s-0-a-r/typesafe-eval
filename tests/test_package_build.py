@@ -71,10 +71,21 @@ def test_release_please_and_workflow_sanity():
     assert manifest_path.is_file(), ".release-please-manifest.json must exist"
     assert release_workflow.is_file(), ".github/workflows/release.yml must exist"
 
-    # Verify manifest version is synchronized
+    import typesafe_eval
+
+    # Verify manifest version is synchronized with __version__ and pyproject.toml
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert "." in manifest
-    assert manifest["."] == "0.8.0"
+    assert manifest["."] == typesafe_eval.__version__, (
+        f"Manifest version ({manifest['.']}) must match typesafe_eval.__version__ ({typesafe_eval.__version__})"
+    )
+
+    if tomllib is not None:
+        with open(repo_root / "pyproject.toml", "rb") as f:
+            pyproject_version = tomllib.load(f)["project"]["version"]
+        assert pyproject_version == typesafe_eval.__version__, (
+            f"pyproject.toml version ({pyproject_version}) must match typesafe_eval.__version__ ({typesafe_eval.__version__})"
+        )
 
     # Verify release-please config specifies python release type
     config = json.loads(config_path.read_text(encoding="utf-8"))

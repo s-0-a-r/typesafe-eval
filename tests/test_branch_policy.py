@@ -19,7 +19,13 @@ def test_fix_to_main_rejected():
 
 
 def test_release_to_main_allowed():
-    valid, msg = validate_branch_policy("main", "release/v0.7.0")
+    valid, msg = validate_branch_policy("main", "release/v0.8.0")
+    assert valid
+    assert "Valid release promotion" in msg
+
+
+def test_release_please_to_main_allowed():
+    valid, msg = validate_branch_policy("main", "release-please--branches--main")
     assert valid
     assert "Valid release promotion" in msg
 
