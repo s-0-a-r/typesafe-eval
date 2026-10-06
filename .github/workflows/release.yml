@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || 'main' }}
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag_name || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -65,9 +65,9 @@ jobs:
       - name: Upload artifacts to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag || 'v1.0.0' }}
         run: |
-          TAG="${{ needs.release-please.outputs.tag_name || inputs.tag || 'v1.0.0' }}"
-          gh release upload "$TAG" dist/* --clobber
+          gh release upload "$TARGET_TAG" dist/* --clobber
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
