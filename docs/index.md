@@ -1,9 +1,9 @@
 # TypeSafe-Eval
 
 [![CI](https://github.com/s-0-a-r/typesafe-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/s-0-a-r/typesafe-eval/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/typesafe-eval.svg)](https://pypi.org/project/typesafe-eval/)
-[![Python versions](https://img.shields.io/pypi/pyversions/typesafe-eval.svg)](https://pypi.org/project/typesafe-eval/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/s-0-a-r/typesafe-eval)](https://github.com/s-0-a-r/typesafe-eval/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 **Fast, typed multi-dimensional document evaluation CLI and Python library powered by TypeSafe System One (Jev).**
 

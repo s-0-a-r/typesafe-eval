@@ -2,6 +2,8 @@
 
 This guide provides instructions and operational boundaries for AI coding assistants (OpenAI Codex, GitHub Copilot, Google Antigravity CLI, Claude Code, Cursor, Aider) operating in repositories that use `typesafe-eval`.
 
+> 📖 **Online Documentation**: [https://s-0-a-r.github.io/typesafe-eval/agents/guidance/](https://s-0-a-r.github.io/typesafe-eval/agents/guidance/)
+
 ---
 
 ## 1. Quick Command Invocations
