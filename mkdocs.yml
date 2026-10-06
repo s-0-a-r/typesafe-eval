@@ -1,0 +1,88 @@
+site_name: TypeSafe-Eval
+site_description: Fast, typed multi-dimensional document evaluation CLI powered by TypeSafe System One (Jev)
+site_author: s-0-a-r
+site_url: https://s-0-a-r.github.io/typesafe-eval/
+repo_name: s-0-a-r/typesafe-eval
+repo_url: https://github.com/s-0-a-r/typesafe-eval
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - tables
+  - attr_list
+  - def_list
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - CLI Reference: getting-started/cli-reference.md
+  - Evaluation Presets:
+      - Overview: presets/overview.md
+      - Safety: presets/safety.md
+      - Quality: presets/quality.md
+      - Tech Spec: presets/tech-spec.md
+      - Design Doc & PR Description: presets/design-doc-and-pr.md
+      - Custom Presets: presets/custom.md
+  - Python API:
+      - API Overview: python-api/overview.md
+      - Reference & Types: python-api/reference.md
+      - Exceptions: python-api/exceptions.md
+  - Integration Guides:
+      - GitHub Actions: integrations/github-actions.md
+      - Pre-commit Hook: integrations/pre-commit.md
+      - Claude Code & IDE Hooks: integrations/claude-code.md
+      - Git Diff & CI Gating: integrations/git-diff.md
+  - Agent Integration:
+      - AGENTS.md & 4 Mandatory Rules: agents/guidance.md
+      - JSON Contract (v1.0): agents/json-contract.md
+      - Exit Code Protocol: agents/exit-codes.md
+  - Architecture & Science:
+      - Noise Calibration: science/noise-calibration.md
+      - Redaction & Sanitization: science/redaction.md

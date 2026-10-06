@@ -42,3 +42,6 @@ htmlcov/
 
 # TypeSafe Eval Cache
 .typesafe-eval-cache/
+
+# MkDocs
+site/

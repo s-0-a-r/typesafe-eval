@@ -51,6 +51,10 @@ dev = [
     "types-PyYAML>=6.0.0",
     "tomli>=1.1.0",
 ]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+]
 
 [project.scripts]
 typesafe-eval = "typesafe_eval.cli:main"
