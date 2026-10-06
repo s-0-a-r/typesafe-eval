@@ -14,9 +14,9 @@ def _get_version() -> str:
     try:
         import typesafe_eval
 
-        return getattr(typesafe_eval, "__version__", "0.9.0")
+        return getattr(typesafe_eval, "__version__", "1.0.0")
     except Exception:
-        return "0.9.0"
+        return "1.0.0"
 
 
 def get_default_cache_dir() -> Path:

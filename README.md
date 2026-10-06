@@ -14,34 +14,21 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 `typesafe-eval` is an evaluation harness and CI gate that wraps TypeSafe System One. It adds:
 
 - **Context-Aware Masking & Candidate Evaluation**: Deterministic regex rules combined with candidate-level feature extraction (for emails, phone numbers, IP addresses, internal URLs, and secrets). Detection and feature extraction always run even when `--no-mask` is passed.
+- **Offline Rules-Only Mode (`--offline`)**: Zero-network local evaluation relying strictly on deterministic safety and credential rules without requiring external API keys.
+- **Content-Addressable Result Caching (`--cache`)**: SHA-256 content-hash caching to eliminate redundant evaluations in local iterative development and CI re-runs, with `typesafe-eval cache clear`.
 - **Validation & Calibration Harness (`validate`)**: Built-in test runner for evaluating presets against ground-truth document sets and ablation variants (`labels.yaml`) to verify calibration, detection rates, and regression directions.
 - **Baseline Regression Detection (`--baseline`)**: Flags score drops larger than the measured noise between revisions, detecting subtle quality degradation against previous runs.
+- **File Exclusion Patterns & Default Ignores (`--exclude`)**: Exclude specific files or glob patterns, with automatic skipping of standard build and dependency directories (`.git`, `node_modules`, `.venv`, etc.).
+- **Line & Column Position Mapping (`-f github`)**: Pinpoint exact line and column locations for violations and emit native GitHub Actions workflow commands for PR inline annotations.
+- **Programmatic Python API & Strict Typing**: Direct programmatic access via `import typesafe_eval` (`evaluate()`, `evaluate_document()`, `evaluate_documents()`), typed exceptions, and PEP 561 `py.typed` compliance.
+- **Configuration Auto-Discovery**: Automatic upward discovery of `.typesafe-eval.yaml`, `.typesafe-eval.yml`, or `pyproject.toml` (`[tool.typesafe-eval]`).
+- **Parallel Document Concurrency (`-j` / `--concurrency`)**: Accelerated evaluations using thread pools while preserving strict document ordering in outputs.
+- **Git Diff Evaluation (`--staged` / `--since`)**: Zero-noise gating for pre-commit hooks and CI pull request workflows by evaluating only modified markdown documents.
 - **Measured Built-in Checklists**: Presence checklists (`design-doc`, `pr-description`) measured on a corpus of public design documents and pull requests, with counts per question and the questions that are not reliable listed.
 - **Long Document Chunking**: Overlapping window chunking for presence questions (`Noul`) to prevent middle-truncation false degradation while keeping token budgets safe.
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
+- **Agent Integrations**: Native skills and pre-commit/safety hooks for autonomous coding agents (Google Antigravity CLI, Claude Code, OpenAI Codex).
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
-
-### 🚀 What's New in v0.9.0
-- **File Exclusion Patterns & Default Ignores (`--exclude` / `-e`)**: Repeatable CLI `--exclude <pattern>` flags, project configuration `exclude: [...]` support in `.typesafe-eval.yaml` and `pyproject.toml`, and automatic skipping of standard build, dependency, and cache directories (`.git`, `node_modules`, `.venv`, `build`, `dist`, etc.).
-- **Offline Rules-Only Mode (`--offline`)**: Gating using local deterministic rules (known credential patterns, AWS/Slack/GitHub tokens, free-mail PII) with zero external API calls and no required `TYPESAFE_API_KEY`.
-- **Content-Addressable Result Caching (`--cache`)**: SHA-256 content-hash caching to eliminate redundant evaluations in local iterative development and CI re-runs, with `typesafe-eval cache clear` cache management.
-- **Line & Column Position Mapping with GitHub Actions Annotations (`-f github`)**: Pinpoint exact line and column locations for violations and emit `::error file=...,line=...,col=...::` workflow commands for GitHub PR inline review annotations.
-- **Expanded 18-Item Real CLI Acceptance Criteria (AC) Matrix**: Full end-to-end OS subprocess acceptance testing across all CLI features, ensuring zero regression before the v1.0.0 API freeze.
-
-### 🚀 What's New in v0.8.0
-- **Public Python API**: Direct programmatic access via `import typesafe_eval` (`evaluate()`, `evaluate_document()`, `evaluate_documents()`) with comprehensive typed exceptions (`TypeSafeEvalError`, `ContentViolationError`).
-- **Strict Typing & PEP 561**: Full PEP 561 support (`py.typed`) and zero-error `mypy --strict` compliance across the entire codebase.
-- **Configuration Auto-Discovery**: Automatically traverses upward to locate `.typesafe-eval.yaml`, `.typesafe-eval.yml`, or `pyproject.toml` (`[tool.typesafe-eval]`), enabling repository-wide defaults without mandatory `--preset` flags. Supports preset extension and field overrides.
-- **Parallel Document Concurrency (`-j` / `--concurrency`)**: Accelerated evaluation using thread pools, executing API calls concurrently while preserving strict input document ordering in reports.
-- **Git Diff Evaluation (`--staged` / `--since`)**: Zero-noise gating for pre-commit hooks and CI pull request workflows by evaluating only modified or staged markdown documents.
-- **Advisory Thresholds & JSON Schema Export**: Soft gate checks via `advisory: true` questions and automated schema generation via `typesafe-eval schema`.
-
-### 🚀 What's New in v0.5.0
-- **Agent-Agnostic JSON Contract**: Stable JSON output contract (`schema_version: "1.0"`) across both `eval` and `validate` commands, with pure `stdout` JSON streams for piping to `jq`. Includes `.pre-commit-hooks.yaml` and a composite GitHub Action (`action.yml`) with exit code 3 skip handling for fork/hosted runners.
-- **Claude Code Integration Plugin**: Skill definition at [`skills/typesafe-eval/SKILL.md`](skills/typesafe-eval/SKILL.md) and `PostToolUse` safety hook at [`hooks/hooks.json`](hooks/hooks.json) backed by [`hooks/claude_safety_hook.py`](hooks/claude_safety_hook.py), mapping content violations (exit 1) to blocking hook exit 2 while skipping on missing API keys.
-- **Autonomous Agent Guidance**: Full copy-pasteable guide in [`AGENTS.md`](AGENTS.md) for OpenAI Codex, Google Antigravity CLI, Claude Code, Cursor, and Aider, encoding the 4 mandatory guidance rules.
-- **HTML Comments Secret & PII Detection (#80)**: Detection and masking run on raw documents before stripping HTML comments for the model, ensuring secrets and PII inside `<!-- ... -->` are reliably caught.
-- **Validation Unplaced Warning & Runtime Error Tracking (#82)**: Separate tracking of chunk-boundary straddling unplaced warnings in `--no-mask` mode, with strict runtime error enforcement in masked mode.
 
 ### TypeSafe System One API Properties
 The underlying evaluation engine is powered by the [TypeSafe System One API](https://docs.typesafe.ai/) (`jev-1.13.0`):
@@ -251,17 +238,19 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 ```
 
 - **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
-- **Empirical Noise Calibration**: In noise measurements across 3 documents × 10 runs on each built-in preset (90 evaluations, 1,215 pairwise comparisons; measured on v0.3.x presets; re-measure pending):
-  - `quality`: 99th percentile |Δ| = `0.020`, max = `0.020`
-  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.040`
-  - `tech-spec`: 99th percentile |Δ| = `0.030`, max = `0.050` (measured before the two Score questions were removed)
-  - Overall 99th percentile was `0.030` (max `0.050`), confirming that the default `0.10` threshold provides a safe buffer (>3× empirical noise) against false regression alerts.
+- **Empirical Noise Calibration**: In noise measurements across 3 documents × 4 runs on all 5 built-in presets (60 evaluations, 396 pairwise comparisons evaluated against TypeSafe System One API `jev-1.13.0` via `scripts/measure_noise.py` with `cache=False`):
+  - `quality`: 99th percentile |Δ| = `0.005`, max = `0.005` (mean |Δ| = `0.0008`)
+  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.030` (mean |Δ| = `0.0038`)
+  - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
+  - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
+  - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
+  - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 - **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).
 
 ### 8. Near-Threshold Indication (`near_threshold`)
-Because run-to-run noise is up to about 0.050, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+Because run-to-run noise is up to about 0.030–0.040, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
 - **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
 - **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
