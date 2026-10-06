@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag or release to publish (default: v1.0.0)'
+        required: false
+        default: 'v1.0.0'
 
 permissions:
   contents: write
@@ -11,6 +17,7 @@ permissions:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -24,7 +31,7 @@ jobs:
 
   publish-pypi:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ always() && (needs.release-please.outputs.release_created || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -34,6 +41,8 @@ jobs:
       contents: write  # Required for uploading assets to GitHub Release
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || needs.release-please.outputs.tag_name || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,8 +65,9 @@ jobs:
       - name: Upload artifacts to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag || 'v1.0.0' }}
         run: |
-          gh release upload "${{ needs.release-please.outputs.tag_name }}" dist/* --clobber
+          gh release upload "$TARGET_TAG" dist/* --clobber
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
