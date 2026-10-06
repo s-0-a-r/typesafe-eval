@@ -1,11 +1,14 @@
 # typesafe-eval
 
 [![CI](https://github.com/s-0-a-r/typesafe-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/s-0-a-r/typesafe-eval/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-GitHub_Pages-blue.svg)](https://s-0-a-r.github.io/typesafe-eval/)
 [![Release](https://img.shields.io/github/v/release/s-0-a-r/typesafe-eval)](https://github.com/s-0-a-r/typesafe-eval/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by the **TypeSafe System One API** (model: `jev-1.13.0`).
+
+> 📚 **Documentation Portal**: [https://s-0-a-r.github.io/typesafe-eval/](https://s-0-a-r.github.io/typesafe-eval/)
 
 ---
 

@@ -56,6 +56,13 @@ docs = [
     "mkdocs-material>=9.5.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/s-0-a-r/typesafe-eval"
+Documentation = "https://s-0-a-r.github.io/typesafe-eval/"
+Repository = "https://github.com/s-0-a-r/typesafe-eval"
+Issues = "https://github.com/s-0-a-r/typesafe-eval/issues"
+Changelog = "https://github.com/s-0-a-r/typesafe-eval/blob/main/CHANGELOG.md"
+
 [project.scripts]
 typesafe-eval = "typesafe_eval.cli:main"
 jev-eval = "typesafe_eval.cli:main"
