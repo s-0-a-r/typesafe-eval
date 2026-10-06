@@ -90,6 +90,9 @@ def measure_noise(
         print("Error: TYPESAFE_API_KEY environment variable required.", file=sys.stderr)
         sys.exit(3)
 
+    if runs < 2:
+        raise ValueError("--runs must be >= 2 for pairwise noise comparison.")
+
     target_configs = [
         (preset, docs)
         for preset, docs in DEFAULT_PRESETS_AND_DOCS
@@ -114,7 +117,13 @@ def measure_noise(
             # Collect measurements across N runs
             run_results = []
             for _ in range(runs):
-                res = evaluate(content, preset=preset_name, api_key=api_key, mask_secrets=True)
+                res = evaluate(
+                    content,
+                    preset=preset_name,
+                    api_key=api_key,
+                    mask_secrets=True,
+                    cache=False,
+                )
                 run_results.append(res)
                 print(".", end="", flush=True)
 
@@ -203,6 +212,7 @@ def main() -> None:
 
     if args.out:
         out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
         print(f"\nSaved full results to {out_path}")
 

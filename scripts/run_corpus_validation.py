@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run validation corpus evaluations across all tuning and heldout specifications."""
 
+from __future__ import annotations
+
 import subprocess
 import sys
 from datetime import datetime
@@ -20,7 +22,7 @@ TARGET_SPECS = [
 ]
 
 
-def main():
+def main() -> None:
     date_str = datetime.now().strftime("%Y-%m-%d")
     out_dir = Path("validation/corpus/results") / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -28,7 +30,7 @@ def main():
     print(f"=== Starting Corpus Validation Run ({date_str}) ===")
     print(f"Output directory: {out_dir}\n")
 
-    summary_results = []
+    summary_results: list[tuple[str, bool, int, str]] = []
     py_exec = sys.executable
 
     for name, spec_path, runs in TARGET_SPECS:
@@ -54,17 +56,25 @@ def main():
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode == 0:
             print(f"    ✔ Success (saved to {json_out.name})")
-            summary_results.append((name, True, ""))
+            summary_results.append((name, True, 0, ""))
         else:
             print(f"    ✘ Return code {res.returncode}")
             if res.stderr:
                 print(f"      stderr:\n{res.stderr.strip()[:400]}")
-            summary_results.append((name, False, res.stderr))
+            summary_results.append((name, False, res.returncode, res.stderr))
 
     print("\n=== Validation Run Summary ===")
-    for name, ok, _ in summary_results:
-        status = "PASS" if ok else "NOT MET / FAIL"
+    for name, ok, code, _ in summary_results:
+        status = "PASS" if ok else f"NOT MET / FAIL (exit {code})"
         print(f"  - {name:25s}: {status}")
+
+    exit_codes = [code for _, _, code, _ in summary_results]
+    if any(code == 1 for code in exit_codes):
+        sys.exit(1)
+    elif any(code == 2 for code in exit_codes):
+        sys.exit(2)
+    elif any(code != 0 for code in exit_codes):
+        sys.exit(3)
 
 
 if __name__ == "__main__":
