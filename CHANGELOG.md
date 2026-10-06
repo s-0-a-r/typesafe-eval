@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-10-06
+
+### Added
+- **Official Documentation Site (Material for MkDocs)**:
+  - Comprehensive documentation portal hosted at GitHub Pages with responsive Material design, dark/light theme, search, and code copying.
+  - Complete guides: Installation, Quickstart, CLI Reference, Python API & Types, CI Integrations (GitHub Actions, pre-commit, Claude Code), Presets, and Scientific Noise Calibration.
+  - Strict documentation build validation (`mkdocs build --strict`) integrated into CI.
+- **Empirical Noise Calibration Matrix & Fixture Report**:
+  - Live empirical evaluation of run-to-run variance on TypeSafe System One (`jev-1.13.0`) across all 5 built-in presets (60 evaluations, 396 pairwise comparisons).
+  - Confirmed 99th percentile $|\Delta| = 0.030$ and max $|\Delta| = 0.040$, validating the statistical robustness of the $\pm 0.10$ threshold safety margin.
+  - Automated reusable measurement CLI script (`scripts/measure_noise.py`) and artifact export (`tests/fixtures/noise_report.json`).
+- **Comprehensive Production Hardening & Acceptance**:
+  - 100% pass across all 18 Real CLI Acceptance Criteria (OS subprocess execution matrix).
+  - 533 unit, integration, and property-based tests passing with strict typing (PEP 561 `py.typed`, mypy strict mode).
+  - Cleaned up README.md with unified feature catalog and removed temporary release sections.
+
+---
+
 ## [0.9.0] - 2026-10-06
 
 ### Added
