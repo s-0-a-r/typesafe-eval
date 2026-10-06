@@ -21,7 +21,7 @@ Add the following to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/s-0-a-r/typesafe-eval
-    rev: v0.9.0
+    rev: v1.0.0
     hooks:
       - id: typesafe-eval-safety
         name: TypeSafe Safety Check (Offline)

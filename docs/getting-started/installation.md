@@ -46,7 +46,7 @@ typesafe-eval --version
 
 Expected output:
 ```text
-typesafe-eval, version 0.9.0
+typesafe-eval, version 1.0.0
 ```
 
 > [!NOTE]
