@@ -240,11 +240,11 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 - **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
 - **Empirical Noise Calibration**: In noise measurements across 3 documents × 4 runs on all 5 built-in presets (60 evaluations, 396 pairwise comparisons evaluated against TypeSafe System One API `jev-1.13.0` via `scripts/measure_noise.py` with `cache=False`):
   - `quality`: 99th percentile |Δ| = `0.005`, max = `0.005` (mean |Δ| = `0.0008`)
-  - `safety`: 99th percentile |Δ| = `0.027`, max = `0.030` (mean |Δ| = `0.0031`)
-  - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0100`)
-  - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.030` (mean |Δ| = `0.0022`)
-  - `pr-description`: 99th percentile |Δ| = `0.051`, max = `0.060` (mean |Δ| = `0.0106`)
-  - Overall 99th percentile across all presets is `0.040` (overall mean `0.0048`, max `0.060`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
+  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.030` (mean |Δ| = `0.0038`)
+  - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
+  - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
+  - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
+  - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 - **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).
