@@ -44,3 +44,8 @@ jobs:
       run: |
         python scripts/verify_ac.py
         pytest -v -m acceptance
+
+    - name: Verify Documentation Build (MkDocs)
+      run: |
+        pip install -e ".[docs]"
+        mkdocs build --strict

@@ -1,0 +1,28 @@
+# Redaction, Masking & Zero Raw Leak Guarantee
+
+How `typesafe-eval` sanitizes documents before network evaluation to protect sensitive credentials and personal data.
+
+---
+
+## The Zero Raw Leak Guarantee
+
+`typesafe-eval` guarantees that **raw credentials, secret keys, and personal phone/email strings never leave your machine**:
+
+1. **Local Redaction**: Regex engines and rules identify secrets and personal contacts entirely on your local machine before any network request is formed.
+2. **Payload Sanitization**: The payload transmitted to the TypeSafe System One API replaces sensitive values with synthetic tokens (e.g., `[SECRET_1]`, `[EMAIL_1]`).
+3. **Safe Diagnostics**: In JSON output, metadata, and error messages, raw secrets are never displayed. Only masked placeholders (e.g. `[REDACTED_AWS_KEY]`) are emitted.
+
+---
+
+## Comment Stripping Logic
+
+Prose documents frequently contain draft comments that might harbor unredacted notes or credentials:
+
+```markdown
+Here is the public API design.
+<!-- Note: Internal staging key is AKIAIOSFODNN7EXAMPLE -->
+```
+
+By default (`strip_prose_comments=True`):
+- HTML comments occurring in regular prose are stripped from the payload sent to the API.
+- **Fenced code blocks are preserved**: Comments inside fenced markdown code blocks (e.g. ` ```html <!-- safe comment --> ``` `) are preserved untouched so technical code examples are not corrupted.
