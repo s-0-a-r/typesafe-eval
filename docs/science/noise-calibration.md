@@ -18,20 +18,20 @@ Across 60 total uncached evaluations (3 documents $\times$ 4 runs across 5 prese
 
 | Preset | Comparisons | Mean $|\Delta|$ | Median $|\Delta|$ | 99th %ile $|\Delta|$ | Max $|\Delta|$ |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `quality` | 72 | 0.0008 | 0.000 | 0.005 | 0.005 |
-| `safety` | 18 | 0.0031 | 0.000 | 0.027 | 0.030 |
-| `tech-spec` | 72 | 0.0100 | 0.010 | 0.020 | 0.020 |
-| `design-doc` | 90 | 0.0022 | 0.000 | 0.020 | 0.030 |
-| `pr-description` | 144 | 0.0106 | 0.010 | 0.051 | 0.060 |
-| **Overall** | **396** | **0.0048** | **0.000** | **0.040** | **0.060** |
+| `quality` | 36 | 0.0008 | 0.000 | 0.005 | 0.005 |
+| `safety` | 54 | 0.0038 | 0.000 | 0.030 | 0.030 |
+| `tech-spec` | 36 | 0.0111 | 0.010 | 0.020 | 0.020 |
+| `design-doc` | 180 | 0.0021 | 0.000 | 0.020 | 0.020 |
+| `pr-description` | 90 | 0.0086 | 0.010 | 0.040 | 0.040 |
+| **Overall** | **396** | **0.0045** | **0.000** | **0.030** | **0.040** |
 
 ---
 
 ## Key Conclusions
 
 1. **Safety Margin Validity**:
-   - The observed overall 99th percentile noise is **$0.040$**, and the absolute maximum delta observed across all 396 comparisons is **$0.060$**.
-   - Because noise remains well under $\pm 0.10$, the threshold boundary margin of $\pm 0.10$ ensures that true passes do not randomly fluctuate into hard CI gate failures.
+   - The observed overall 99th percentile noise is **$0.030$**, and the absolute maximum delta observed across all 396 comparisons is **$0.040$**.
+   - Because noise remains well under $\pm 0.10$, the threshold boundary margin of $\pm 0.10$ provides a statistically robust buffer (>2.5× to 3× empirical noise) ensuring that true passes do not randomly fluctuate into hard CI gate failures.
 
 2. **Near-Threshold Annealing**:
    - Scores landing in $[0.40, 0.60]$ are soft observations. If an autonomous agent optimizes text that is already at $0.48$, minor noise could cause oscillations. Capping agent rewrite loops at 2 iterations avoids churn.
