@@ -16,8 +16,8 @@ $$\Delta = |p_{\text{run A}} - p_{\text{run B}}|$$
 
 Across 60 total uncached evaluations (3 documents $\times$ 4 runs across 5 presets, totaling 396 pairwise comparisons against model `jev-1.13.0`):
 
-| Preset | Comparisons | Mean $|\Delta|$ | Median $|\Delta|$ | 99th %ile $|\Delta|$ | Max $|\Delta|$ |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Preset | Comparisons | Mean &vert;&Delta;&vert; | Median &vert;&Delta;&vert; | 99th %ile &vert;&Delta;&vert; | Max &vert;&Delta;&vert; |
+| :--- | :---: | :---: | :---: | :---: | :---: |
 | `quality` | 36 | 0.0008 | 0.000 | 0.005 | 0.005 |
 | `safety` | 54 | 0.0038 | 0.000 | 0.030 | 0.030 |
 | `tech-spec` | 36 | 0.0111 | 0.010 | 0.020 | 0.020 |
