@@ -250,7 +250,7 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 - **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).
 
 ### 8. Near-Threshold Indication (`near_threshold`)
-Because run-to-run noise is up to about 0.050–0.060, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+Because run-to-run noise is up to about 0.030–0.040, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
 - **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
 - **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
