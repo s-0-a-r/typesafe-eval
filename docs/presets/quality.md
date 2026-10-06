@@ -6,13 +6,13 @@ The `quality` preset evaluates general documentation, guides, READMEs, and techn
 
 ## Dimensions Evaluated
 
-| Dimension | Description | Threshold | Type |
-| :--- | :--- | :---: | :---: |
-| `readability` | Is the writing clear, concise, and easy to parse? | $\ge 0.50$ | Gate |
-| `structure` | Does the document have well-organized headings, sections, and flow? | $\ge 0.50$ | Gate |
-| `completeness` | Does the document provide sufficient context without critical gaps? | $\ge 0.50$ | Gate |
-| `actionability` | Can the reader take immediate action or run the code successfully? | $\ge 0.50$ | Gate |
-| `composite_score` | Weighted composite score across all quality dimensions. | $\ge 0.60$ | Gate |
+| Dimension | Description | Threshold | Type | Role |
+| :--- | :--- | :---: | :---: | :---: |
+| `clarity` | How clear, well-structured, and easy to follow is this document? | $\ge 0.60$ | Score | Warning (advisory) |
+| `tone` | What is the primary stylistic tone of this document? (`professional`, `informal`, `inconsistent`) | N/A | Choice | Informational |
+
+> [!NOTE]
+> In the built-in `quality` preset, `thresholds_as_warnings: true` is configured. Clarity threshold regressions emit non-blocking warnings rather than causing immediate gate failures.
 
 ---
 
@@ -27,17 +27,38 @@ Sample JSON response:
 [
   {
     "schema_version": "1.0",
-    "filename": "docs/architecture.md",
+    "filepath": "docs/architecture.md",
+    "filename": "architecture.md",
+    "preset_name": "quality",
     "passed_thresholds": true,
-    "composite_score": 0.88,
+    "composite_score": 0.85,
     "scores": {
-      "readability": 0.92,
-      "structure": 0.85,
-      "completeness": 0.84,
-      "actionability": 0.90
+      "clarity": {
+        "score": 0.85,
+        "max_score": 1.0,
+        "normalized_score": 0.85,
+        "confidence": 0.92,
+        "probabilities": {
+          "1": 0.02,
+          "2": 0.13,
+          "3": 0.85
+        },
+        "near_threshold": false
+      }
+    },
+    "choices": {
+      "tone": {
+        "choice": "professional",
+        "confidence": 0.95,
+        "probabilities": {
+          "professional": 0.95,
+          "informal": 0.04,
+          "inconsistent": 0.01
+        }
+      }
     },
     "violations": [],
-    "advisory_notes": []
+    "warnings": []
   }
 ]
 ```

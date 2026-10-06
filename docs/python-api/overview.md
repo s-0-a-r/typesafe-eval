@@ -68,7 +68,7 @@ result = evaluate_document(
     cache=True,
 )
 
-print(result.to_dict())
+print(result.model_dump())
 ```
 
 ---

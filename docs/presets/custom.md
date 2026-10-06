@@ -36,27 +36,39 @@ allowed_role_emails:
 
 ## Defining a Custom Preset (`custom-preset.yaml`)
 
-You can create completely custom evaluation rules:
+You can create completely custom evaluation rules conforming to the `PresetConfig` schema:
 
 ```yaml
 name: "security-audit"
+title: "Security and Compliance Audit"
 description: "Rigorous internal security check"
+thresholds_as_warnings: false
 
 questions:
-  - id: "architecture_threat_model"
-    text: "Does the document analyze potential attack vectors and trust boundaries?"
-    threshold: 0.65
+  architecture_threat_model:
+    type: score
+    label: "Threat Modeling"
+    instructions: "Does the document analyze potential attack vectors and trust boundaries?"
+    criteria:
+      - "No mention of security implications or attack surfaces"
+      - "Identifies potential risks but lacks mitigation architecture"
+      - "Comprehensive threat model with well-defined mitigation strategies"
+    weight: 1.0
+    min_threshold: 0.65
     advisory: false
 
-  - id: "data_retention"
-    text: "Does the proposal specify a data retention and deletion schedule?"
-    threshold: 0.50
+  data_retention:
+    type: noul
+    label: "Data Retention & Deletion"
+    instructions: "Does the proposal specify a concrete data retention and deletion schedule?"
+    weight: 1.0
+    min_threshold: 0.50
     advisory: true
 
-safety_rules:
-  block_credentials: true
-  block_personal_emails: true
-  block_private_ips: false
+sanitizer:
+  role_emails:
+    - "security@mycompany.internal"
+    - "compliance@mycompany.internal"
 ```
 
 Run with your custom preset:

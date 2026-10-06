@@ -14,9 +14,12 @@ How `typesafe-eval` sanitizes documents before network evaluation to protect sen
 
 ---
 
-## Comment Stripping Logic
+## Sanitization Order & Prose Comment Stripping
 
-Prose documents frequently contain draft comments that might harbor unredacted notes or credentials:
+To ensure maximum safety, sanitization follows a strict two-stage sequence:
+
+1. **Secret & PII Detection (First)**: Regex detectors identify secrets, API keys, credentials, and PII across the entire document text (including within HTML comments). This guarantees that even secrets hidden inside HTML comments are flagged as violations.
+2. **Prose Comment Stripping (Second)**: HTML comments in regular prose are stripped from the payload before contextual evaluation or transmission to the TypeSafe System One API.
 
 ```markdown
 Here is the public API design.
@@ -24,5 +27,6 @@ Here is the public API design.
 ```
 
 By default (`strip_prose_comments=True`):
-- HTML comments occurring in regular prose are stripped from the payload sent to the API.
+- The credential `AKIAIOSFODNN7EXAMPLE` is caught in stage 1, registered as a violation, and masked.
+- The prose comment `<!-- ... -->` is then stripped from the evaluation payload sent to the API.
 - **Fenced code blocks are preserved**: Comments inside fenced markdown code blocks (e.g. ` ```html <!-- safe comment --> ``` `) are preserved untouched so technical code examples are not corrupted.

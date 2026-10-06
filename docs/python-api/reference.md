@@ -11,15 +11,19 @@ Type annotations and data structures for `typesafe-eval`.
 def evaluate(
     content: str,
     preset: str | PresetConfig = "quality",
-    filename: str = "<memory>",
+    *,
     api_key: str | None = None,
-    api_base_url: str | None = None,
     dry_run: bool = False,
     offline: bool = False,
     cache: bool = True,
     cache_dir: Path | str | None = None,
-    mask: bool = True,
-    strip_prose_comments: bool = True,
+    mask_secrets: bool = True,
+    max_chars: int = 120_000,
+    raise_on_violation: bool = False,
+    filename: str = "<memory>",
+    filepath: str | Path | None = None,
+    project_root: str | Path | None = None,
+    evaluator: TypeSafeEvaluator | None = None,
 ) -> DocumentEvalResult: ...
 ```
 
@@ -28,31 +32,36 @@ def evaluate(
 def evaluate_document(
     path: Path | str,
     preset: str | PresetConfig = "quality",
+    *,
     api_key: str | None = None,
-    api_base_url: str | None = None,
     dry_run: bool = False,
     offline: bool = False,
     cache: bool = True,
     cache_dir: Path | str | None = None,
-    mask: bool = True,
-    strip_prose_comments: bool = True,
+    mask_secrets: bool = True,
+    max_chars: int = 120_000,
+    raise_on_violation: bool = False,
+    project_root: str | Path | None = None,
 ) -> DocumentEvalResult: ...
 ```
 
 ### `evaluate_documents()`
 ```python
 def evaluate_documents(
-    paths: Sequence[Path | str],
+    paths: Sequence[str | Path],
     preset: str | PresetConfig = "quality",
-    concurrency: int = 1,
+    *,
+    exclude: Sequence[str] | None = None,
+    concurrency: int = 4,
     api_key: str | None = None,
-    api_base_url: str | None = None,
     dry_run: bool = False,
     offline: bool = False,
     cache: bool = True,
     cache_dir: Path | str | None = None,
-    mask: bool = True,
-    strip_prose_comments: bool = True,
+    mask_secrets: bool = True,
+    max_chars: int = 120_000,
+    raise_on_violation: bool = False,
+    project_root: str | Path | None = None,
 ) -> list[DocumentEvalResult]: ...
 ```
 
@@ -61,23 +70,30 @@ def evaluate_documents(
 ## 2. Result Data Models
 
 ### `DocumentEvalResult`
-The unified evaluation result structure returned for every evaluated document.
+The unified evaluation result structure returned for every evaluated document (Pydantic v2 `BaseModel`).
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `schema_version` | `str` | Always `"1.0"`. |
-| `filename` | `str` | Relative or absolute path of the document. |
+| `filepath` | `str` | Resolved filesystem path or synthetic identifier. |
+| `filename` | `str` | Basename of the document. |
+| `preset_name` | `str` | Name of the evaluated preset. |
 | `passed_thresholds` | `bool` | `True` if all gates passed and zero safety violations occurred. |
-| `composite_score` | `float` | Weighted overall score ($0.0 \dots 1.0$). |
-| `scores` | `dict[str, float]` | Dimension score map. |
+| `composite_score` | `float \| None` | Weighted overall score ($0.0 \dots 1.0$). |
+| `scores` | `dict[str, ScoreResult]` | Numerical score evaluations. |
+| `nouls` | `dict[str, NoulResult]` | Calibrated binary decision evaluations. |
+| `choices` | `dict[str, ChoiceResult]` | Categorical choice evaluations. |
 | `violations` | `list[str]` | Human-readable gate violation descriptions. |
-| `advisory_notes` | `list[str]` | Non-blocking observations. |
-| `secret_evaluations` | `list[ViolationItem]` | Masked secret detection records. |
-| `email_evaluations` | `list[ViolationItem]` | Masked email categorization records. |
-| `near_threshold_dimensions` | `list[str]` | Dimensions within $\pm 0.10$ of the decision boundary. |
+| `warnings` | `list[str]` | Non-blocking advisory observations and warnings. |
+| `secret_evaluations` | `list[SecretEvaluationResult]` | Masked secret detection records. |
+| `email_evaluations` | `list[EmailEvaluationResult]` | Masked email categorization records. |
+| `phone_evaluations` | `list[PhoneEvaluationResult]` | Masked phone detection records. |
+| `ip_evaluations` | `list[IPEvaluationResult]` | Masked IP detection records. |
+| `url_evaluations` | `list[URLEvaluationResult]` | Masked URL detection records. |
 
 Methods:
-- `to_dict() -> dict[str, Any]`: Returns a JSON-serializable dictionary conforming to `schema_version: "1.0"`.
+- `model_dump() -> dict[str, Any]`: Returns a JSON-serializable dictionary conforming to `schema_version: "1.0"`.
+- `model_dump_json() -> str`: Serializes model directly to a JSON string.
 
 ---
 

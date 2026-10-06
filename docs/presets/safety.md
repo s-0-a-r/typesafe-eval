@@ -19,17 +19,16 @@ The `safety` preset protects your repository against accidental leaks of credent
 - **International Phone Numbers**: Identifies phone numbers in E.164 and localized formats.
 
 ### 3. Infrastructure & Network Exposure
-- **Private IPv4 Ranges**: RFC 1918 addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) flagged when exposed in public documentation.
+- **Private IPv4 Ranges**: RFC 1918 subnets (`10.x.x.x/8`, `172.16.x.x/12`, `192.168.x.x/16`) flagged when exposed in public documentation (documentation example blocks from RFC 5737 such as `192.0.2.x` are permitted).
 
 ---
 
 ## Client-Side Redaction & Sanitization Flow
 
-Before any text is sent to the TypeSafe System One API:
-1. **HTML Prose Comment Stripping**: Comments like `<!-- internal note -->` in regular prose are stripped to avoid leaking draft secrets, while HTML comments inside fenced code blocks (` ``` <!-- example --> ``` `) are preserved.
-2. **Deterministic Regex Masking**: Discovered secrets are masked with placeholders (e.g. `[REDACTED_AWS_KEY]`, `[SECRET_1]`).
-3. **Email Masking**: Email addresses are converted to placeholder tokens (e.g. `[EMAIL_1]`).
-4. **Contextual Evaluation**: The API evaluates the semantic role of masked placeholders without ever seeing the raw sensitive string.
+Before any text is evaluated or sent to the TypeSafe System One API:
+1. **Secret & PII Detection and Masking**: Discovered secrets are masked with placeholders (e.g. `[REDACTED_AWS_KEY]`, `[SECRET_1]`), and emails/phones/IPs are converted to placeholder tokens (e.g. `[EMAIL_1]`, `[PHONE_1]`). This ensures that even secrets hidden within HTML comments are detected as violations.
+2. **HTML Prose Comment Stripping**: Comments like `<!-- internal note -->` in regular prose are stripped from the evaluation payload, while HTML comments inside fenced code blocks (` ``` <!-- example --> ``` `) are preserved.
+3. **Contextual Evaluation**: The API evaluates the semantic role of masked placeholders without ever seeing the raw sensitive string.
 
 ---
 

@@ -8,12 +8,10 @@ The `tech-spec` preset evaluates architecture proposals, Request for Comments (R
 
 Based on corpus empirical validation across engineering RFCs, `tech-spec` focuses on dimensions proven to achieve 100% detection and 0% false alarm rates:
 
-| Dimension | Description | Threshold | Operational Role |
-| :--- | :--- | :---: | :---: |
-| `has_test_plan` | Does the specification include an actionable test and verification plan? | $\ge 0.50$ | **Hard Gate** |
-| `architecture_rigor` | Is the system design technically concrete and thoroughly described? | $\ge 0.50$ | **Hard Gate** |
-| `failure_modes` | Are failure modes, fallback mechanisms, or error handling analyzed? | $\ge 0.50$ | Advisory |
-| `edge_cases` | Are edge cases and scaling boundaries addressed? | $\ge 0.50$ | Advisory |
+| Dimension | Description | Threshold | Type | Operational Role |
+| :--- | :--- | :---: | :---: | :---: |
+| `has_test_plan` | Does this spec include or define a concrete testing or verification strategy? | $\ge 0.50$ | Noul | **Hard Gate** |
+| `readiness` | What is the implementation readiness of this technical specification? (`ready`, `needs_revision`, `blocked`) | N/A | Choice | Informational |
 
 ---
 
@@ -29,8 +27,8 @@ typesafe-eval --staged --preset tech-spec
 
 ---
 
-## Why Failure Modes & Edge Cases Are Advisory
+## Why Readiness Is An Unmeasured Choice
 
-Corpus validation on real engineering proposals showed that while `has_test_plan` and structural architecture can be reliably detected from headings and content structure, sections addressing specific edge cases or non-goals often use varied phrasing or are integrated directly into narrative architecture paragraphs.
+Corpus validation on real engineering proposals showed that while binary verification strategy (`has_test_plan`) can be reliably detected and gated from headings and content structure, overall implementation readiness is contextual.
 
-Marking them as `advisory: true` prevents CI breakage for valid, concise specifications while still alerting architects to consider explicit failure mode sections.
+`readiness` is modeled as a categorical `choice` dimension (`ready`, `needs_revision`, `blocked`) to provide engineering insights to reviewers and autonomous agents without triggering brittle gate failures.
