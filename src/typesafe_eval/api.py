@@ -16,7 +16,7 @@ from typesafe_eval.exceptions import (
     TypeSafeEvalError,
 )
 from typesafe_eval.models import DocumentEvalResult, PresetConfig
-from typesafe_eval.presets import load_preset, load_project_config
+from typesafe_eval.presets import is_path_excluded, load_preset, load_project_config
 
 
 def _resolve_preset(
@@ -49,6 +49,9 @@ def evaluate(
     *,
     api_key: str | None = None,
     dry_run: bool = False,
+    offline: bool = False,
+    cache: bool = True,
+    cache_dir: Path | str | None = None,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -64,14 +67,16 @@ def evaluate(
     preset_cfg = _resolve_preset(preset, project_root=project_root)
 
     resolved_api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
-    if not dry_run and not resolved_api_key:
+    if not dry_run and not offline and not resolved_api_key:
         raise AuthenticationError(
             "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
             "or pass api_key=..."
         )
 
     resolved_filepath = str(filepath) if filepath is not None else filename
-    active_evaluator = evaluator or TypeSafeEvaluator(api_key=resolved_api_key)
+    active_evaluator = evaluator or TypeSafeEvaluator(
+        api_key=resolved_api_key, enable_cache=cache, cache_dir=cache_dir
+    )
     try:
         result = active_evaluator.evaluate_content(
             content=content,
@@ -81,6 +86,7 @@ def evaluate(
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             dry_run=dry_run,
+            offline=offline,
         )
     except TypeSafeEvalError:
         raise
@@ -104,6 +110,9 @@ def evaluate_document(
     *,
     api_key: str | None = None,
     dry_run: bool = False,
+    offline: bool = False,
+    cache: bool = True,
+    cache_dir: Path | str | None = None,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -124,6 +133,9 @@ def evaluate_document(
         preset=preset,
         api_key=api_key,
         dry_run=dry_run,
+        offline=offline,
+        cache=cache,
+        cache_dir=cache_dir,
         mask_secrets=mask_secrets,
         max_chars=max_chars,
         raise_on_violation=raise_on_violation,
@@ -137,9 +149,13 @@ def evaluate_documents(
     paths: Sequence[str | Path],
     preset: str | PresetConfig = "quality",
     *,
+    exclude: Sequence[str] | None = None,
     concurrency: int = 4,
     api_key: str | None = None,
     dry_run: bool = False,
+    offline: bool = False,
+    cache: bool = True,
+    cache_dir: Path | str | None = None,
     mask_secrets: bool = True,
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
@@ -152,22 +168,33 @@ def evaluate_documents(
     preset_cfg = _resolve_preset(preset, project_root=project_root)
 
     resolved_api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
-    if not dry_run and not resolved_api_key:
+    if not dry_run and not offline and not resolved_api_key:
         raise AuthenticationError(
             "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
             "or pass api_key=..."
         )
 
-    # Validate all file paths upfront
+    # Combine exclusion patterns from argument and preset configuration
+    combined_excludes = list(exclude or []) + (preset_cfg.exclude or [])
+    root = Path(project_root) if project_root else Path.cwd()
+
+    # Validate all file paths upfront (skipping excluded)
     resolved_paths: list[Path] = []
     for p in paths:
         doc_path = Path(p)
+        if combined_excludes and is_path_excluded(doc_path, combined_excludes, root=root):
+            continue
         if not doc_path.is_file():
             raise ConfigurationError(f"Document file not found: {p}")
         resolved_paths.append(doc_path)
 
+    if not resolved_paths:
+        return []
+
     # Shared evaluator for connection pooling across threads
-    shared_evaluator = TypeSafeEvaluator(api_key=resolved_api_key)
+    shared_evaluator = TypeSafeEvaluator(
+        api_key=resolved_api_key, enable_cache=cache, cache_dir=cache_dir
+    )
 
     def _eval_single(doc_p: Path) -> DocumentEvalResult:
         try:
@@ -180,6 +207,9 @@ def evaluate_documents(
             preset=preset_cfg,
             api_key=resolved_api_key,
             dry_run=dry_run,
+            offline=offline,
+            cache=cache,
+            cache_dir=cache_dir,
             mask_secrets=mask_secrets,
             max_chars=max_chars,
             raise_on_violation=False,

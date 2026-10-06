@@ -30,6 +30,12 @@ typesafe-eval --since origin/main
 # Parallel document evaluation (concurrency)
 typesafe-eval docs/*.md -j 8
 
+# Exclude files or patterns
+typesafe-eval docs/*.md --exclude "*.draft.md" -e "docs/templates/**"
+
+# Offline / rules-only mode (zero API calls, deterministic rules only)
+typesafe-eval docs/*.md --preset safety --offline
+
 # Dry-run validation (does not require external API call)
 typesafe-eval docs/*.md --dry-run
 ```
@@ -154,7 +160,7 @@ All autonomous agents (and developers) operating in this repository **must verif
   pytest -v -m acceptance
   ```
 - **PR Inclusion**: Agents must execute `python scripts/verify_ac.py` and attach the generated Acceptance Criteria Verification Matrix table into the PR description.
-- **Zero Regression Rule**: 100% of acceptance criteria (all 14 items) must report `**PASS**`. Any failure blocks review approval and release.
+- **Zero Regression Rule**: 100% of acceptance criteria (all 18 items) must report `**PASS**`. Any failure blocks review approval and release.
 
 ---
 

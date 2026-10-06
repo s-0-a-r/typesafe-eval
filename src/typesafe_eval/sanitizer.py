@@ -441,6 +441,14 @@ IP_PATTERN = re.compile(
 )
 
 
+def offset_to_line_col(text: str, offset: int) -> tuple[int, int]:
+    """Calculate 1-indexed (line, column) for a given character offset in text."""
+    line = 1 + text.count("\n", 0, offset)
+    last_newline = text.rfind("\n", 0, offset)
+    col = (offset - last_newline) if last_newline != -1 else (offset + 1)
+    return line, col
+
+
 @overload
 def mask_sensitive_data(
     text: str,
@@ -525,6 +533,8 @@ def mask_sensitive_data(
             s, e = m.start(), m.end()
             if span_overlaps(s, e):
                 continue
+            line, col = offset_to_line_col(text, s)
+            end_line, end_col = offset_to_line_col(text, e)
             token = m.group(0)
             if is_credential_placeholder(token):
                 example_token = EXAMPLE_REPLACEMENTS.get(type_name, "[EXAMPLE_SECRET]")
@@ -538,7 +548,7 @@ def mask_sensitive_data(
                 details["credentials"] += 1
                 details["by_type"][type_name] = details["by_type"].get(type_name, 0) + 1
                 sec_idx = len(distinct_secrets) + 1
-                placeholder = f"[SECRET_{sec_idx}]"
+                placeholder = default_repl
                 rule_violations.append(
                     f"Credential Exposure: {placeholder} is a known {type_name} credential"
                 )
@@ -554,6 +564,10 @@ def mask_sensitive_data(
                 feat["placeholder"] = default_repl
                 feat["outcome"] = "secret"
                 feat["decided_by"] = "rule"
+                feat["line"] = line
+                feat["column"] = col
+                feat["end_line"] = end_line
+                feat["end_column"] = end_col
                 distinct_secrets.append(feat)
                 add_span(s, e, default_repl)
                 raw_mapping.setdefault(default_repl, []).append(token)
@@ -563,6 +577,8 @@ def mask_sensitive_data(
         s, e = m.start(), m.end()
         if span_overlaps(s, e):
             continue
+        line, col = offset_to_line_col(text, s)
+        end_line, end_col = offset_to_line_col(text, e)
         key_name = m.group("key")
         val = m.group("val")
         ctx_start = max(0, s - 60)
@@ -578,6 +594,10 @@ def mask_sensitive_data(
         sec_idx = len(distinct_secrets) + 1
         placeholder = f"[SECRET_{sec_idx}]"
         feat["placeholder"] = placeholder
+        feat["line"] = line
+        feat["column"] = col
+        feat["end_line"] = end_line
+        feat["end_column"] = end_col
 
         # Delimiter between key and val
         matched_str = m.group(0)
@@ -614,6 +634,8 @@ def mask_sensitive_data(
         s, e = m.start(), m.end()
         if span_overlaps(s, e):
             continue
+        line, col = offset_to_line_col(text, s)
+        end_line, end_col = offset_to_line_col(text, e)
         email_str = m.group(0)
         norm_email = email_str.lower()
         total_redactions += 1
@@ -624,6 +646,10 @@ def mask_sensitive_data(
             placeholder = f"[EMAIL_{idx}]"
             features = extract_email_features(norm_email, custom_role_patterns=custom_role_patterns)
             features["placeholder"] = placeholder
+            features["line"] = line
+            features["column"] = col
+            features["end_line"] = end_line
+            features["end_column"] = end_col
             distinct_emails[norm_email] = {
                 "placeholder": placeholder,
                 "features": features,
@@ -653,9 +679,15 @@ def mask_sensitive_data(
         s, e = m.start(), m.end()
         if span_overlaps(s, e):
             continue
+        line, col = offset_to_line_col(text, s)
+        end_line, end_col = offset_to_line_col(text, e)
         url_str = m.group(0)
         norm_url = url_str.strip()
         url_feat = extract_url_features(norm_url, mask=mask)
+        url_feat["line"] = line
+        url_feat["column"] = col
+        url_feat["end_line"] = end_line
+        url_feat["end_column"] = end_col
 
         if norm_url not in distinct_urls:
             idx = len(distinct_urls) + 1
@@ -698,7 +730,14 @@ def mask_sensitive_data(
         except ValueError:
             continue
 
+        line, col = offset_to_line_col(text, s)
+        end_line, end_col = offset_to_line_col(text, e)
         ip_feat = extract_ip_features(ip_str)
+        ip_feat["line"] = line
+        ip_feat["column"] = col
+        ip_feat["end_line"] = end_line
+        ip_feat["end_column"] = end_col
+
         if ip_str not in distinct_ips:
             idx = len(distinct_ips) + 1
             placeholder = f"[IP_{idx}]"
@@ -735,7 +774,13 @@ def mask_sensitive_data(
         phone_str = m.group(0)
         ctx_start = max(0, s - 50)
         ctx_end = min(len(text), e + 50)
+        line, col = offset_to_line_col(text, s)
+        end_line, end_col = offset_to_line_col(text, e)
         phone_feat = extract_phone_features(phone_str, surrounding_text=text[ctx_start:ctx_end])
+        phone_feat["line"] = line
+        phone_feat["column"] = col
+        phone_feat["end_line"] = end_line
+        phone_feat["end_column"] = end_col
 
         if phone_str not in distinct_phones:
             idx = len(distinct_phones) + 1

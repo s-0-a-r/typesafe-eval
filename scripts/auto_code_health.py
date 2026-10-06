@@ -172,7 +172,7 @@ def main() -> int:
             "and lint fixes across the repository.\n\n"
             "### Verification\n"
             "- [x] Ruff lint & format check passes\n"
-            "- [x] Verified against 14 Acceptance Criteria via `scripts/verify_ac.py`\n"
+            "- [x] Verified against 18 Acceptance Criteria via `scripts/verify_ac.py`\n"
             "- [x] Unit test suite passes\n"
         ),
     ]

@@ -21,6 +21,13 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
 
+### 🚀 What's New in v0.9.0
+- **File Exclusion Patterns & Default Ignores (`--exclude` / `-e`)**: Repeatable CLI `--exclude <pattern>` flags, project configuration `exclude: [...]` support in `.typesafe-eval.yaml` and `pyproject.toml`, and automatic skipping of standard build, dependency, and cache directories (`.git`, `node_modules`, `.venv`, `build`, `dist`, etc.).
+- **Offline Rules-Only Mode (`--offline`)**: Gating using local deterministic rules (known credential patterns, AWS/Slack/GitHub tokens, free-mail PII) with zero external API calls and no required `TYPESAFE_API_KEY`.
+- **Content-Addressable Result Caching (`--cache`)**: SHA-256 content-hash caching to eliminate redundant evaluations in local iterative development and CI re-runs, with `typesafe-eval cache clear` cache management.
+- **Line & Column Position Mapping with GitHub Actions Annotations (`-f github`)**: Pinpoint exact line and column locations for violations and emit `::error file=...,line=...,col=...::` workflow commands for GitHub PR inline review annotations.
+- **Expanded 18-Item Real CLI Acceptance Criteria (AC) Matrix**: Full end-to-end OS subprocess acceptance testing across all CLI features, ensuring zero regression before the v1.0.0 API freeze.
+
 ### 🚀 What's New in v0.8.0
 - **Public Python API**: Direct programmatic access via `import typesafe_eval` (`evaluate()`, `evaluate_document()`, `evaluate_documents()`) with comprehensive typed exceptions (`TypeSafeEvalError`, `ContentViolationError`).
 - **Strict Typing & PEP 561**: Full PEP 561 support (`py.typed`) and zero-error `mypy --strict` compliance across the entire codebase.
@@ -275,7 +282,72 @@ When documents exceed `max_chars` (default: 25,000 characters, ~6,000–8,000 to
 - **Scores and Choices**: `Score` and `Choice` questions evaluate overall document quality or categorical choices where taking a `max` across slices would distort the metric. Therefore, Scores and Choices are **not** chunked; they retain head/tail truncation and keep `was_truncated: true`.
 - If a document exceeds `max_chars`, only `Noul` presence questions are evaluated across overlapping chunks. Scores and Choices are evaluated on the head-and-tail truncated document with the middle dropped.
 
-### 10. Validation Command & Ablation Helper (`validate`)
+### 10. File Exclusions & Default Ignores (`--exclude`)
+Exclude specific files, subdirectories, or glob patterns from evaluation:
+
+```bash
+# Exclude draft documents and templates
+typesafe-eval docs/**/*.md --exclude "*.draft.md" -e "docs/templates/**"
+```
+
+- **Project Config Exclusions**: Set `exclude` patterns in `.typesafe-eval.yaml` or `pyproject.toml` (`[tool.typesafe-eval]`):
+  ```yaml
+  preset: quality
+  exclude:
+    - "*.draft.md"
+    - "templates/**"
+    - "archived/*.md"
+  ```
+- **Default Ignores**: Standard dependency, build, and cache directories (`.git`, `node_modules`, `.venv`, `venv`, `env`, `.env`, `__pycache__`, `.pytest_cache`, `.typesafe-eval-cache`, `.mypy_cache`, `.ruff_cache`, `build`, `dist`) are automatically skipped during glob resolution and git diff file matching.
+- **Explicit Override**: Explicitly providing a non-glob path (e.g. `typesafe-eval node_modules/pkg/readme.md`) evaluates the file directly.
+- **Python API Support**: `evaluate_documents(paths, preset="quality", exclude=["*.draft.md"])`.
+
+### 11. Offline Rules-Only Mode (`--offline`)
+Run deterministic safety, credential, and PII checks locally with zero external API calls:
+
+```bash
+typesafe-eval docs/*.md --preset safety --offline
+```
+
+- **Zero API Invocations**: Local evaluation relies strictly on rule-based patterns (known AWS/Slack/GitHub tokens, private keys, free-mail PII, phone numbers, private IPs) without contacting the TypeSafe System One API.
+- **No API Key Required**: Fully functional in air-gapped environments, sandbox runners, or fork PRs without `TYPESAFE_API_KEY`.
+- **Deterministic Gates**: Known credentials and individual free-mail addresses fail deterministically (exit code 1). Documents with ambiguous candidates that would normally query the model pass with contextual notices instead of failing.
+- **Python API Support**: `evaluate(content, preset="safety", offline=True)` or `evaluate_documents(paths, offline=True)`.
+
+### 12. Content-Addressable Result Caching (`--cache`)
+Avoid redundant API calls and accelerate iterative local evaluations and CI workflows:
+
+```bash
+# Enable SHA-256 result caching
+typesafe-eval docs/*.md --preset quality --cache
+
+# Specify a custom cache directory (default: .typesafe-eval-cache)
+typesafe-eval docs/*.md --preset quality --cache --cache-dir /tmp/my-eval-cache
+
+# Clear the cached results
+typesafe-eval cache clear
+```
+
+- **Content-Addressable Invalidation**: Cache keys are derived from document content SHA-256, active preset/config definition, model parameters, and options. Changing either document contents or preset rules automatically invalidates the entry.
+- **CLI Subcommand**: Manage and prune cached artifacts via `typesafe-eval cache clear` (supports `--cache-dir`).
+- **Python API Support**: `evaluate_documents(paths, preset="quality", cache=True, cache_dir=".typesafe-eval-cache")`.
+
+### 13. GitHub Actions Workflow Annotations (`-f github`)
+Generate native GitHub Actions workflow commands to display line-and-column inline annotations directly on pull request file diffs:
+
+```bash
+typesafe-eval docs/*.md --preset safety --format github
+```
+
+- **Workflow Command Syntax**: Emits standard GitHub Actions commands to `stdout`:
+  ```
+  ::error file=docs/auth.md,line=4,col=13::Credential Exposure: [REDACTED_AWS_KEY] is a known aws_key credential
+  ::warning file=docs/guide.md,line=12,col=1::Readability: Score 0.45 fell below threshold 0.60
+  ```
+- **Line & Column Precision**: Resolves exact line and 1-indexed column coordinates for redacted PII, exposed credentials, and document headings.
+- **CI Native**: Clean `stdout` stream easily integrated into GitHub Actions workflow steps without custom comment scrapers.
+
+### 14. Validation Command & Ablation Helper (`validate`)
 `typesafe-eval validate` runs presets over fixed test documents defined in a `labels.yaml` file to verify preset calibration, detection rates, false alarms, and regression direction:
 
 ```bash
@@ -323,7 +395,7 @@ pairs:
     runs: 10
 ```
 
-### 11. Programmatic Python API
+### 15. Programmatic Python API
 
 `typesafe-eval` can be integrated directly into Python applications, build scripts, or agent workflows:
 
@@ -363,7 +435,7 @@ All library errors inherit from `TypeSafeEvalError`:
 - `RuntimeEvalError`: Unrecoverable network or API failures.
 - `ContentViolationError`: Raised when `raise_on_violation=True` and content fails safety or quality thresholds. Contains `.result` (single failure) and `.results` (list of failed results in batch operations).
 
-### 12. Exit Codes & CI Integration
+### 16. Exit Codes & CI Integration
 
 `typesafe-eval` returns distinct exit codes to allow CI pipelines and automated agents to distinguish quality/safety violations from system or configuration failures:
 
@@ -379,12 +451,13 @@ When evaluating multiple files, evaluation continues across all remaining files 
 
 If **any** evaluated file has a threshold violation, the CLI exits with **code 1**, even if other files encountered runtime errors. A detected violation is certain and is not masked by subsequent runtime errors. Code 3 is returned only when runtime errors occur and **no** threshold violations were detected. Code 2 is determined before evaluation starts, so it never overlaps.
 
-### 12. Output Formats (Table, Markdown, JSON)
+### 17. Output Formats (Table, Markdown, JSON, GitHub Annotations)
 - **Table**: Interactive Rich terminal table with color-coded score badges, candidate near-threshold indicators, and violation panels.
 - **Markdown**: Formatted table for GitHub Actions PR comments or issue updates (`--format markdown`).
 - **JSON**: Machine-readable structured array for pipelines, baseline saves, and downstream tools (`--format json`).
+- **GitHub Annotations**: Workflow command format for GitHub Actions inline PR diff annotations (`--format github`).
 
-### 13. Pre-commit Hook & GitHub Action
+### 18. Pre-commit Hook & GitHub Action
 
 #### Pre-commit Hook
 Integrate `typesafe-eval` into your local git workflow via `.pre-commit-config.yaml`:
@@ -428,7 +501,7 @@ On public repositories or fork PRs, runners without access to `TYPESAFE_API_KEY`
 - The GitHub Action recognizes exit code 3 and **skips gracefully** (exit code 0 with an informative notice) to prevent blocking untrusted fork PRs.
 - Actual content or security violations (exit code 1) **always fail the build**, enforcing strict quality and privacy guarantees.
 
-### 14. Agent Integrations (Claude Code, Antigravity CLI, Codex)
+### 19. Agent Integrations (Claude Code, Antigravity CLI, Codex)
 
 `typesafe-eval` is designed to be agent-native, providing first-class integration for autonomous coding agents:
 
@@ -516,8 +589,22 @@ typesafe-eval proposals/*.md --config eval_rules.yaml
 
 ## 🧪 Testing
 
+### Unit & Integration Suite
+Run the full pytest suite:
+
 ```bash
 pytest
+```
+
+### Mandatory Real CLI Acceptance Matrix (18 Items)
+Autonomous agents and releases must verify all 18 Acceptance Criteria via real OS subprocess execution before opening PRs or merging releases:
+
+```bash
+# Standalone markdown/JSON acceptance matrix verification
+python scripts/verify_ac.py
+
+# Or via pytest acceptance marker
+pytest -v -m acceptance
 ```
 
 ---

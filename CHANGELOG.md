@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-10-06
+
+### Added
+- **File Exclusion Patterns & Default Ignores (`--exclude` / `-e`)**:
+  - Repeatable `--exclude <pattern>` / `-e <pattern>` CLI flags supporting fnmatch / glob patterns.
+  - Project configuration support via `exclude: [...]` in `.typesafe-eval.yaml` and `pyproject.toml` (`[tool.typesafe-eval]`).
+  - Automatic filtering of standard build, dependency, and cache directories (`.git`, `node_modules`, `.venv`, `build`, `dist`, etc.) during glob resolution and git diff filtering.
+  - Programmatic support via `evaluate_documents(paths, exclude=[...])`.
+- **Offline Rules-Only Mode (`--offline` / `--rules-only`)**:
+  - Pure local evaluation relying on deterministic rules (known credential patterns, AWS/Slack/GitHub tokens, free-mail PII) with zero network calls and no required `TYPESAFE_API_KEY`.
+  - Ambiguous candidate fallback behavior producing soft informational notices instead of runtime errors.
+  - Programmatic support via `evaluate(content, offline=True)` and `evaluate_documents(paths, offline=True)`.
+- **Content-Addressable Result Caching (`--cache` / `--no-cache`)**:
+  - Deterministic SHA-256 caching of evaluation results based on content, preset rules, model parameters, and options.
+  - Configurable cache location via `--cache-dir` or `TYPESAFE_CACHE_DIR` (default: `.typesafe-eval-cache`).
+  - Cache management CLI command: `typesafe-eval cache clear`.
+  - Programmatic support via `evaluate_documents(paths, cache=True, cache_dir=...)`.
+- **Line & Column Mapping & GitHub Actions Annotations (`-f github`)**:
+  - Exact line and 1-indexed column position tracking for PII, secrets, and structural headings (`Position`, `ViolationItem.line`, `ViolationItem.col`).
+  - Native GitHub Actions workflow commands emitted to `stdout` (`::error file=...,line=...,col=...::...` and `::warning file=...,line=...,col=...::...`).
+- **Expanded 18-Item Real CLI Acceptance Criteria (AC) Matrix**:
+  - Full end-to-end OS subprocess execution testing all 18 criteria (`scripts/verify_ac.py` and `pytest -v -m acceptance`).
+  - Coverage expanded for offline mode (AC 15), result cache (AC 16), GitHub Actions annotations (AC 17), and file exclusions (AC 18).
+
+---
+
 ## [0.8.0] - 2026-10-05
 
 ### Added

@@ -335,3 +335,158 @@ def test_ac_14_scaffolding_init_command():
     assert cp.returncode == 0
     for flag in ["--pre-commit", "--claude-code", "--github-action", "--all"]:
         assert flag in cp.stdout
+
+
+@pytest.mark.acceptance
+def test_ac_15_offline_rules_mode(tmp_path):
+    """AC-15: typesafe-eval --offline evaluates via deterministic rules without API key."""
+    doc = tmp_path / "offline_clean.md"
+    doc.write_text("# Offline Clean\nDocumentation text without secrets.", encoding="utf-8")
+    env = os.environ.copy()
+    env.pop("TYPESAFE_API_KEY", None)
+    cp = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--offline",
+            "-f",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert cp.returncode == 0
+    data = json.loads(cp.stdout)
+    assert len(data) == 1
+    assert data[0]["passed_thresholds"] is True
+    assert data[0]["api_calls"] == 0
+
+
+@pytest.mark.acceptance
+def test_ac_16_result_cache(tmp_path):
+    """AC-16: typesafe-eval --cache serves cached results without API key and clear command works."""
+    from typesafe_eval.cache import EvaluationCache
+    from typesafe_eval.models import DocumentEvalResult
+    from typesafe_eval.presets import load_preset
+
+    cache_dir = tmp_path / "cache_store"
+    cache = EvaluationCache(cache_dir=cache_dir)
+    preset = load_preset("safety")
+    content = "# Cache Document\nClean text."
+    doc = tmp_path / "cached_doc.md"
+    doc.write_text(content, encoding="utf-8")
+    cache.set(
+        content,
+        preset,
+        DocumentEvalResult(
+            filepath=str(doc),
+            filename=doc.name,
+            preset_name="safety",
+            passed_thresholds=True,
+        ),
+    )
+    env = os.environ.copy()
+    env.pop("TYPESAFE_API_KEY", None)
+    cp1 = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--cache",
+            "--cache-dir",
+            str(cache_dir),
+            "-f",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert cp1.returncode == 0
+    assert '"cached": true' in cp1.stdout
+
+    cp2 = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            "cache",
+            "clear",
+            "--cache-dir",
+            str(cache_dir),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert cp2.returncode == 0
+    assert "Cleared 1 cached" in cp2.stdout
+
+
+@pytest.mark.acceptance
+def test_ac_17_github_actions_annotations(tmp_path):
+    """AC-17: typesafe-eval -f github formats violations as GitHub workflow command annotations."""
+    doc = tmp_path / "github_violating.md"
+    doc.write_text("# Violating Doc\nContact: user@gmail.com\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.pop("TYPESAFE_API_KEY", None)
+    cp = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--preset",
+            "safety",
+            "--offline",
+            "-f",
+            "github",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert cp.returncode == 1
+    assert "::error file=" in cp.stdout
+    assert "line=2" in cp.stdout
+
+
+@pytest.mark.acceptance
+def test_ac_18_file_exclusions(tmp_path):
+    """AC-18: typesafe-eval --exclude filters out matching glob patterns."""
+    valid_doc = tmp_path / "eval_me.md"
+    valid_doc.write_text("# Valid File\nClean text.", encoding="utf-8")
+    draft_doc = tmp_path / "skip_me.draft.md"
+    draft_doc.write_text("# Draft File\nNot ready.", encoding="utf-8")
+    env = os.environ.copy()
+    env.pop("TYPESAFE_API_KEY", None)
+    cp = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(tmp_path / "*.md"),
+            "--exclude",
+            "*.draft.md",
+            "--preset",
+            "safety",
+            "--offline",
+            "-f",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert cp.returncode == 0
+    data = json.loads(cp.stdout)
+    filenames = [item["filename"] for item in data]
+    assert "eval_me.md" in filenames
+    assert "skip_me.draft.md" not in filenames

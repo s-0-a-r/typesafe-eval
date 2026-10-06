@@ -1,8 +1,7 @@
-"""Data models and schemas for configuration and evaluation results."""
-
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class QuestionConfig(BaseModel):
@@ -32,6 +31,7 @@ class PresetConfig(BaseModel):
     description: str | None = None
     sanitizer: SanitizerConfig | None = None
     thresholds_as_warnings: bool = False
+    exclude: list[str] = Field(default_factory=list)
     questions: dict[str, QuestionConfig]
 
 
@@ -56,7 +56,25 @@ class ChoiceResult(BaseModel):
     probabilities: dict[str, float]
 
 
-class EmailEvaluationResult(BaseModel):
+class _PositionMixin(BaseModel):
+    line: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extract_positions(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            features = data.get("features", {})
+            if isinstance(features, dict):
+                for k in ("line", "column", "end_line", "end_column"):
+                    if data.get(k) is None and features.get(k) is not None:
+                        data[k] = features[k]
+        return data
+
+
+class EmailEvaluationResult(_PositionMixin):
     placeholder: str
     question_id: str | None = None
     features: dict[str, Any] = Field(default_factory=dict)
@@ -66,7 +84,7 @@ class EmailEvaluationResult(BaseModel):
     near_threshold: bool = False
 
 
-class PhoneEvaluationResult(BaseModel):
+class PhoneEvaluationResult(_PositionMixin):
     placeholder: str
     question_id: str | None = None
     features: dict[str, Any] = Field(default_factory=dict)
@@ -76,7 +94,7 @@ class PhoneEvaluationResult(BaseModel):
     near_threshold: bool = False
 
 
-class IPEvaluationResult(BaseModel):
+class IPEvaluationResult(_PositionMixin):
     placeholder: str
     question_id: str | None = None
     features: dict[str, Any] = Field(default_factory=dict)
@@ -86,7 +104,7 @@ class IPEvaluationResult(BaseModel):
     near_threshold: bool = False
 
 
-class URLEvaluationResult(BaseModel):
+class URLEvaluationResult(_PositionMixin):
     placeholder: str
     question_id: str | None = None
     features: dict[str, Any] = Field(default_factory=dict)
@@ -96,7 +114,7 @@ class URLEvaluationResult(BaseModel):
     near_threshold: bool = False
 
 
-class SecretEvaluationResult(BaseModel):
+class SecretEvaluationResult(_PositionMixin):
     placeholder: str
     question_id: str | None = None
     features: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +122,16 @@ class SecretEvaluationResult(BaseModel):
     probability: float | None = None
     decided_by: Literal["model", "rule"]
     near_threshold: bool = False
+
+
+class ViolationItem(BaseModel):
+    message: str
+    line: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+    rule: str | None = None
+    level: Literal["error", "warning"] = "error"
 
 
 class QuestionDiff(BaseModel):
@@ -137,6 +165,7 @@ class DocumentEvalResult(BaseModel):
     composite_score: float | None = None
     passed_thresholds: bool = True
     violations: list[str] = Field(default_factory=list)
+    structured_violations: list[ViolationItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     usage: dict[str, int] | None = None
     model: str | None = None
@@ -146,3 +175,77 @@ class DocumentEvalResult(BaseModel):
     redaction_details: dict[str, Any] | None = None
     baseline_diff: BaselineDiff | None = None
     mock: bool = False
+    cached: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_structured_violations(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("structured_violations"):
+                violations = data.get("violations", [])
+                warnings = data.get("warnings", [])
+                coords: dict[str, dict[str, int | None]] = {}
+                for key in (
+                    "secret_evaluations",
+                    "email_evaluations",
+                    "phone_evaluations",
+                    "ip_evaluations",
+                    "url_evaluations",
+                ):
+                    items = data.get(key, [])
+                    for it in items:
+                        if isinstance(it, dict):
+                            ph = it.get("placeholder")
+                            if ph:
+                                coords[ph] = {
+                                    "line": it.get("line"),
+                                    "column": it.get("column"),
+                                    "end_line": it.get("end_line"),
+                                    "end_column": it.get("end_column"),
+                                }
+                        elif hasattr(it, "placeholder"):
+                            coords[it.placeholder] = {
+                                "line": getattr(it, "line", None),
+                                "column": getattr(it, "column", None),
+                                "end_line": getattr(it, "end_line", None),
+                                "end_column": getattr(it, "end_column", None),
+                            }
+
+                structured: list[dict[str, Any]] = []
+                for v in violations:
+                    msg = str(v)
+                    m = re.search(
+                        r"(\[(?:SECRET|EMAIL|PHONE|IP|URL)_[0-9]+\]|\[REDACTED_[A-Z0-9_]+\])",
+                        msg,
+                    )
+                    coord = coords.get(m.group(1), {}) if m else {}
+                    structured.append(
+                        {
+                            "message": msg,
+                            "line": coord.get("line"),
+                            "column": coord.get("column"),
+                            "end_line": coord.get("end_line"),
+                            "end_column": coord.get("end_column"),
+                            "level": "error",
+                        }
+                    )
+
+                for w in warnings:
+                    msg = str(w)
+                    m = re.search(
+                        r"(\[(?:SECRET|EMAIL|PHONE|IP|URL)_[0-9]+\]|\[REDACTED_[A-Z0-9_]+\])",
+                        msg,
+                    )
+                    coord = coords.get(m.group(1), {}) if m else {}
+                    structured.append(
+                        {
+                            "message": msg,
+                            "line": coord.get("line"),
+                            "column": coord.get("column"),
+                            "end_line": coord.get("end_line"),
+                            "end_column": coord.get("end_column"),
+                            "level": "warning",
+                        }
+                    )
+                data["structured_violations"] = structured
+        return data

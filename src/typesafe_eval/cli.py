@@ -15,8 +15,19 @@ from typesafe_eval import __version__
 from typesafe_eval.baseline import compare_document_with_baseline, load_baseline
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.models import DocumentEvalResult, PresetConfig
-from typesafe_eval.presets import list_builtin_presets, load_preset, load_project_config
-from typesafe_eval.reporter import render_json, render_markdown, render_table
+from typesafe_eval.presets import (
+    is_default_ignored,
+    is_path_excluded,
+    list_builtin_presets,
+    load_preset,
+    load_project_config,
+)
+from typesafe_eval.reporter import (
+    render_github_annotations,
+    render_json,
+    render_markdown,
+    render_table,
+)
 from typesafe_eval.validator import (
     generate_ablation_variants,
     load_labels_file,
@@ -86,7 +97,11 @@ DEFAULT_EVAL_EXTENSIONS = {
 }
 
 
-def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
+def _emit_empty_diff_result(
+    output_format: str,
+    out: Path | None,
+    msg: str = "No modified or staged files matched evaluation criteria.",
+) -> None:
     """Emits clean result when no modified or staged files match criteria."""
     if output_format == "json":
         out_content = render_json([])
@@ -95,7 +110,6 @@ def _emit_empty_diff_result(output_format: str, out: Path | None) -> None:
         else:
             click.echo(out_content)
     else:
-        msg = "No modified or staged files matched evaluation criteria."
         if out:
             out.write_text(msg + "\n", encoding="utf-8")
         else:
@@ -151,7 +165,7 @@ def main() -> None:
     "-f",
     "--format",
     "output_format",
-    type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
+    type=click.Choice(["table", "json", "markdown", "github"], case_sensitive=False),
     default="table",
     help="Output presentation format. Default: table.",
 )
@@ -177,6 +191,13 @@ def main() -> None:
     "--dry-run",
     is_flag=True,
     help="Validate files and inputs using mock results without sending requests to TypeSafe API.",
+)
+@click.option(
+    "--offline",
+    "--rules-only",
+    is_flag=True,
+    default=False,
+    help="Run static regex rule checks offline without TypeSafe API (no API key required).",
 )
 @click.option(
     "--api-key",
@@ -218,6 +239,25 @@ def main() -> None:
     is_flag=True,
     help="List all available built-in evaluation presets and exit.",
 )
+@click.option(
+    "--cache/--no-cache",
+    default=True,
+    help="Enable or disable evaluation result cache. Default: enabled.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Custom directory for caching evaluation results.",
+)
+@click.option(
+    "-e",
+    "--exclude",
+    "exclude_patterns",
+    multiple=True,
+    type=str,
+    help="Glob pattern(s) to exclude from evaluation (can be specified multiple times).",
+)
 def eval_command(
     files: list[str],
     preset: str | None,
@@ -227,6 +267,7 @@ def eval_command(
     mask_secrets: bool,
     max_chars: int,
     dry_run: bool,
+    offline: bool,
     api_key: str | None,
     fail_on_threshold: bool,
     baseline: Path | None,
@@ -234,6 +275,9 @@ def eval_command(
     staged: bool,
     changed_since: str | None,
     list_presets: bool,
+    cache: bool,
+    cache_dir: Path | None,
+    exclude_patterns: tuple[str, ...],
 ) -> None:
     """Evaluate documents against quality, safety, or custom evaluation presets."""
     if list_presets:
@@ -245,57 +289,7 @@ def eval_command(
             )
         sys.exit(0)
 
-    # Git diff resolution if requested
-    git_files: list[Path] | None = None
-    if staged or changed_since:
-        try:
-            raw_git_files = get_git_changed_files(staged=staged, since=changed_since)
-            git_files = [Path(f).resolve() for f in raw_git_files]
-        except RuntimeError as e:
-            err_console.print(f"[bold red]Git Error:[/bold red] {e}")
-            sys.exit(2)
-
-    if not files and git_files is None:
-        err_console.print("[bold red]Error:[/bold red] No files or file patterns specified.")
-        err_console.print("Usage: typesafe-eval [OPTIONS] <FILE_OR_GLOB>...")
-        err_console.print("Example: typesafe-eval docs/*.md --preset quality")
-        sys.exit(2)
-
-    # 1. Resolve matched files
-    resolved_paths: list[Path] = []
-    if files:
-        for pattern in files:
-            if not glob.has_magic(pattern):
-                doc_p = Path(pattern)
-                if not doc_p.is_file():
-                    err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
-                    sys.exit(2)
-                if doc_p not in resolved_paths:
-                    resolved_paths.append(doc_p)
-            else:
-                matches = glob.glob(pattern, recursive=True)
-                for m in matches:
-                    doc_p = Path(m)
-                    if doc_p.is_file() and doc_p not in resolved_paths:
-                        resolved_paths.append(doc_p)
-
-        if git_files is not None:
-            git_files_set = {f.resolve() for f in git_files}
-            resolved_paths = [p for p in resolved_paths if p.resolve() in git_files_set]
-    else:
-        assert git_files is not None
-        resolved_paths = [p for p in git_files if p.suffix.lower() in DEFAULT_EVAL_EXTENSIONS]
-
-    if not resolved_paths:
-        if staged or changed_since:
-            _emit_empty_diff_result(output_format=output_format, out=out)
-            sys.exit(0)
-        err_console.print(
-            f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"
-        )
-        sys.exit(2)
-
-    # 2. Load preset configuration
+    # 1. Load preset configuration early (needed for project config & exclude list)
     preset_cfg: PresetConfig
     if config:
         try:
@@ -320,7 +314,81 @@ def eval_command(
             err_console.print(f"[bold red]Error loading discovered config:[/bold red] {e}")
             sys.exit(2)
 
-    # 3. Load baseline if specified
+    # Git diff resolution if requested
+    git_files: list[Path] | None = None
+    if staged or changed_since:
+        try:
+            raw_git_files = get_git_changed_files(staged=staged, since=changed_since)
+            git_files = [Path(f).resolve() for f in raw_git_files]
+        except RuntimeError as e:
+            err_console.print(f"[bold red]Git Error:[/bold red] {e}")
+            sys.exit(2)
+
+    if not files and git_files is None:
+        err_console.print("[bold red]Error:[/bold red] No files or file patterns specified.")
+        err_console.print("Usage: typesafe-eval [OPTIONS] <FILE_OR_GLOB>...")
+        err_console.print("Example: typesafe-eval docs/*.md --preset quality")
+        sys.exit(2)
+
+    # 2. Resolve matched files
+    resolved_paths: list[Path] = []
+    had_file_matches = False
+
+    if files:
+        for pattern in files:
+            if not glob.has_magic(pattern):
+                doc_p = Path(pattern)
+                if not doc_p.is_file():
+                    err_console.print(f"[bold red]Error:[/bold red] File not found: {pattern}")
+                    sys.exit(2)
+                if doc_p not in resolved_paths:
+                    resolved_paths.append(doc_p)
+                    had_file_matches = True
+            else:
+                matches = glob.glob(pattern, recursive=True)
+                for m in matches:
+                    doc_p = Path(m)
+                    if doc_p.is_file():
+                        had_file_matches = True
+                        if not is_default_ignored(doc_p) and doc_p not in resolved_paths:
+                            resolved_paths.append(doc_p)
+
+        if git_files is not None:
+            git_files_set = {f.resolve() for f in git_files}
+            resolved_paths = [p for p in resolved_paths if p.resolve() in git_files_set]
+    else:
+        assert git_files is not None
+        had_file_matches = bool(git_files)
+        resolved_paths = [
+            p
+            for p in git_files
+            if p.suffix.lower() in DEFAULT_EVAL_EXTENSIONS and not is_default_ignored(p)
+        ]
+
+    # 3. Apply exclusion rules from CLI options and preset configuration
+    combined_excludes = list(exclude_patterns) + (preset_cfg.exclude or [])
+    if combined_excludes:
+        resolved_paths = [
+            p for p in resolved_paths if not is_path_excluded(p, combined_excludes, root=Path.cwd())
+        ]
+
+    if not resolved_paths:
+        if staged or changed_since:
+            _emit_empty_diff_result(output_format=output_format, out=out)
+            sys.exit(0)
+        if had_file_matches:
+            _emit_empty_diff_result(
+                output_format=output_format,
+                out=out,
+                msg="No files matched evaluation criteria (all matched files were excluded).",
+            )
+            sys.exit(0)
+        err_console.print(
+            f"[bold red]Error:[/bold red] No valid files matched the pattern(s): {', '.join(files)}"
+        )
+        sys.exit(2)
+
+    # 4. Load baseline if specified
     baseline_lookup = None
     if baseline:
         try:
@@ -333,7 +401,7 @@ def eval_command(
             sys.exit(2)
 
     # 4. Initialize Evaluator
-    evaluator = TypeSafeEvaluator(api_key=api_key)
+    evaluator = TypeSafeEvaluator(api_key=api_key, enable_cache=cache, cache_dir=cache_dir)
 
     # 5. Evaluate documents (concurrent or sequential)
     def _eval_single(target_path: Path) -> tuple[Path, DocumentEvalResult | None, str | None]:
@@ -344,6 +412,7 @@ def eval_command(
                 mask_secrets=mask_secrets,
                 max_chars=max_chars,
                 dry_run=dry_run,
+                offline=offline,
             )
             return (target_path, res, None)
         except Exception as e:
@@ -392,7 +461,7 @@ def eval_command(
             has_violations = True
 
     # 5. Output handling
-    if results or output_format == "json":
+    if results or output_format in ("json", "github"):
         if output_format == "table":
             render_table(results, preset_cfg)
         elif output_format == "json":
@@ -401,13 +470,19 @@ def eval_command(
         elif output_format == "markdown":
             md_output = render_markdown(results, preset_cfg)
             click.echo(md_output)
+        elif output_format == "github":
+            github_output = render_github_annotations(results)
+            if github_output:
+                click.echo(github_output)
 
     # 6. Save to out file if requested
-    if out and (results or output_format == "json"):
+    if out and (results or output_format in ("json", "github")):
         if output_format == "json":
             out.write_text(render_json(results), encoding="utf-8")
         elif output_format == "markdown":
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
+        elif output_format == "github":
+            out.write_text(render_github_annotations(results), encoding="utf-8")
         else:
             out.write_text(render_markdown(results, preset_cfg), encoding="utf-8")
         err_console.print(f"[green]Report saved successfully to:[/green] {out}")
@@ -777,6 +852,28 @@ def schema(schema_type: str, out: Path | None, indent: int) -> None:
         click.echo(f"✓ JSON Schema saved to {out}")
     else:
         click.echo(json_str)
+
+
+@main.group(name="cache")
+def cache_group() -> None:
+    """Manage local evaluation result cache."""
+    pass
+
+
+@cache_group.command(name="clear")
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Custom directory for caching evaluation results.",
+)
+def cache_clear_command(cache_dir: Path | None) -> None:
+    """Clear all cached evaluation results."""
+    from typesafe_eval.cache import EvaluationCache
+
+    c = EvaluationCache(cache_dir=cache_dir)
+    count = c.clear()
+    click.echo(f"Cleared {count} cached evaluation result(s).")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """typesafe-eval: Fast, typed multi-dimensional document evaluation CLI using TypeSafe API (Jev)."""
 
 from typesafe_eval.api import evaluate, evaluate_document, evaluate_documents
+from typesafe_eval.cache import EvaluationCache
 from typesafe_eval.client import TypeSafeEvaluator
 from typesafe_eval.exceptions import (
     AuthenticationError,
@@ -18,6 +19,7 @@ from typesafe_eval.models import (
     PresetConfig,
     QuestionConfig,
     ScoreResult,
+    ViolationItem,
 )
 from typesafe_eval.presets import (
     find_project_config,
@@ -25,7 +27,7 @@ from typesafe_eval.presets import (
     load_project_config,
 )
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"  # x-release-please-version
 
 __all__ = [
     "__version__",
@@ -33,7 +35,9 @@ __all__ = [
     "evaluate_document",
     "evaluate_documents",
     "TypeSafeEvaluator",
+    "EvaluationCache",
     "DocumentEvalResult",
+    "ViolationItem",
     "ScoreResult",
     "NoulResult",
     "ChoiceResult",

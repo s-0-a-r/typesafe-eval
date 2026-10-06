@@ -98,6 +98,10 @@ class ACVerifier:
             self._check_pre_commit_hook_skip(tmppath)
             self._check_claude_safety_hook(tmppath)
             self._check_init_command()
+            self._check_offline_mode(tmppath)
+            self._check_result_cache(tmppath)
+            self._check_github_formatter(tmppath)
+            self._check_file_exclusions(tmppath)
 
         return all(r.passed for r in self.results)
 
@@ -460,6 +464,169 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
                 command="typesafe-eval init --help",
                 expected="Exit 0, displays --pre-commit, --claude-code, --github-action, --all",
                 actual=f"Exit {cp.returncode}, flags verified",
+                passed=passed,
+            )
+        )
+
+    def _check_offline_mode(self, tmp: Path) -> None:
+        doc = tmp / "offline_clean.md"
+        doc.write_text("# Offline Clean\nDocumentation text without secrets.")
+        cp = self._run_cli(
+            [str(doc), "--preset", "safety", "--offline", "-f", "json"],
+            env_override={"TYPESAFE_API_KEY": None},
+        )
+        passed = False
+        details = f"Exit {cp.returncode}"
+        if cp.returncode == 0:
+            try:
+                data = json.loads(cp.stdout)
+                if (
+                    len(data) == 1
+                    and data[0]["passed_thresholds"] is True
+                    and data[0]["api_calls"] == 0
+                ):
+                    passed = True
+                    details = "Exit 0, offline mode succeeded without API key (0 API calls)"
+            except Exception as e:
+                details = f"JSON parse error: {e}"
+
+        self.results.append(
+            ACResult(
+                id=15,
+                name="Offline Rules-Only Mode (--offline)",
+                command=f"typesafe-eval {doc.name} --preset safety --offline -f json",
+                expected="Exit 0 without API key, deterministic rules pass, api_calls=0",
+                actual=details,
+                passed=passed,
+            )
+        )
+
+    def _check_result_cache(self, tmp: Path) -> None:
+        from typesafe_eval.cache import EvaluationCache
+        from typesafe_eval.models import DocumentEvalResult
+        from typesafe_eval.presets import load_preset
+
+        sub = tmp / "cache_test"
+        sub.mkdir(parents=True, exist_ok=True)
+        cache_dir = sub / "cache_store"
+        cache = EvaluationCache(cache_dir=cache_dir)
+        preset = load_preset("safety")
+        content = "# Cache Document\nClean text."
+        doc = sub / "cached_doc.md"
+        doc.write_text(content)
+        cache.set(
+            content,
+            preset,
+            DocumentEvalResult(
+                filepath=str(doc),
+                filename=doc.name,
+                preset_name="safety",
+                passed_thresholds=True,
+            ),
+        )
+        # Evaluate with cache without API key: should hit cache and exit 0
+        cp1 = self._run_cli(
+            [
+                str(doc),
+                "--preset",
+                "safety",
+                "--cache",
+                "--cache-dir",
+                str(cache_dir),
+                "-f",
+                "json",
+            ],
+            env_override={"TYPESAFE_API_KEY": None},
+        )
+        # Clear cache CLI command
+        cp2 = self._run_cli(
+            ["cache", "clear", "--cache-dir", str(cache_dir)],
+        )
+        passed = (
+            cp1.returncode == 0
+            and '"cached": true' in cp1.stdout
+            and cp2.returncode == 0
+            and "Cleared 1 cached" in cp2.stdout
+        )
+        details = (
+            f"Exit {cp1.returncode}, cache hit verified and cache clear exited 0"
+            if passed
+            else f"Failed: cp1={cp1.returncode}, cp2={cp2.returncode}, stdout: {cp1.stdout[:100]}"
+        )
+        self.results.append(
+            ACResult(
+                id=16,
+                name="Content-Addressable Result Cache (--cache)",
+                command=f"typesafe-eval {doc.name} --cache --cache-dir cache_store",
+                expected="Exit 0 without API key on cache hit, cache clear exits 0",
+                actual=details,
+                passed=passed,
+            )
+        )
+
+    def _check_github_formatter(self, tmp: Path) -> None:
+        doc = tmp / "github_violating.md"
+        doc.write_text("# Violating Doc\nContact: user@gmail.com\n")
+        cp = self._run_cli(
+            [str(doc), "--preset", "safety", "--offline", "-f", "github"],
+            env_override={"TYPESAFE_API_KEY": None},
+        )
+        passed = cp.returncode == 1 and "::error file=" in cp.stdout and "line=2" in cp.stdout
+        details = (
+            f"Exit {cp.returncode}, GitHub annotation emitted with line and column"
+            if passed
+            else f"Exit {cp.returncode}, stdout: {cp.stdout.strip()[:100]}"
+        )
+        self.results.append(
+            ACResult(
+                id=17,
+                name="GitHub Actions Annotation Format (-f github)",
+                command=f"typesafe-eval {doc.name} --preset safety --offline -f github",
+                expected="Exit 1, stdout contains ::error file=...,line=...,col=...",
+                actual=details,
+                passed=passed,
+            )
+        )
+
+    def _check_file_exclusions(self, tmp: Path) -> None:
+        sub = tmp / "exclude_test"
+        sub.mkdir(parents=True, exist_ok=True)
+        valid_doc = sub / "eval_me.md"
+        valid_doc.write_text("# Valid File\nClean text.")
+        draft_doc = sub / "skip_me.draft.md"
+        draft_doc.write_text("# Draft File\nNot ready.")
+        cp = self._run_cli(
+            [
+                str(sub / "*.md"),
+                "--exclude",
+                "*.draft.md",
+                "--preset",
+                "safety",
+                "--offline",
+                "-f",
+                "json",
+            ],
+            env_override={"TYPESAFE_API_KEY": None},
+        )
+        passed = False
+        details = f"Exit {cp.returncode}"
+        if cp.returncode == 0:
+            try:
+                data = json.loads(cp.stdout)
+                filenames = [item["filename"] for item in data]
+                if "eval_me.md" in filenames and "skip_me.draft.md" not in filenames:
+                    passed = True
+                    details = "Exit 0, excluded *.draft.md and evaluated valid file"
+            except Exception as e:
+                details = f"JSON parse error: {e}"
+
+        self.results.append(
+            ACResult(
+                id=18,
+                name="File Exclusions & Default Ignores (--exclude)",
+                command="typesafe-eval *.md --exclude '*.draft.md' --offline -f json",
+                expected="Exit 0, excluded files skipped, only non-excluded evaluated",
+                actual=details,
                 passed=passed,
             )
         )

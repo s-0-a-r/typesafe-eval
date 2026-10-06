@@ -28,7 +28,7 @@ def validate_branch_policy(base_ref: str, head_ref: str) -> tuple[bool, str]:
     clean_base = base_ref.strip().replace("refs/heads/", "")
     clean_head = head_ref.strip().replace("refs/heads/", "")
 
-    is_release_branch = bool(re.match(r"^release/.*$", clean_head))
+    is_release_branch = bool(re.match(r"^(release/.*|release-please--.*)$", clean_head))
 
     if clean_base == "main":
         if is_release_branch:
@@ -38,7 +38,7 @@ def validate_branch_policy(base_ref: str, head_ref: str) -> tuple[bool, str]:
             f"❌ Branch Policy Violation:\n"
             f"Direct pull requests to '{clean_base}' from '{clean_head}' are forbidden.\n"
             f"All development and feature branches must target an active release branch (e.g. 'release/v0.8.0').\n"
-            f"Only release branches ('release/*') are permitted to target '{clean_base}'.",
+            f"Only release branches ('release/*' or 'release-please--*') are permitted to target '{clean_base}'.",
         )
 
     if clean_base.startswith("release/"):
