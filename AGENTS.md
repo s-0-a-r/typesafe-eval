@@ -132,7 +132,7 @@ All autonomous agents must abide by the following 4 rules:
    - Report the calibrated probability range (e.g. `p = 0.48–0.60`) to the user as a contextual observation rather than an absolute failure.
 
 4. **Never pass API key through the agent**:
-   - The CLI reads `TYPESAFE_API_KEY` directly from the environment.
+   - The CLI reads `TYPESAFE_API_KEY` or `OPENAI_API_KEY` directly from the environment.
    - Never ask the user to provide an API key in conversational chat, and never hardcode or echo credentials in commands or scripts.
 
 ---

@@ -94,3 +94,31 @@ for r in results:
     status = "PASS" if r.passed_thresholds else "FAIL"
     print(f"[{status}] {r.filename}: {len(r.violations)} violations")
 ```
+
+---
+
+## 5. Multi-Provider Evaluator (`TypeSafeEvaluator`)
+
+Configure the evaluation backend explicitly using `TypeSafeEvaluator`:
+
+```python
+from typesafe_eval import TypeSafeEvaluator, load_preset
+
+# 1. Use OpenAI Decisions API (model: gpt-6-luna)
+evaluator_openai = TypeSafeEvaluator(
+    provider="openai",
+    model="gpt-6-luna",
+    api_key="sk-...",
+)
+preset = load_preset("quality")
+res = evaluator_openai.evaluate_document("docs/guide.md", preset=preset)
+print(f"OpenAI Model: {res.model}, Composite: {res.composite_score}")
+
+# 2. Use TypeSafe System One (Jev)
+evaluator_typesafe = TypeSafeEvaluator(
+    provider="typesafe",
+    model="jev-1.13.0",
+)
+res_jev = evaluator_typesafe.evaluate_document("docs/guide.md", preset=preset)
+print(f"TypeSafe Model: {res_jev.model}, Composite: {res_jev.composite_score}")
+```

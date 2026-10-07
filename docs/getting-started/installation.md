@@ -56,14 +56,18 @@ typesafe-eval, version 1.0.0
 
 ## 4. API Key Configuration
 
-To run evaluations using the TypeSafe System One (Jev) API, set your API key in your shell environment:
+`typesafe-eval` supports both TypeSafe System One and OpenAI Decisions API. Set the appropriate API key in your shell environment:
 
 ```bash
-export TYPESAFE_API_KEY="your-api-key-here"
+# For TypeSafe System One (Jev)
+export TYPESAFE_API_KEY="your-typesafe-key"
+
+# For OpenAI Decisions API (gpt-6-luna)
+export OPENAI_API_KEY="sk-..."
 ```
 
-You can also pass it explicitly via the `--api-key` CLI option or programmatically to `evaluate(api_key=...)`.
+You can also pass keys explicitly via the `--api-key` CLI option or programmatically to `evaluate(api_key=...)`.
 
 > [!TIP]
-> In CI/CD pipelines, store this value as an encrypted repository secret (e.g., `secrets.TYPESAFE_API_KEY`).
+> In CI/CD pipelines, store these values as encrypted repository secrets (e.g., `secrets.TYPESAFE_API_KEY` or `secrets.OPENAI_API_KEY`).
 > In local development, you can test without an API key using `--offline` or `--dry-run`.
