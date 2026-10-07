@@ -6,17 +6,51 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by the **TypeSafe System One API** (model: `jev-1.13.0`).
+Fast, typed, multi-dimensional document evaluation CLI and CI quality gate powered by the **OpenAI Decisions API** (`gpt-6-luna`) and **TypeSafe System One API** (`jev-1.13.0`).
 
 > 📚 **Documentation Portal**: [https://s-0-a-r.github.io/typesafe-eval/](https://s-0-a-r.github.io/typesafe-eval/)
 
 ---
 
+## ⚡ Multi-Provider Architecture
+
+`typesafe-eval` serves as a unified, type-safe decision evaluation harness. It abstracts decision models into discrete, typed evaluation gates:
+
+| Decision Gate | Schema Type | OpenAI Decisions API (`POST /v1/decisions`) | TypeSafe System One (Jev) | `typesafe-eval` Result |
+| :--- | :--- | :--- | :--- | :--- |
+| **Boolean Probability** | True/False probability $p \in [0, 1]$ | `predicate` | `Noul` | `NoulResult` (Threshold & Near-Threshold) |
+| **Ordered Rubric** | Multi-level criteria | `score` | `Score` | `ScoreResult` (Normalized score) |
+| **Categorical Choice** | Mutually exclusive options | `choice` | `Choice` | `ChoiceResult` (Selected option & probabilities) |
+
+### Switching Providers
+
+By default (`--provider auto`), `typesafe-eval` inspects environment variables:
+- If `OPENAI_API_KEY` is set (and `TYPESAFE_API_KEY` is not), it automatically uses **OpenAI Decisions API** (`gpt-6-luna`).
+- If `TYPESAFE_API_KEY` is set, it uses **TypeSafe System One** (`jev-1.13.0`).
+
+You can also specify providers explicitly:
+
+```bash
+# Evaluate with OpenAI Decisions API (model: gpt-6-luna)
+typesafe-eval docs/*.md --preset quality --provider openai
+
+# Evaluate with custom model
+typesafe-eval docs/*.md --preset safety --provider openai --model gpt-6-luna
+
+# Evaluate with TypeSafe System One (Jev)
+typesafe-eval docs/*.md --preset safety --provider typesafe
+
+# Offline mode (zero API calls, deterministic regex rules)
+typesafe-eval docs/*.md --preset safety --offline
+```
+
+---
+
 ## ✨ What typesafe-eval Adds
 
-`typesafe-eval` is an evaluation harness and CI gate that wraps TypeSafe System One. It adds:
+`typesafe-eval` is an evaluation harness and CI gate that wraps decision APIs. It adds:
 
-- **Context-Aware Masking & Candidate Evaluation**: Deterministic regex rules combined with candidate-level feature extraction (for emails, phone numbers, IP addresses, internal URLs, and secrets). Detection and feature extraction always run even when `--no-mask` is passed.
+- **Zero Raw Leakage & Candidate Masking**: Raw AWS keys, passwords, personal emails, and phone numbers are redacted into safe placeholders (`[SECRET_1]`, `[EMAIL_1]`) *before* transmission to external APIs. Even when `--no-mask` is passed, detection and candidate metadata extraction run safely.
 - **Offline Rules-Only Mode (`--offline`)**: Zero-network local evaluation relying strictly on deterministic safety and credential rules without requiring external API keys.
 - **Content-Addressable Result Caching (`--cache`)**: SHA-256 content-hash caching to eliminate redundant evaluations in local iterative development and CI re-runs, with `typesafe-eval cache clear`.
 - **Validation & Calibration Harness (`validate`)**: Built-in test runner for evaluating presets against ground-truth document sets and ablation variants (`labels.yaml`) to verify calibration, detection rates, and regression directions.
@@ -32,11 +66,6 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
 - **Agent Integrations**: Native skills and pre-commit/safety hooks for autonomous coding agents (Google Antigravity CLI, Claude Code, OpenAI Codex).
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
-
-### TypeSafe System One API Properties
-The underlying evaluation engine is powered by the [TypeSafe System One API](https://docs.typesafe.ai/) (`jev-1.13.0`):
-- **Typed Judgments**: Calibrated probabilities (`Noul`), multi-level rubrics (`Score`), and categorical decisions (`Choice`).
-- **Batched Parallel Questions**: Evaluates all questions in a single API request per document/chunk, avoiding redundant document re-transmissions (~3.8× lower token cost for 4 questions; around 10–12× with 13 questions per [TypeSafe's benchmark](https://docs.typesafe.ai/cookbooks/parallel_questions)).
 
 ---
 
