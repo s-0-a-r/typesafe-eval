@@ -101,7 +101,10 @@ class TypeSafeProvider(BaseDecisionProvider):
                 )
                 sdk_questions[q_id] = Choice(
                     instructions=q_def.instructions,
-                    criteria={str(k): str(v) for k, v in options_dict.items() if v is not None},
+                    criteria={
+                        str(k): (str(v) if v is not None else str(k))
+                        for k, v in options_dict.items()
+                    },
                 )
 
         # Call with retry on transient network errors

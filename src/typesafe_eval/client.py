@@ -146,7 +146,10 @@ def _call_system_one_with_retry(
                 )
                 sdk_questions[q_id] = Choice(
                     instructions=q_obj.instructions,
-                    criteria={str(k): str(v) for k, v in options_dict.items() if v is not None},
+                    criteria={
+                        str(k): (str(v) if v is not None else str(k))
+                        for k, v in options_dict.items()
+                    },
                 )
         else:
             sdk_questions[q_id] = q_obj

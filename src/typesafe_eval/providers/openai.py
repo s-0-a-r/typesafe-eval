@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Any
 
@@ -40,28 +41,30 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
         self.max_attempts = max_attempts
         self.initial_backoff = initial_backoff
         self._http_client: httpx.Client | None = None
+        self._lock = threading.Lock()
 
     @property
     def default_model(self) -> str:
         return "gpt-6-luna"
 
     def _get_http_client(self) -> httpx.Client:
-        if self._http_client is None:
-            if not self.api_key:
-                raise AuthenticationError(
-                    "No OpenAI API key provided. Set the OPENAI_API_KEY environment variable "
-                    "or pass --api-key / specify in configuration."
+        with self._lock:
+            if self._http_client is None:
+                if not self.api_key:
+                    raise AuthenticationError(
+                        "No OpenAI API key provided. Set the OPENAI_API_KEY environment variable "
+                        "or pass --api-key / specify in configuration."
+                    )
+                self._http_client = httpx.Client(
+                    base_url=self.base_url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "typesafe-eval/1.1.0 (OpenAI-Decisions-Client)",
+                    },
+                    timeout=self.timeout,
                 )
-            self._http_client = httpx.Client(
-                base_url=self.base_url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "typesafe-eval/1.1.0 (OpenAI-Decisions-Client)",
-                },
-                timeout=self.timeout,
-            )
-        return self._http_client
+            return self._http_client
 
     def decide(
         self,
@@ -101,9 +104,8 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
             elif q_def.type == "choice":
                 if isinstance(q_def.criteria, dict):
                     options = [
-                        {"id": str(k), "description": str(v)}
+                        {"id": str(k), "description": str(v if v is not None else k)}
                         for k, v in q_def.criteria.items()
-                        if v is not None
                     ]
                 elif isinstance(q_def.criteria, list):
                     options = [
@@ -178,11 +180,17 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
         choices: dict[str, ChoiceOutput] = {}
 
         for q_id, q_val in decisions_resp.items():
+            expected_type = questions[q_id].type if q_id in questions else None
             dec_type = q_val.get("type")
-            if dec_type == "predicate" or "probability" in q_val:
+
+            if expected_type == "noul" or (
+                expected_type is None and (dec_type == "predicate" or "probability" in q_val)
+            ):
                 prob = float(q_val.get("probability", 0.0))
                 nouls[q_id] = NoulOutput(noul=prob)
-            elif dec_type == "score" or "score" in q_val:
+            elif expected_type == "score" or (
+                expected_type is None and (dec_type == "score" or "score" in q_val)
+            ):
                 sc = float(q_val.get("score", 0.0))
                 conf = float(q_val.get("confidence", 1.0))
                 raw_probs = q_val.get("probabilities", {})
@@ -192,7 +200,9 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
                     else {}
                 )
                 scores[q_id] = ScoreOutput(score=sc, confidence=conf, probabilities=probs)
-            elif dec_type == "choice" or "choice" in q_val:
+            elif expected_type == "choice" or (
+                expected_type is None and (dec_type == "choice" or "choice" in q_val)
+            ):
                 ch = str(q_val.get("choice", ""))
                 conf = float(q_val.get("confidence", 1.0))
                 raw_probs = q_val.get("probabilities", {})

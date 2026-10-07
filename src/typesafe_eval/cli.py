@@ -421,12 +421,6 @@ def eval_command(
         if api_key_source != click.core.ParameterSource.COMMANDLINE:
             actual_api_key = os.environ.get("OPENAI_API_KEY")
 
-        if not actual_api_key and not offline and not dry_run:
-            err_console.print(
-                "[bold red]Error:[/bold red] --provider openai requires OPENAI_API_KEY environment variable or --api-key."
-            )
-            sys.exit(2)
-
     evaluator = TypeSafeEvaluator(
         api_key=actual_api_key,
         provider=provider,

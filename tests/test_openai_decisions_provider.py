@@ -205,3 +205,49 @@ def test_evaluator_with_openai_provider(tmp_path):
         assert len(url_evals) == 1
         assert url_evals[0].probability == 0.55
         assert url_evals[0].near_threshold is True  # abs(0.55 - 0.50) <= 0.10
+
+
+def test_openai_provider_choice_with_none_descriptions():
+    """Verify that choice options with None values (dict.fromkeys) are not dropped."""
+    provider = OpenAIDecisionsProvider(api_key="sk-test")
+    questions = {
+        "format": DecisionQuestion(
+            type="choice",
+            instructions="Select format",
+            criteria={"json": None, "yaml": None},
+        )
+    }
+    mock_resp = {
+        "model": "gpt-6-luna",
+        "decisions": {"format": {"type": "choice", "choice": "json", "confidence": 0.99}},
+    }
+    mock_http_resp = MagicMock(status_code=200, raise_for_status=MagicMock())
+    mock_http_resp.json.return_value = mock_resp
+
+    with patch("httpx.Client.post", return_value=mock_http_resp) as mock_post:
+        resp = provider.decide(state={"document": "test"}, questions=questions)
+        call_json = mock_post.call_args.kwargs["json"]
+        opts = call_json["decisions"]["format"]["options"]
+        assert len(opts) == 2
+        assert opts[0] == {"id": "json", "description": "json"}
+        assert opts[1] == {"id": "yaml", "description": "yaml"}
+        assert resp.choices["format"].choice == "json"
+
+
+def test_cli_openai_missing_key_exit_3(tmp_path):
+    """AC parity: Missing OPENAI_API_KEY returns Exit 3 (Runtime Error)."""
+    from click.testing import CliRunner
+
+    from typesafe_eval.cli import main
+
+    doc = tmp_path / "test.md"
+    doc.write_text("# Hello\nWorld", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [str(doc), "--preset", "safety", "--provider", "openai"],
+        env={"OPENAI_API_KEY": ""},
+    )
+    assert result.exit_code == 3
+    assert "No OpenAI API key provided" in (result.stderr or result.output)
