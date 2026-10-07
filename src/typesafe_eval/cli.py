@@ -413,18 +413,28 @@ def eval_command(
             err_console.print(f"[bold red]Error loading baseline:[/bold red] {e}")
             sys.exit(2)
 
-    # 4. Initialize Evaluator
+    # 4. Resolve provider and model from CLI or project configuration
+    ctx = click.get_current_context(silent=True)
+    is_cli_provider = (
+        ctx.get_parameter_source("provider") == click.core.ParameterSource.COMMANDLINE
+        if ctx
+        else False
+    )
+    active_provider = (
+        provider if (is_cli_provider or not preset_cfg.provider) else preset_cfg.provider
+    )
+    active_model = model or preset_cfg.model
+
     actual_api_key = api_key
-    if provider.lower() == "openai":
-        ctx = click.get_current_context(silent=True)
+    if active_provider.lower() == "openai":
         api_key_source = ctx.get_parameter_source("api_key") if ctx else None
         if api_key_source != click.core.ParameterSource.COMMANDLINE:
             actual_api_key = os.environ.get("OPENAI_API_KEY")
 
     evaluator = TypeSafeEvaluator(
         api_key=actual_api_key,
-        provider=provider,
-        model=model,
+        provider=active_provider,
+        model=active_model,
         enable_cache=cache,
         cache_dir=cache_dir,
     )

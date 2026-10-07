@@ -1658,7 +1658,7 @@ class TypeSafeEvaluator:
             violations=[],
             warnings=[],
             usage={"input_tokens": 120 * api_calls, "output_tokens": 30 * api_calls},
-            model="mock-jev",
+            model=self.model or ("mock-openai" if self.provider == "openai" else "mock-jev"),
             was_truncated=was_truncated,
             api_calls=api_calls,
             redactions_count=redaction_count,
