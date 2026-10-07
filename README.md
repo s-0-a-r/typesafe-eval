@@ -308,19 +308,22 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 ```
 
 - **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
-- **Empirical Noise Calibration**: In noise measurements across 3 documents × 4 runs on all 5 built-in presets (60 evaluations, 396 pairwise comparisons evaluated against TypeSafe System One API `jev-1.13.0` via `scripts/measure_noise.py` with `cache=False`):
-  - `quality`: 99th percentile |Δ| = `0.005`, max = `0.005` (mean |Δ| = `0.0008`)
-  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.030` (mean |Δ| = `0.0038`)
-  - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
-  - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
-  - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
-  - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
+- **Empirical Noise Calibration**: Noise calibration measurements across 3 documents × 4 runs on all 5 built-in presets (evaluated via `scripts/measure_noise.py` with `cache=False`, detailed in [Noise Calibration](docs/science/noise-calibration.md)):
+  - **TypeSafe System One (`jev-1.13.0`)** (60 evaluations, 396 pairwise comparisons):
+    - `quality`: 99th percentile |Δ| = `0.005`, max = `0.005` (mean |Δ| = `0.0008`)
+    - `safety`: 99th percentile |Δ| = `0.030`, max = `0.030` (mean |Δ| = `0.0038`)
+    - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
+    - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
+    - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
+    - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
+  - **OpenAI Decisions API (`gpt-6-luna`)** (45 evaluations, 198 pairwise comparisons):
+    - Overall 99th percentile |Δ| = `0.0000`, max = `0.0000` (overall mean `0.0000`). Forward-pass logit extraction is strictly deterministic across runs with 0 output tokens.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 - **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).
 
 ### 8. Near-Threshold Indication (`near_threshold`)
-Because run-to-run noise is up to about 0.030–0.040, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+Because run-to-run noise for statistical evaluators is up to about 0.030–0.040, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
 - **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
 - **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).

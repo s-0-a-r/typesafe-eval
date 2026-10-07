@@ -14,13 +14,10 @@ import argparse
 import itertools
 import json
 import math
-import os
 import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
-
-from typesafe_eval.api import evaluate
 
 DEFAULT_PRESETS_AND_DOCS = [
     (
@@ -84,14 +81,21 @@ def measure_noise(
     runs: int = 5,
     presets: list[str] | None = None,
     api_key: str | None = None,
+    provider: str = "auto",
+    model: str | None = None,
 ) -> dict[str, Any]:
-    api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
-    if not api_key:
-        print("Error: TYPESAFE_API_KEY environment variable required.", file=sys.stderr)
-        sys.exit(3)
-
     if runs < 2:
         raise ValueError("--runs must be >= 2 for pairwise noise comparison.")
+
+    from typesafe_eval.client import TypeSafeEvaluator
+    from typesafe_eval.presets import load_preset
+
+    evaluator = TypeSafeEvaluator(
+        api_key=api_key,
+        provider=provider,
+        model=model,
+        enable_cache=False,
+    )
 
     target_configs = [
         (preset, docs)
@@ -106,6 +110,7 @@ def measure_noise(
         print(f"\nEvaluating preset: {preset_name} ({len(doc_paths)} docs x {runs} runs)...")
         preset_deltas: list[float] = []
         question_deltas: dict[str, list[float]] = defaultdict(list)
+        loaded_p = load_preset(preset_name)
 
         for doc_path_str in doc_paths:
             path = Path(doc_path_str)
@@ -117,12 +122,12 @@ def measure_noise(
             # Collect measurements across N runs
             run_results = []
             for _ in range(runs):
-                res = evaluate(
+                res = evaluator.evaluate_content(
                     content,
-                    preset=preset_name,
-                    api_key=api_key,
+                    preset=loaded_p,
+                    filename=path.name,
+                    filepath=str(path),
                     mask_secrets=True,
-                    cache=False,
                 )
                 run_results.append(res)
                 print(".", end="", flush=True)
@@ -192,10 +197,23 @@ def main() -> None:
         "--runs", type=int, default=5, help="Number of runs per document (default: 5)"
     )
     parser.add_argument("--preset", type=str, nargs="*", help="Specific presets to test")
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default="auto",
+        choices=["auto", "openai", "typesafe", "jev"],
+        help="Decision provider backend (default: auto)",
+    )
+    parser.add_argument("--model", type=str, default=None, help="Model override")
     parser.add_argument("--out", type=str, help="Output JSON path")
     args = parser.parse_args()
 
-    results = measure_noise(runs=args.runs, presets=args.preset)
+    results = measure_noise(
+        runs=args.runs,
+        presets=args.preset,
+        provider=args.provider,
+        model=args.model,
+    )
 
     print("\n\n=== Empirical Noise Measurement Summary ===")
     print(f"Total pairwise comparisons: {results['total_pairwise_comparisons']}")
