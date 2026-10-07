@@ -171,7 +171,17 @@ def load_project_config(start_dir: Path | None = None) -> tuple[PresetConfig | N
     if base_preset_name:
         base_cfg = load_preset(base_preset_name)
         merged = base_cfg.model_dump()
-        for k in ("name", "title", "description", "thresholds_as_warnings", "exclude"):
+        for k in (
+            "name",
+            "title",
+            "description",
+            "thresholds_as_warnings",
+            "exclude",
+            "provider",
+            "model",
+            "default_provider",
+            "default_model",
+        ):
             if k in cfg_dict:
                 merged[k] = cfg_dict[k]
         if "sanitizer" in cfg_dict:

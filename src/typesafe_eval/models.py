@@ -32,7 +32,19 @@ class PresetConfig(BaseModel):
     sanitizer: SanitizerConfig | None = None
     thresholds_as_warnings: bool = False
     exclude: list[str] = Field(default_factory=list)
+    provider: str | None = None
+    model: str | None = None
     questions: dict[str, QuestionConfig]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_provider(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "default_provider" in data and not data.get("provider"):
+                data["provider"] = data["default_provider"]
+            if "default_model" in data and not data.get("model"):
+                data["model"] = data["default_model"]
+        return data
 
 
 class ScoreResult(BaseModel):
