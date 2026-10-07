@@ -26,6 +26,12 @@ from typesafe_eval.models import (
     SecretEvaluationResult,
     URLEvaluationResult,
 )
+from typesafe_eval.providers import (
+    BaseDecisionProvider,
+    DecisionQuestion,
+    create_provider,
+)
+from typesafe_eval.providers.typesafe import TypeSafeProvider
 from typesafe_eval.sanitizer import (
     chunk_text,
     guard_document_length,
@@ -79,12 +85,80 @@ def _call_system_one_with_retry(
     max_attempts: int = 3,
     initial_backoff: float = 0.5,
 ) -> Any:
-    """Calls client.system_one retrying transient 429 and 5xx errors with exponential backoff."""
+    """Calls provider.decide or client.system_one retrying transient 429 and 5xx errors with exponential backoff."""
+    if isinstance(client, BaseDecisionProvider):
+        unified_q: dict[str, DecisionQuestion] = {}
+        for q_id, q_obj in questions.items():
+            if isinstance(q_obj, DecisionQuestion):
+                unified_q[q_id] = q_obj
+            elif isinstance(q_obj, Noul):
+                unified_q[q_id] = DecisionQuestion(
+                    type="noul", instructions=str(q_obj.instructions)
+                )
+            elif isinstance(q_obj, Score):
+                raw_crit = q_obj.criteria if hasattr(q_obj, "criteria") else None
+                score_crit: list[str] | None = (
+                    [str(c) for c in raw_crit] if isinstance(raw_crit, list) else None
+                )
+                unified_q[q_id] = DecisionQuestion(
+                    type="score",
+                    instructions=str(q_obj.instructions),
+                    criteria=score_crit,
+                )
+            elif isinstance(q_obj, Choice):
+                raw_choice_crit = q_obj.criteria if hasattr(q_obj, "criteria") else None
+                choice_crit: dict[str, str | None] | None = None
+                if isinstance(raw_choice_crit, dict):
+                    choice_crit = {
+                        str(k): (str(v) if v is not None else None)
+                        for k, v in raw_choice_crit.items()
+                    }
+                unified_q[q_id] = DecisionQuestion(
+                    type="choice", instructions=str(q_obj.instructions), criteria=choice_crit
+                )
+            else:
+                unified_q[q_id] = DecisionQuestion(
+                    type="noul", instructions=str(getattr(q_obj, "instructions", str(q_obj)))
+                )
+        return client.decide(state=state, questions=unified_q)
+
+    # Legacy client or MagicMock
+    sdk_questions: dict[str, Any] = {}
+    for q_id, q_obj in questions.items():
+        if isinstance(q_obj, DecisionQuestion):
+            if q_obj.type == "noul":
+                sdk_questions[q_id] = Noul(instructions=q_obj.instructions)
+            elif q_obj.type == "score":
+                criteria_list = (
+                    q_obj.criteria
+                    if isinstance(q_obj.criteria, list)
+                    else (list(q_obj.criteria.values()) if isinstance(q_obj.criteria, dict) else [])
+                )
+                sdk_questions[q_id] = Score(
+                    instructions=q_obj.instructions,
+                    criteria=[str(c) for c in criteria_list if c is not None],
+                )
+            elif q_obj.type == "choice":
+                options_dict = (
+                    q_obj.criteria
+                    if isinstance(q_obj.criteria, dict)
+                    else {str(i): str(opt) for i, opt in enumerate(q_obj.criteria or [])}
+                )
+                sdk_questions[q_id] = Choice(
+                    instructions=q_obj.instructions,
+                    criteria={
+                        str(k): (str(v) if v is not None else str(k))
+                        for k, v in options_dict.items()
+                    },
+                )
+        else:
+            sdk_questions[q_id] = q_obj
+
     attempt = 0
     while True:
         try:
             attempt += 1
-            return client.system_one(state=state, questions=questions)
+            return client.system_one(state=state, questions=sdk_questions)
         except Exception as e:
             if attempt < max_attempts and _is_transient_error(e):
                 import time
@@ -113,12 +187,20 @@ class TypeSafeEvaluator:
     def __init__(
         self,
         api_key: str | None = None,
+        provider: str = "auto",
+        model: str | None = None,
         max_candidate_batch_size: int = DEFAULT_CANDIDATE_BATCH_SIZE,
         cache: EvaluationCache | None = None,
         enable_cache: bool = False,
         cache_dir: Path | str | None = None,
     ):
-        self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
+        self.provider = provider
+        self.model = model
+        self.api_key = api_key or (
+            os.environ.get("OPENAI_API_KEY")
+            if provider == "openai"
+            else os.environ.get("TYPESAFE_API_KEY")
+        )
         self.max_candidate_batch_size = max(1, max_candidate_batch_size)
         if cache is not None:
             self.cache: EvaluationCache | None = cache
@@ -126,10 +208,11 @@ class TypeSafeEvaluator:
             self.cache = EvaluationCache(cache_dir=cache_dir, enabled=True)
         else:
             self.cache = None
-        self._client: TypeSafeClient | None = None
-        self._lock = threading.Lock()
+        self._provider: BaseDecisionProvider | None = None
+        self._client: Any | None = None
+        self._lock = threading.RLock()
 
-    def _get_client(self) -> TypeSafeClient:
+    def _default_get_client(self) -> Any:
         with self._lock:
             if self._client is None:
                 if not self.api_key:
@@ -139,6 +222,38 @@ class TypeSafeEvaluator:
                     )
                 self._client = TypeSafeClient(api_key=self.api_key)
             return self._client
+
+    _get_client = _default_get_client
+
+    def _get_provider(self) -> BaseDecisionProvider:
+        with self._lock:
+            # Check if mock client was injected into self._client
+            if self._client is not None and not isinstance(self._client, BaseDecisionProvider):
+                prov = TypeSafeProvider(api_key=self.api_key, model=self.model)
+                prov._client = self._client
+                return prov
+
+            # Check if _get_client was monkeypatched on class or instance
+            if (
+                type(self)._get_client is not TypeSafeEvaluator._default_get_client
+                or "_get_client" in self.__dict__
+            ):
+                try:
+                    c = self._get_client()
+                    if c is not None and not isinstance(c, BaseDecisionProvider):
+                        prov = TypeSafeProvider(api_key=self.api_key, model=self.model)
+                        prov._client = c
+                        return prov
+                except Exception:
+                    pass
+
+            if self._provider is None:
+                self._provider = create_provider(
+                    provider=self.provider,
+                    model=self.model,
+                    api_key=self.api_key,
+                )
+            return self._provider
 
     def evaluate_document(
         self,
@@ -423,11 +538,11 @@ class TypeSafeEvaluator:
                     criteria=cast(Any, criteria),
                 )
 
-        # 5. Call TypeSafe System One (Jev)
-        client = self._get_client()
+        # 5. Call Decision Provider (TypeSafe System One or OpenAI Decisions)
+        client = self._get_provider()
         total_input_tokens = 0
         total_output_tokens = 0
-        model_name = "type-safe-one"
+        model_name = getattr(client, "default_model", "type-safe-one")
 
         scores: dict[str, ScoreResult] = {}
         nouls: dict[str, NoulResult] = {}

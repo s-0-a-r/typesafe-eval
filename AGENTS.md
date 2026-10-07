@@ -32,6 +32,9 @@ typesafe-eval --since origin/main
 # Parallel document evaluation (concurrency)
 typesafe-eval docs/*.md -j 8
 
+# Multi-provider evaluation (OpenAI Decisions API with gpt-6-luna)
+typesafe-eval docs/*.md --preset quality --provider openai
+
 # Exclude files or patterns
 typesafe-eval docs/*.md --exclude "*.draft.md" -e "docs/templates/**"
 

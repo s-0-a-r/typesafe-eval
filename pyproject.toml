@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "typesafe-eval"
 version = "1.0.0"
-description = "Fast, typed multi-dimensional document evaluation CLI powered by TypeSafe System One (Jev)."
+description = "Fast, typed multi-dimensional document evaluation and CI quality gate powered by OpenAI Decisions API and TypeSafe System One."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -13,6 +13,9 @@ authors = [
     { name = "s-0-a-r" }
 ]
 keywords = [
+    "openai",
+    "decisions-api",
+    "gpt-6-luna",
     "typesafe",
     "jev",
     "evaluation",
@@ -39,6 +42,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     "typesafe-sdk>=0.7.0",
     "pydantic>=2.0.0",
+    "httpx>=0.27.0",
     "tomli>=1.1.0; python_version < '3.11'",
 ]
 
