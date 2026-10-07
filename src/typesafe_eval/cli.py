@@ -202,7 +202,18 @@ def main() -> None:
 @click.option(
     "--api-key",
     envvar="TYPESAFE_API_KEY",
-    help="TypeSafe API key (falls back to TYPESAFE_API_KEY environment variable).",
+    help="TypeSafe or OpenAI API key (falls back to TYPESAFE_API_KEY or OPENAI_API_KEY).",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["auto", "openai", "typesafe", "jev"], case_sensitive=False),
+    default="auto",
+    help="Decision provider backend (auto, openai, typesafe). Default: auto.",
+)
+@click.option(
+    "--model",
+    default=None,
+    help="Model override (e.g. gpt-6-luna for OpenAI, jev-1.13.0 for TypeSafe).",
 )
 @click.option(
     "--fail-on-threshold/--no-fail-on-threshold",
@@ -269,6 +280,8 @@ def eval_command(
     dry_run: bool,
     offline: bool,
     api_key: str | None,
+    provider: str,
+    model: str | None,
     fail_on_threshold: bool,
     baseline: Path | None,
     concurrency: int,
@@ -400,8 +413,31 @@ def eval_command(
             err_console.print(f"[bold red]Error loading baseline:[/bold red] {e}")
             sys.exit(2)
 
-    # 4. Initialize Evaluator
-    evaluator = TypeSafeEvaluator(api_key=api_key, enable_cache=cache, cache_dir=cache_dir)
+    # 4. Resolve provider and model from CLI or project configuration
+    ctx = click.get_current_context(silent=True)
+    is_cli_provider = (
+        ctx.get_parameter_source("provider") == click.core.ParameterSource.COMMANDLINE
+        if ctx
+        else False
+    )
+    active_provider = (
+        provider if (is_cli_provider or not preset_cfg.provider) else preset_cfg.provider
+    )
+    active_model = model or preset_cfg.model
+
+    actual_api_key = api_key
+    if active_provider.lower() == "openai":
+        api_key_source = ctx.get_parameter_source("api_key") if ctx else None
+        if api_key_source != click.core.ParameterSource.COMMANDLINE:
+            actual_api_key = os.environ.get("OPENAI_API_KEY")
+
+    evaluator = TypeSafeEvaluator(
+        api_key=actual_api_key,
+        provider=active_provider,
+        model=active_model,
+        enable_cache=cache,
+        cache_dir=cache_dir,
+    )
 
     # 5. Evaluate documents (concurrent or sequential)
     def _eval_single(target_path: Path) -> tuple[Path, DocumentEvalResult | None, str | None]:

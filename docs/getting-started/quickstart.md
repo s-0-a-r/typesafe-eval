@@ -69,7 +69,32 @@ Stderr contains status notices, while stdout is strictly formatted according to 
 
 ---
 
-## 5. Caching & Parallelism
+## 5. Multi-Provider Decision Engine
+
+`typesafe-eval` seamlessly supports multiple decision providers:
+
+```bash
+# Evaluate with OpenAI Decisions API (model: gpt-6-luna)
+typesafe-eval docs/*.md --preset quality --provider openai
+
+# Override model explicitly
+typesafe-eval docs/*.md --preset safety --provider openai --model gpt-6-luna
+
+# Evaluate with TypeSafe System One (Jev)
+typesafe-eval docs/*.md --preset quality --provider typesafe
+```
+
+You can set your project's default provider in `.typesafe-eval.yaml`:
+
+```yaml
+preset: quality
+provider: openai
+model: gpt-6-luna
+```
+
+---
+
+## 6. Caching & Parallelism
 
 For fast execution across large repositories:
 

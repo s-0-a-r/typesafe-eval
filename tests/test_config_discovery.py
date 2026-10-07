@@ -162,3 +162,42 @@ def test_load_project_config_non_dict_tool(tmp_path: Path):
     cfg, path = load_project_config(start_dir=tmp_path)
     assert cfg is None
     assert path is None
+
+
+def test_config_provider_and_model_discovery(tmp_path: Path, monkeypatch):
+    """Test that provider and model in .typesafe-eval.yaml are respected."""
+    import json
+
+    monkeypatch.chdir(tmp_path)
+    cfg = tmp_path / ".typesafe-eval.yaml"
+    cfg.write_text(
+        "preset: quality\nprovider: openai\nmodel: gpt-6-luna\n",
+        encoding="utf-8",
+    )
+
+    loaded, _ = load_project_config(start_dir=tmp_path)
+    assert loaded is not None
+    assert loaded.provider == "openai"
+    assert loaded.model == "gpt-6-luna"
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\nQuality doc", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, [str(doc), "--dry-run", "-f", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data[0]["model"] == "gpt-6-luna"
+
+
+def test_config_default_provider_alias(tmp_path: Path):
+    """Test that default_provider and default_model aliases are normalized."""
+    cfg = tmp_path / ".typesafe-eval.yaml"
+    cfg.write_text(
+        "preset: safety\ndefault_provider: openai\ndefault_model: gpt-6-luna\n",
+        encoding="utf-8",
+    )
+    loaded, _ = load_project_config(start_dir=tmp_path)
+    assert loaded is not None
+    assert loaded.provider == "openai"
+    assert loaded.model == "gpt-6-luna"

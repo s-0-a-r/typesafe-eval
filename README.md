@@ -6,17 +6,84 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by the **TypeSafe System One API** (model: `jev-1.13.0`).
+Fast, typed, multi-dimensional document evaluation CLI and CI quality gate powered by the **OpenAI Decisions API** (`gpt-6-luna`) and **TypeSafe System One API** (`jev-1.13.0`).
 
 > 📚 **Documentation Portal**: [https://s-0-a-r.github.io/typesafe-eval/](https://s-0-a-r.github.io/typesafe-eval/)
 
 ---
 
+## ⚡ Multi-Provider Architecture
+
+`typesafe-eval` serves as a unified, type-safe decision evaluation harness. It abstracts decision models into discrete, typed evaluation gates:
+
+| Decision Gate | Schema Type | OpenAI Decisions API (`POST /v1/decisions`) | TypeSafe System One (Jev) | `typesafe-eval` Result |
+| :--- | :--- | :--- | :--- | :--- |
+| **Boolean Probability** | True/False probability $p \in [0, 1]$ | `predicate` | `Noul` | `NoulResult` (Threshold & Near-Threshold) |
+| **Ordered Rubric** | Multi-level criteria | `score` | `Score` | `ScoreResult` (Normalized score) |
+| **Categorical Choice** | Mutually exclusive options | `choice` | `Choice` | `ChoiceResult` (Selected option & probabilities) |
+
+### Switching Providers
+
+By default (`--provider auto`), `typesafe-eval` inspects environment variables:
+- If `OPENAI_API_KEY` is set (and `TYPESAFE_API_KEY` is not), it automatically uses **OpenAI Decisions API** (`gpt-6-luna`).
+- If `TYPESAFE_API_KEY` is set, it uses **TypeSafe System One** (`jev-1.13.0`).
+
+You can also specify providers explicitly:
+
+```bash
+# Evaluate with OpenAI Decisions API (model: gpt-6-luna)
+typesafe-eval docs/*.md --preset quality --provider openai
+
+# Evaluate with custom model
+typesafe-eval docs/*.md --preset safety --provider openai --model gpt-6-luna
+
+# Evaluate with TypeSafe System One (Jev)
+typesafe-eval docs/*.md --preset safety --provider typesafe
+
+# Offline mode (zero API calls, deterministic regex rules)
+typesafe-eval docs/*.md --preset safety --offline
+```
+
+### Project Configuration (`.typesafe-eval.yaml` & `pyproject.toml`)
+
+You can set your project's default decision provider and model in `.typesafe-eval.yaml` (or `.typesafe-eval.yml`):
+
+```yaml
+preset: quality
+provider: openai          # or default_provider: openai
+model: gpt-6-luna         # or default_model: gpt-6-luna
+```
+
+Or in `pyproject.toml`:
+
+```toml
+[tool.typesafe-eval]
+preset = "quality"
+provider = "openai"
+model = "gpt-6-luna"
+```
+
+#### Provider Resolution Precedence
+1. **CLI Flags**: `--provider` and `--model` take highest priority when explicitly specified.
+2. **Project Config**: `.typesafe-eval.yaml` / `pyproject.toml` settings.
+3. **Environment Auto-Detection**: Inspects `TYPESAFE_API_KEY` and `OPENAI_API_KEY`.
+
+### Provider Environment Variables
+
+| Variable | Provider | Purpose | Default |
+| :--- | :--- | :--- | :--- |
+| `TYPESAFE_API_KEY` | TypeSafe | API authentication key for TypeSafe System One | — |
+| `OPENAI_API_KEY` | OpenAI | API authentication key for OpenAI Decisions API | — |
+| `OPENAI_MODEL` | OpenAI | Default model override for Decisions API | `gpt-6-luna` |
+| `OPENAI_BASE_URL` | OpenAI | Base URL for OpenAI API endpoint | `https://api.openai.com/v1` |
+
+---
+
 ## ✨ What typesafe-eval Adds
 
-`typesafe-eval` is an evaluation harness and CI gate that wraps TypeSafe System One. It adds:
+`typesafe-eval` is an evaluation harness and CI gate that wraps decision APIs. It adds:
 
-- **Context-Aware Masking & Candidate Evaluation**: Deterministic regex rules combined with candidate-level feature extraction (for emails, phone numbers, IP addresses, internal URLs, and secrets). Detection and feature extraction always run even when `--no-mask` is passed.
+- **Zero Raw Leakage & Candidate Masking**: Raw AWS keys, passwords, personal emails, and phone numbers are redacted into safe placeholders (`[SECRET_1]`, `[EMAIL_1]`) *before* transmission to external APIs. Even when `--no-mask` is passed, detection and candidate metadata extraction run safely.
 - **Offline Rules-Only Mode (`--offline`)**: Zero-network local evaluation relying strictly on deterministic safety and credential rules without requiring external API keys.
 - **Content-Addressable Result Caching (`--cache`)**: SHA-256 content-hash caching to eliminate redundant evaluations in local iterative development and CI re-runs, with `typesafe-eval cache clear`.
 - **Validation & Calibration Harness (`validate`)**: Built-in test runner for evaluating presets against ground-truth document sets and ablation variants (`labels.yaml`) to verify calibration, detection rates, and regression directions.
@@ -32,11 +99,6 @@ Fast, typed, multi-dimensional document evaluation CLI and CI gate powered by th
 - **CI/CD Integration & Precedence Exit Codes**: Deterministic exit codes (`0` pass, `1` violation, `2` usage error, `3` runtime error) where violations strictly take precedence over runtime errors.
 - **Agent Integrations**: Native skills and pre-commit/safety hooks for autonomous coding agents (Google Antigravity CLI, Claude Code, OpenAI Codex).
 - **Custom YAML Presets**: Define project-specific evaluation criteria, custom weights, role patterns, and thresholds.
-
-### TypeSafe System One API Properties
-The underlying evaluation engine is powered by the [TypeSafe System One API](https://docs.typesafe.ai/) (`jev-1.13.0`):
-- **Typed Judgments**: Calibrated probabilities (`Noul`), multi-level rubrics (`Score`), and categorical decisions (`Choice`).
-- **Batched Parallel Questions**: Evaluates all questions in a single API request per document/chunk, avoiding redundant document re-transmissions (~3.8× lower token cost for 4 questions; around 10–12× with 13 questions per [TypeSafe's benchmark](https://docs.typesafe.ai/cookbooks/parallel_questions)).
 
 ---
 
@@ -123,12 +185,17 @@ pip install -e .
 
 ## 🔑 Authentication
 
-Set your TypeSafe API key in the environment:
+Set your API key in the environment depending on your chosen provider:
+
 ```bash
-export TYPESAFE_API_KEY="your_api_key_here"
+# For TypeSafe System One (Jev)
+export TYPESAFE_API_KEY="your_typesafe_key"
+
+# For OpenAI Decisions API (gpt-6-luna)
+export OPENAI_API_KEY="sk-..."
 ```
 
-Or pass it directly via `--api-key`.
+Or pass it directly via `--api-key` (CLI) or `api_key=...` (Python API).
 
 ---
 
@@ -241,19 +308,22 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
 ```
 
 - **Regression Thresholds**: A question whose score or probability drops by more than its threshold triggers a regression violation (exit 1). The default threshold is `0.10`, overridable per question in custom YAML via `max_drop`.
-- **Empirical Noise Calibration**: In noise measurements across 3 documents × 4 runs on all 5 built-in presets (60 evaluations, 396 pairwise comparisons evaluated against TypeSafe System One API `jev-1.13.0` via `scripts/measure_noise.py` with `cache=False`):
-  - `quality`: 99th percentile |Δ| = `0.005`, max = `0.005` (mean |Δ| = `0.0008`)
-  - `safety`: 99th percentile |Δ| = `0.030`, max = `0.030` (mean |Δ| = `0.0038`)
-  - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
-  - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
-  - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
-  - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
+- **Empirical Noise Calibration**: Noise calibration measurements across 3 documents × 4 runs on all 5 built-in presets (evaluated via `scripts/measure_noise.py` with `cache=False`, detailed in [Noise Calibration](docs/science/noise-calibration.md)):
+  - **TypeSafe System One (`jev-1.13.0`)** (60 evaluations, 396 pairwise comparisons):
+    - `quality`: 99th percentile |Δ| = `0.005`, max = `0.005` (mean |Δ| = `0.0008`)
+    - `safety`: 99th percentile |Δ| = `0.030`, max = `0.030` (mean |Δ| = `0.0038`)
+    - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
+    - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
+    - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
+    - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
+  - **OpenAI Decisions API (`gpt-6-luna`)** (45 evaluations, 198 pairwise comparisons):
+    - Overall 99th percentile |Δ| = `0.0000`, max = `0.0000` (overall mean `0.0000`). Forward-pass logit extraction is strictly deterministic across runs with 0 output tokens.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 - **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).
 
 ### 8. Near-Threshold Indication (`near_threshold`)
-Because run-to-run noise is up to about 0.030–0.040, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
+Because run-to-run noise for statistical evaluators is up to about 0.030–0.040, values near a threshold (such as 0.51 against a threshold of 0.50) can flip between runs. `typesafe-eval` identifies borderline scores without affecting gate results or exit codes:
 
 - **Questions & Candidates**: Covers both preset question scores/nouls (evaluated against `min_threshold` or `max_threshold`) and model-evaluated PII/secret candidates (`email_evaluations`, `phone_evaluations`, `ip_evaluations`, `url_evaluations`, `secret_evaluations` evaluated against candidate cutoff `0.5`, `CANDIDATE_DECISION_THRESHOLD = 0.5`). Candidates decided deterministically by rule stay `near_threshold: false`.
 - **JSON Output**: Any question or candidate whose score or probability is within **±0.1** of its threshold gets `near_threshold: true` in JSON exports (`false` otherwise).
