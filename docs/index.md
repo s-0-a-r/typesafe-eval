@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-**Fast, typed multi-dimensional document evaluation CLI and Python library powered by TypeSafe System One (Jev).**
+**Fast, typed multi-dimensional document evaluation CLI and Python library powered by the OpenAI Decisions API (`gpt-6-luna`) and TypeSafe System One (`jev-1.13.0`).**
 
 ---
 
@@ -26,9 +26,10 @@ Document Markdown
                        │ Sanitized Payload
                        ▼
 ┌──────────────────────────────────────────────┐
-│  TypeSafe System One (Jev-1.13.0) API        │
-│  • Multi-dimensional parallel scoring        │
-│  • Noul calibrated classification            │
+│  Multi-Provider Decision Engine              │
+│  • OpenAI Decisions API (gpt-6-luna)         │
+│  • TypeSafe System One (jev-1.13.0)          │
+│  • Deterministic Offline Rule Evaluator      │
 └──────────────────────┬───────────────────────┘
                        │
        ▼               ▼               ▼
@@ -40,7 +41,7 @@ Document Markdown
 
 ## Key Highlights
 
-- ⚡ **High-Throughput Batching**: Scores 13 multi-dimensional questions in a single batched API call (~1.1s total turnaround).
+- ⚡ **Multi-Provider Decision Engine**: Seamless support for **OpenAI Decisions API** (`gpt-6-luna`) and **TypeSafe System One** (`jev-1.13.0`), with automatic environment detection and per-project YAML configuration.
 - 🛡️ **Zero-Leak Safety Sanitization**: Client-side regex and contextual masking of secrets (AWS, GitHub, Slack tokens) and personal email/phone PII before network transmission.
 - 🚦 **Exit Code Contract (1-over-3 Precedence)**: Content/gate violations (`1`) always take precedence over runtime/network errors (`3`), preventing accidental CI passes.
 - 🤖 **Agent-First Design**: Formatted for autonomous coding agents (Codex, Claude Code, Copilot, Antigravity CLI) with clean `schema_version: "1.0"` stdout JSON streams.

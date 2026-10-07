@@ -22,7 +22,7 @@ All autonomous coding agents operating in repositories gated by `typesafe-eval` 
 - Report the calibrated probability range to the user as a contextual observation rather than an absolute failure.
 
 ### 4. Never Pass API Keys Through the Agent
-- The CLI reads `TYPESAFE_API_KEY` directly from the process environment.
+- The CLI reads `TYPESAFE_API_KEY` or `OPENAI_API_KEY` directly from the process environment.
 - Never ask the user to provide an API key in chat, and never hardcode or echo credentials in commands or scripts.
 
 ---

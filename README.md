@@ -44,6 +44,39 @@ typesafe-eval docs/*.md --preset safety --provider typesafe
 typesafe-eval docs/*.md --preset safety --offline
 ```
 
+### Project Configuration (`.typesafe-eval.yaml` & `pyproject.toml`)
+
+You can set your project's default decision provider and model in `.typesafe-eval.yaml` (or `.typesafe-eval.yml`):
+
+```yaml
+preset: quality
+provider: openai          # or default_provider: openai
+model: gpt-6-luna         # or default_model: gpt-6-luna
+```
+
+Or in `pyproject.toml`:
+
+```toml
+[tool.typesafe-eval]
+preset = "quality"
+provider = "openai"
+model = "gpt-6-luna"
+```
+
+#### Provider Resolution Precedence
+1. **CLI Flags**: `--provider` and `--model` take highest priority when explicitly specified.
+2. **Project Config**: `.typesafe-eval.yaml` / `pyproject.toml` settings.
+3. **Environment Auto-Detection**: Inspects `TYPESAFE_API_KEY` and `OPENAI_API_KEY`.
+
+### Provider Environment Variables
+
+| Variable | Provider | Purpose | Default |
+| :--- | :--- | :--- | :--- |
+| `TYPESAFE_API_KEY` | TypeSafe | API authentication key for TypeSafe System One | — |
+| `OPENAI_API_KEY` | OpenAI | API authentication key for OpenAI Decisions API | — |
+| `OPENAI_MODEL` | OpenAI | Default model override for Decisions API | `gpt-6-luna` |
+| `OPENAI_BASE_URL` | OpenAI | Base URL for OpenAI API endpoint | `https://api.openai.com/v1` |
+
 ---
 
 ## ✨ What typesafe-eval Adds
@@ -152,12 +185,17 @@ pip install -e .
 
 ## 🔑 Authentication
 
-Set your TypeSafe API key in the environment:
+Set your API key in the environment depending on your chosen provider:
+
 ```bash
-export TYPESAFE_API_KEY="your_api_key_here"
+# For TypeSafe System One (Jev)
+export TYPESAFE_API_KEY="your_typesafe_key"
+
+# For OpenAI Decisions API (gpt-6-luna)
+export OPENAI_API_KEY="sk-..."
 ```
 
-Or pass it directly via `--api-key`.
+Or pass it directly via `--api-key` (CLI) or `api_key=...` (Python API).
 
 ---
 
