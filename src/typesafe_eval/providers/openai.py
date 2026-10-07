@@ -71,6 +71,20 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
         state: dict[str, Any],
         questions: dict[str, DecisionQuestion],
     ) -> DecisionResponse:
+        if not self.api_key:
+            raise AuthenticationError(
+                "No OpenAI API key provided. Set the OPENAI_API_KEY environment variable "
+                "or pass --api-key / specify in configuration."
+            )
+        if not questions:
+            return DecisionResponse(
+                model=self.model,
+                nouls={},
+                scores={},
+                choices={},
+                usage=UsageInfo(input_tokens=0, output_tokens=0),
+            )
+
         client = self._get_http_client()
 
         # Build state context input string
@@ -78,60 +92,66 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
         input_text = state.get("document") or state.get("document_truncated") or ""
 
         # Serialize questions to OpenAI Decisions API format
-        decisions_payload: dict[str, Any] = {}
+        questions_payload: list[dict[str, Any]] = []
         for q_id, q_def in questions.items():
             if q_def.type == "noul":
-                decisions_payload[q_id] = {
-                    "type": "predicate",
-                    "instruction": q_def.instructions,
-                }
-            elif q_def.type == "score":
-                criteria_list = (
-                    q_def.criteria
-                    if isinstance(q_def.criteria, list)
-                    else (list(q_def.criteria.values()) if isinstance(q_def.criteria, dict) else [])
+                questions_payload.append(
+                    {
+                        "name": q_id,
+                        "type": "predicate",
+                        "instructions": q_def.instructions,
+                    }
                 )
-                formatted_criteria = [
-                    {"level": idx, "description": str(desc)}
-                    for idx, desc in enumerate(criteria_list)
-                    if desc is not None
-                ]
-                decisions_payload[q_id] = {
-                    "type": "score",
-                    "instruction": q_def.instructions,
-                    "criteria": formatted_criteria,
-                }
-            elif q_def.type == "choice":
+            elif q_def.type == "score":
                 if isinstance(q_def.criteria, dict):
-                    options = [
-                        {"id": str(k), "description": str(v if v is not None else k)}
+                    levels = [
+                        {"label": str(k), "description": str(v if v is not None else k)}
                         for k, v in q_def.criteria.items()
                     ]
                 elif isinstance(q_def.criteria, list):
-                    options = [
-                        {"id": str(item), "description": str(item)} for item in q_def.criteria
+                    levels = [
+                        {"label": str(idx), "description": str(desc)}
+                        for idx, desc in enumerate(q_def.criteria)
+                        if desc is not None
                     ]
                 else:
-                    options = []
+                    levels = []
+                questions_payload.append(
+                    {
+                        "name": q_id,
+                        "type": "score",
+                        "instructions": q_def.instructions,
+                        "levels": levels,
+                    }
+                )
+            elif q_def.type == "choice":
+                if isinstance(q_def.criteria, dict):
+                    choice_items = [
+                        {"value": str(k), "description": str(v if v is not None else k)}
+                        for k, v in q_def.criteria.items()
+                    ]
+                elif isinstance(q_def.criteria, list):
+                    choice_items = [
+                        {"value": str(item), "description": str(item)}
+                        for item in q_def.criteria
+                        if item is not None
+                    ]
+                else:
+                    choice_items = []
+                questions_payload.append(
+                    {
+                        "name": q_id,
+                        "type": "choice",
+                        "instructions": q_def.instructions,
+                        "choices": choice_items,
+                    }
+                )
 
-                decisions_payload[q_id] = {
-                    "type": "choice",
-                    "instruction": q_def.instructions,
-                    "options": options,
-                }
-
-        request_body = {
+        request_body: dict[str, Any] = {
             "model": self.model,
             "input": input_text,
-            "decisions": decisions_payload,
+            "questions": questions_payload,
         }
-
-        # Include additional state features if provided (e.g. redacted summaries)
-        state_extras = {
-            k: v for k, v in state.items() if k not in ("document", "document_truncated")
-        }
-        if state_extras:
-            request_body["context"] = state_extras
 
         # Execute HTTP request with exponential backoff on transient errors
         attempt = 0
@@ -173,13 +193,29 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
                 raise last_exc
             raise RuntimeError("OpenAI Decisions API call failed unexpectedly")
 
-        # Parse decisions from response
-        decisions_resp = raw_json.get("decisions", {})
+        # Parse decisions / answers from response
+        answers_list: list[dict[str, Any]] = []
+        if "answers" in raw_json and isinstance(raw_json["answers"], list):
+            answers_list = raw_json["answers"]
+        elif "decisions" in raw_json:
+            raw_dec = raw_json["decisions"]
+            if isinstance(raw_dec, dict):
+                for q_id_key, q_val_obj in raw_dec.items():
+                    if isinstance(q_val_obj, dict):
+                        item = dict(q_val_obj)
+                        item.setdefault("name", q_id_key)
+                        answers_list.append(item)
+            elif isinstance(raw_dec, list):
+                answers_list = raw_dec
+
         nouls: dict[str, NoulOutput] = {}
         scores: dict[str, ScoreOutput] = {}
         choices: dict[str, ChoiceOutput] = {}
 
-        for q_id, q_val in decisions_resp.items():
+        for q_val in answers_list:
+            q_id = str(q_val.get("name") or q_val.get("id") or "")
+            if not q_id:
+                continue
             expected_type = questions[q_id].type if q_id in questions else None
             dec_type = q_val.get("type")
 
@@ -194,11 +230,18 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
                 sc = float(q_val.get("score", 0.0))
                 conf = float(q_val.get("confidence", 1.0))
                 raw_probs = q_val.get("probabilities", {})
-                probs = (
-                    {str(pk): float(pv) for pk, pv in raw_probs.items()}
-                    if isinstance(raw_probs, dict)
-                    else {}
-                )
+                probs: dict[str, float] = {}
+                if isinstance(raw_probs, list):
+                    for p_elem in raw_probs:
+                        if isinstance(p_elem, dict):
+                            label_key = str(
+                                p_elem.get("label")
+                                if p_elem.get("label") is not None
+                                else p_elem.get("value", "")
+                            )
+                            probs[label_key] = float(p_elem.get("probability", 0.0))
+                elif isinstance(raw_probs, dict):
+                    probs = {str(pk): float(pv) for pk, pv in raw_probs.items()}
                 scores[q_id] = ScoreOutput(score=sc, confidence=conf, probabilities=probs)
             elif expected_type == "choice" or (
                 expected_type is None and (dec_type == "choice" or "choice" in q_val)
@@ -206,11 +249,18 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
                 ch = str(q_val.get("choice", ""))
                 conf = float(q_val.get("confidence", 1.0))
                 raw_probs = q_val.get("probabilities", {})
-                probs = (
-                    {str(pk): float(pv) for pk, pv in raw_probs.items()}
-                    if isinstance(raw_probs, dict)
-                    else {}
-                )
+                probs = {}
+                if isinstance(raw_probs, list):
+                    for p_elem in raw_probs:
+                        if isinstance(p_elem, dict):
+                            val_key = str(
+                                p_elem.get("value")
+                                if p_elem.get("value") is not None
+                                else p_elem.get("label", "")
+                            )
+                            probs[val_key] = float(p_elem.get("probability", 0.0))
+                elif isinstance(raw_probs, dict):
+                    probs = {str(pk): float(pv) for pk, pv in raw_probs.items()}
                 choices[q_id] = ChoiceOutput(choice=ch, confidence=conf, probabilities=probs)
 
         # Parse usage

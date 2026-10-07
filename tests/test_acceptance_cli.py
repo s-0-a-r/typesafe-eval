@@ -194,8 +194,9 @@ def test_ac_08_missing_api_key_exit_3(tmp_path):
     doc.write_text("# Doc\nLive eval test.", encoding="utf-8")
     env = os.environ.copy()
     env.pop("TYPESAFE_API_KEY", None)
+    env.pop("OPENAI_API_KEY", None)
     cp = subprocess.run(
-        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety"],
+        [sys.executable, "-m", "typesafe_eval.cli", str(doc), "--preset", "safety", "--no-cache"],
         capture_output=True,
         text=True,
         env=env,
@@ -300,6 +301,7 @@ def test_ac_12_pre_commit_hook_graceful_skip(tmp_path):
     doc.write_text("# Doc\nHook testing.", encoding="utf-8")
     env = os.environ.copy()
     env.pop("TYPESAFE_API_KEY", None)
+    env.pop("OPENAI_API_KEY", None)
     cp = subprocess.run(
         [sys.executable, "-m", "typesafe_eval.hook", str(doc)],
         capture_output=True,
@@ -315,6 +317,7 @@ def test_ac_13_claude_safety_hook():
     """AC-13: Claude safety hook returns Exit 0 on clean repository."""
     env = os.environ.copy()
     env.pop("TYPESAFE_API_KEY", None)
+    env.pop("OPENAI_API_KEY", None)
     cp = subprocess.run(
         [sys.executable, "hooks/claude_safety_hook.py"],
         capture_output=True,

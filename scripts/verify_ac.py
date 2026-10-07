@@ -290,7 +290,7 @@ class ACVerifier:
         doc.write_text("# Doc\nTesting missing api key.")
         cp = self._run_cli(
             [str(doc), "--preset", "safety"],
-            env_override={"TYPESAFE_API_KEY": None},
+            env_override={"TYPESAFE_API_KEY": None, "OPENAI_API_KEY": None},
         )
         passed = (cp.returncode == 3) and ("No TypeSafe API key provided" in cp.stderr)
         self.results.append(
@@ -416,7 +416,7 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
         clean_file.write_text("# Doc\nTesting hook.")
         cp = self._run_cli(
             [str(clean_file)],
-            env_override={"TYPESAFE_API_KEY": None},
+            env_override={"TYPESAFE_API_KEY": None, "OPENAI_API_KEY": None},
             module="typesafe_eval.hook",
         )
         passed = (cp.returncode == 0) and ("skipped execution" in cp.stderr)
@@ -435,6 +435,7 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
         cmd = [self.python_bin, "hooks/claude_safety_hook.py"]
         env = os.environ.copy()
         env.pop("TYPESAFE_API_KEY", None)
+        env.pop("OPENAI_API_KEY", None)
         cp = subprocess.run(cmd, capture_output=True, text=True, env=env)
         passed = cp.returncode == 0
         self.results.append(

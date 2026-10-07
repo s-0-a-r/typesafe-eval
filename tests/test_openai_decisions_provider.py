@@ -25,7 +25,8 @@ def test_openai_provider_initialization():
     assert provider.api_key == "sk-mock-key"
 
 
-def test_openai_provider_missing_key_raises():
+def test_openai_provider_missing_key_raises(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     provider = OpenAIDecisionsProvider(api_key=None)
     with pytest.raises(AuthenticationError, match="No OpenAI API key provided"):
         provider.decide(state={}, questions={})
@@ -35,27 +36,36 @@ def test_openai_provider_serialization_and_deserialization():
     provider = OpenAIDecisionsProvider(api_key="sk-mock-test")
 
     mock_resp_json = {
-        "id": "dec_mock123",
         "model": "gpt-6-luna",
         "usage": {"input_tokens": 150, "output_tokens": 25},
-        "decisions": {
-            "has_secrets": {
+        "answers": [
+            {
+                "name": "has_secrets",
                 "type": "predicate",
                 "probability": 0.05,
             },
-            "confidentiality_risk": {
+            {
+                "name": "confidentiality_risk",
                 "type": "score",
                 "score": 1.0,
                 "confidence": 0.95,
-                "probabilities": {"0": 0.1, "1": 0.85, "2": 0.05},
+                "probabilities": [
+                    {"value": 0, "label": "0", "probability": 0.1},
+                    {"value": 1, "label": "1", "probability": 0.85},
+                    {"value": 2, "label": "2", "probability": 0.05},
+                ],
             },
-            "policy_compliance": {
+            {
+                "name": "policy_compliance",
                 "type": "choice",
                 "choice": "compliant",
                 "confidence": 0.98,
-                "probabilities": {"compliant": 0.98, "violating": 0.02},
+                "probabilities": [
+                    {"value": "compliant", "probability": 0.98},
+                    {"value": "violating", "probability": 0.02},
+                ],
             },
-        },
+        ],
     }
 
     mock_http_resp = MagicMock()
@@ -96,12 +106,12 @@ def test_openai_provider_serialization_and_deserialization():
         assert json_body["input"] == "This is a clean test document."
 
         # Check questions serialization
-        decisions_req = json_body["decisions"]
-        assert decisions_req["has_secrets"]["type"] == "predicate"
-        assert decisions_req["confidentiality_risk"]["type"] == "score"
-        assert len(decisions_req["confidentiality_risk"]["criteria"]) == 3
-        assert decisions_req["policy_compliance"]["type"] == "choice"
-        assert len(decisions_req["policy_compliance"]["options"]) == 2
+        questions_req = {q["name"]: q for q in json_body["questions"]}
+        assert questions_req["has_secrets"]["type"] == "predicate"
+        assert questions_req["confidentiality_risk"]["type"] == "score"
+        assert len(questions_req["confidentiality_risk"]["levels"]) == 3
+        assert questions_req["policy_compliance"]["type"] == "choice"
+        assert len(questions_req["policy_compliance"]["choices"]) == 2
 
         # Check response mapping
         assert isinstance(resp, DecisionResponse)
@@ -117,6 +127,33 @@ def test_openai_provider_serialization_and_deserialization():
 
         assert isinstance(resp.choices["policy_compliance"], ChoiceOutput)
         assert resp.choices["policy_compliance"].choice == "compliant"
+
+
+def test_openai_provider_backward_compat_decisions_dict():
+    """Ensure backward compatibility if response uses legacy decisions dict."""
+    provider = OpenAIDecisionsProvider(api_key="sk-mock-test")
+
+    mock_resp_json = {
+        "model": "gpt-6-luna",
+        "decisions": {
+            "has_secrets": {
+                "type": "predicate",
+                "probability": 0.02,
+            },
+        },
+    }
+
+    mock_http_resp = MagicMock()
+    mock_http_resp.status_code = 200
+    mock_http_resp.json.return_value = mock_resp_json
+    mock_http_resp.raise_for_status = MagicMock()
+
+    with patch("httpx.Client.post", return_value=mock_http_resp):
+        resp = provider.decide(
+            state={"document": "doc"},
+            questions={"has_secrets": DecisionQuestion(type="noul", instructions="sec?")},
+        )
+        assert resp.nouls["has_secrets"].noul == 0.02
 
 
 def test_openai_provider_transient_error_retry():
@@ -227,10 +264,10 @@ def test_openai_provider_choice_with_none_descriptions():
     with patch("httpx.Client.post", return_value=mock_http_resp) as mock_post:
         resp = provider.decide(state={"document": "test"}, questions=questions)
         call_json = mock_post.call_args.kwargs["json"]
-        opts = call_json["decisions"]["format"]["options"]
+        opts = call_json["questions"][0]["choices"]
         assert len(opts) == 2
-        assert opts[0] == {"id": "json", "description": "json"}
-        assert opts[1] == {"id": "yaml", "description": "yaml"}
+        assert opts[0] == {"value": "json", "description": "json"}
+        assert opts[1] == {"value": "yaml", "description": "yaml"}
         assert resp.choices["format"].choice == "json"
 
 
