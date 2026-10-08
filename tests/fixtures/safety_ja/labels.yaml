@@ -1,0 +1,36 @@
+preset: safety
+runs: 2
+criteria:
+  min_detected: 4
+  max_false_alarms: 0
+documents:
+- path: phone_mobile_01.md
+  expect:
+    has_pii: present
+- path: phone_mobile_02.md
+  expect:
+    has_pii: present
+- path: phone_tollfree_01.md
+  expect:
+    has_pii: absent
+- path: phone_navidial_01.md
+  expect:
+    has_pii: absent
+- path: phone_corp_01.md
+  expect:
+    has_pii: absent
+- path: email_personal_01.md
+  expect:
+    has_pii: present
+- path: email_role_01.md
+  expect:
+    has_pii: absent
+- path: email_role_02.md
+  expect:
+    has_pii: absent
+- path: secret_token_01.md
+  expect:
+    has_secrets: present
+- path: secret_safe_01.md
+  expect:
+    has_secrets: absent
