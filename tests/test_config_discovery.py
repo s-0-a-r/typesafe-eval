@@ -201,3 +201,16 @@ def test_config_default_provider_alias(tmp_path: Path):
     assert loaded is not None
     assert loaded.provider == "openai"
     assert loaded.model == "gpt-6-luna"
+
+
+def test_config_multimodal_options(tmp_path: Path):
+    """Test that include_images and max_images_per_doc are parsed from project configuration."""
+    cfg = tmp_path / ".typesafe-eval.yaml"
+    cfg.write_text(
+        "preset: tech-spec\nprovider: openai\ninclude_images: true\nmax_images_per_doc: 8\n",
+        encoding="utf-8",
+    )
+    loaded, _ = load_project_config(start_dir=tmp_path)
+    assert loaded is not None
+    assert loaded.include_images is True
+    assert loaded.max_images_per_doc == 8

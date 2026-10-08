@@ -35,6 +35,9 @@ typesafe-eval docs/*.md -j 8
 # Multi-provider evaluation (OpenAI Decisions API with gpt-6-luna)
 typesafe-eval docs/*.md --preset quality --provider openai
 
+# Multimodal evaluation (diagrams & images with OpenAI Decisions API)
+typesafe-eval docs/*.md --preset quality --provider openai --include-images
+
 # Exclude files or patterns
 typesafe-eval docs/*.md --exclude "*.draft.md" -e "docs/templates/**"
 
@@ -165,7 +168,7 @@ All autonomous agents (and developers) operating in this repository **must verif
   pytest -v -m acceptance
   ```
 - **PR Inclusion**: Agents must execute `python scripts/verify_ac.py` and attach the generated Acceptance Criteria Verification Matrix table into the PR description.
-- **Zero Regression Rule**: 100% of acceptance criteria (all 18 items) must report `**PASS**`. Any failure blocks review approval and release.
+- **Zero Regression Rule**: 100% of acceptance criteria (all 19 items) must report `**PASS**`. Any failure blocks review approval and release.
 
 ---
 

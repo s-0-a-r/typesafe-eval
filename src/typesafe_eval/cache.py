@@ -60,6 +60,8 @@ class EvaluationCache:
         preset: PresetConfig,
         mask_secrets: bool = True,
         max_chars: int = 25000,
+        include_images: bool = False,
+        images_hash: str | None = None,
     ) -> str:
         """Computes a deterministic SHA-256 hash from document content, preset rules, and evaluation options."""
         preset_repr = preset.model_dump_json()
@@ -68,7 +70,10 @@ class EvaluationCache:
         hasher.update(b"::")
         hasher.update(preset_repr.encode())
         hasher.update(b"::")
-        hasher.update(f"mask={mask_secrets}:max={max_chars}".encode())
+        hasher.update(f"mask={mask_secrets}:max={max_chars}:img={include_images}".encode())
+        if images_hash:
+            hasher.update(b"::")
+            hasher.update(images_hash.encode())
         hasher.update(b"::")
         hasher.update(_get_version().encode())
         return hasher.hexdigest()
@@ -79,12 +84,21 @@ class EvaluationCache:
         preset: PresetConfig,
         mask_secrets: bool = True,
         max_chars: int = 25000,
+        include_images: bool = False,
+        images_hash: str | None = None,
     ) -> DocumentEvalResult | None:
         """Retrieves a cached evaluation result if present and valid."""
         if not self.enabled:
             return None
 
-        key = self.compute_key(content, preset, mask_secrets=mask_secrets, max_chars=max_chars)
+        key = self.compute_key(
+            content,
+            preset,
+            mask_secrets=mask_secrets,
+            max_chars=max_chars,
+            include_images=include_images,
+            images_hash=images_hash,
+        )
         cache_file = self.cache_dir / f"{key}.json"
 
         if not cache_file.is_file():
@@ -111,6 +125,8 @@ class EvaluationCache:
         result: DocumentEvalResult,
         mask_secrets: bool = True,
         max_chars: int = 25000,
+        include_images: bool = False,
+        images_hash: str | None = None,
     ) -> None:
         """Stores an evaluation result in the cache atomically."""
         if not self.enabled:
@@ -118,7 +134,14 @@ class EvaluationCache:
 
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            key = self.compute_key(content, preset, mask_secrets=mask_secrets, max_chars=max_chars)
+            key = self.compute_key(
+                content,
+                preset,
+                mask_secrets=mask_secrets,
+                max_chars=max_chars,
+                include_images=include_images,
+                images_hash=images_hash,
+            )
             target_path = self.cache_dir / f"{key}.json"
             temp_path = self.cache_dir / f"{key}.tmp.{os.getpid()}"
 

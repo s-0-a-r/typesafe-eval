@@ -288,3 +288,93 @@ def test_cli_openai_missing_key_exit_3(tmp_path):
     )
     assert result.exit_code == 3
     assert "No OpenAI API key provided" in (result.stderr or result.output)
+
+
+def test_openai_provider_multimodal_payload():
+    """Verify OpenAIDecisionsProvider encodes images into input_text and input_image array."""
+    from typesafe_eval.images import ExtractedImage
+
+    provider = OpenAIDecisionsProvider(api_key="sk-mock-key")
+    mock_resp = {
+        "model": "gpt-6-luna",
+        "answers": [{"name": "diagram_consistent", "type": "predicate", "probability": 0.95}],
+    }
+    mock_http_resp = MagicMock(status_code=200, raise_for_status=MagicMock())
+    mock_http_resp.json.return_value = mock_resp
+
+    test_image = ExtractedImage(
+        source="diagram.png",
+        path=None,
+        data_url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        alt_text="Architecture",
+        mime_type="image/png",
+        byte_size=68,
+    )
+
+    state = {
+        "document": "# System Architecture\nSee architecture below.",
+        "images": [test_image],
+    }
+    questions = {
+        "diagram_consistent": DecisionQuestion(
+            type="noul",
+            instructions="Does the diagram match the text?",
+        )
+    }
+
+    with patch("httpx.Client.post", return_value=mock_http_resp) as mock_post:
+        resp = provider.decide(state=state, questions=questions)
+        call_json = mock_post.call_args.kwargs["json"]
+
+        assert isinstance(call_json["input"], list)
+        assert len(call_json["input"]) == 2
+        assert call_json["input"][0] == {
+            "type": "input_text",
+            "text": "# System Architecture\nSee architecture below.",
+        }
+        assert call_json["input"][1] == {
+            "type": "input_image",
+            "image_url": test_image.data_url,
+        }
+        assert resp.nouls["diagram_consistent"].noul == 0.95
+
+
+def test_typesafe_provider_skips_images_with_notice(capsys):
+    """Verify TypeSafeProvider emits notice on stderr and strips images from state."""
+    from typesafe_eval.images import ExtractedImage
+    from typesafe_eval.providers.typesafe import TypeSafeProvider
+
+    provider = TypeSafeProvider(api_key="ts-mock-key")
+    mock_sdk_client = MagicMock()
+    mock_sdk_client.system_one.return_value = MagicMock(
+        nouls={"q1": MagicMock(noul=0.1)},
+        scores={},
+        choices={},
+    )
+    provider._client = mock_sdk_client
+
+    test_image = ExtractedImage(
+        source="img.png",
+        path=None,
+        data_url="data:image/png;base64,abc",
+    )
+    state = {
+        "document": "Test doc",
+        "images": [test_image],
+    }
+    questions = {"q1": DecisionQuestion(type="noul", instructions="test")}
+
+    resp = provider.decide(state=state, questions=questions)
+    assert resp.nouls["q1"].noul == 0.1
+
+    # Verify images was removed from state before calling SDK client
+    called_state = mock_sdk_client.system_one.call_args.kwargs["state"]
+    assert "images" not in called_state
+    assert called_state["document"] == "Test doc"
+
+    # Verify stderr notice was emitted
+    captured = capsys.readouterr()
+    assert (
+        "Notice: TypeSafe System One (Jev) is text-only; embedded images were skipped."
+        in captured.err
+    )

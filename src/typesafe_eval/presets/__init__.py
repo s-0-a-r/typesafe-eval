@@ -181,6 +181,8 @@ def load_project_config(start_dir: Path | None = None) -> tuple[PresetConfig | N
             "model",
             "default_provider",
             "default_model",
+            "include_images",
+            "max_images_per_doc",
         ):
             if k in cfg_dict:
                 merged[k] = cfg_dict[k]

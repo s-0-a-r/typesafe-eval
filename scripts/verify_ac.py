@@ -102,6 +102,7 @@ class ACVerifier:
             self._check_result_cache(tmppath)
             self._check_github_formatter(tmppath)
             self._check_file_exclusions(tmppath)
+            self._check_multimodal_evaluation(tmppath)
 
         return all(r.passed for r in self.results)
 
@@ -627,6 +628,47 @@ with patch('typesafe_eval.client.TypeSafeEvaluator.evaluate_document', fake_eval
                 name="File Exclusions & Default Ignores (--exclude)",
                 command="typesafe-eval *.md --exclude '*.draft.md' --offline -f json",
                 expected="Exit 0, excluded files skipped, only non-excluded evaluated",
+                actual=details,
+                passed=passed,
+            )
+        )
+
+    def _check_multimodal_evaluation(self, tmp: Path) -> None:
+        sub = tmp / "multimodal_test"
+        sub.mkdir(parents=True, exist_ok=True)
+        png_bytes = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+            b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        img = sub / "diagram.png"
+        img.write_bytes(png_bytes)
+        doc = sub / "arch.md"
+        doc.write_text("# Architecture\n![Diagram](diagram.png)\n", encoding="utf-8")
+
+        cp = self._run_cli(
+            [str(doc), "--include-images", "--dry-run", "-f", "json"],
+        )
+        passed = False
+        details = f"Exit {cp.returncode}"
+        if cp.returncode == 0 and "Security advisory:" in cp.stderr:
+            try:
+                data = json.loads(cp.stdout)
+                if (
+                    len(data) == 1
+                    and data[0].get("images_evaluated") == 1
+                    and data[0].get("image_paths") == ["diagram.png"]
+                ):
+                    passed = True
+                    details = "Exit 0, images_evaluated=1, stderr advisory verified, pure JSON"
+            except Exception as e:
+                details = f"JSON parse error: {e}"
+
+        self.results.append(
+            ACResult(
+                id=19,
+                name="Multimodal Embedded Image Evaluation (--include-images)",
+                command="typesafe-eval doc.md --include-images --dry-run -f json",
+                expected="Exit 0, stderr advisory, stdout pure JSON with images_evaluated > 0",
                 actual=details,
                 passed=passed,
             )

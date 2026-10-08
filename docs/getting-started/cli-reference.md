@@ -35,8 +35,12 @@ typesafe-eval cache clear [OPTIONS]
 | `--exclude` | `-e` | Glob pattern(s) to exclude from evaluation (can be specified multiple times). | `None` |
 | `--mask-secrets` / `--no-mask-secrets` | `--mask` / `--no-mask` | Automatically redact detected API keys, credentials, and PII before API call. | Enabled (`true`) |
 | `--max-chars` | | Maximum character threshold before safe head/tail truncation. | `25000` |
+| `--provider` | | Decision engine backend: `auto`, `openai`, `typesafe` / `jev`. | `auto` |
+| `--model` | | Model override (e.g. `gpt-6-luna` for OpenAI, `jev-1.13.0` for TypeSafe). | `None` |
+| `--include-images` / `--no-include-images` | `--multimodal` | Evaluate embedded diagrams and images alongside text (OpenAI Decisions API). | Disabled (`false`) |
+| `--max-images-per-doc` | `--max-images` | Maximum number of images per document to evaluate (1–128). | `5` |
 | `--list-presets` | | List all available built-in evaluation presets and exit. | `false` |
-| `--api-key` | | TypeSafe API key (falls back to `TYPESAFE_API_KEY` env). | `None` |
+| `--api-key` | | TypeSafe or OpenAI API key (falls back to env vars). | `None` |
 | `--version` | `-v` | Display CLI version and exit. | |
 | `--help` | `-h` | Show help message and exit. | |
 

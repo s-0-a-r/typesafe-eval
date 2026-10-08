@@ -493,3 +493,37 @@ def test_ac_18_file_exclusions(tmp_path):
     filenames = [item["filename"] for item in data]
     assert "eval_me.md" in filenames
     assert "skip_me.draft.md" not in filenames
+
+
+@pytest.mark.acceptance
+def test_ac_19_multimodal_image_evaluation(tmp_path):
+    """AC-19: typesafe-eval --include-images resolves embedded images, emits stderr advisory, and preserves stdout purity."""
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+        b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    img = tmp_path / "diagram.png"
+    img.write_bytes(png_bytes)
+    doc = tmp_path / "multimodal.md"
+    doc.write_text("# Architecture\n![Diagram](diagram.png)\n", encoding="utf-8")
+
+    cp = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "typesafe_eval.cli",
+            str(doc),
+            "--include-images",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert cp.returncode == 0
+    assert "Security advisory:" in cp.stderr
+    data = json.loads(cp.stdout)
+    assert len(data) == 1
+    assert data[0]["images_evaluated"] == 1
+    assert data[0]["image_paths"] == ["diagram.png"]

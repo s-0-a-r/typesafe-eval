@@ -30,6 +30,10 @@ thresholds:
 allowed_role_emails:
   - "support@mycompany.internal"
   - "devops@mycompany.internal"
+
+# Multimodal evaluation settings (OpenAI Decisions API)
+include_images: true
+max_images_per_doc: 5
 ```
 
 ---
