@@ -54,11 +54,11 @@ typesafe-eval docs/*.md --dry-run
 
 | Preset | Purpose | Primary Checks | Empirical Reliability Status |
 | :--- | :--- | :--- | :--- |
-| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs | **High (Deterministic)**: 100% fixture accuracy in offline mode; zero API calls required. |
+| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs | **High (Deterministic)**: Verified across internal fixture suites; zero API calls required. Emphasizes Japanese contextual phone & role email rules. |
 | `quality` | Structural regression | Structural clarity (`clarity`), stylistic tone (`tone`) | **Limited**: Suited for `--baseline` detecting major degradation; cannot differentiate real review revisions from originals. |
-| `tech-spec` | Architecture & RFCs | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective**: `has_test_plan` is verified reliable; `readiness` is an unmeasured categorical choice. |
-| `design-doc` | Design doc checklist | System architecture sections, alternatives, rollbacks, failure modes | **Selective**: `alternatives`, `rollback`, `open_questions` are reliable; `goal` and `owner_timeline` are one-way only. |
-| `pr-description`| PR description check | Summary, motivation, testing strategy | **Selective**: `testing` is verified reliable; other sections are advisory. |
+| `tech-spec` | Architecture & RFCs | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective**: `has_test_plan` passed initial held-out sets (with post-hoc prompt adjustment noted for OpenAI Decisions API); `readiness` is an unmeasured categorical choice. |
+| `design-doc` | Design doc checklist | System architecture sections, alternatives, rollbacks, failure modes | **Selective**: `alternatives`, `rollback`, `open_questions` are reliable on small held-out samples ($N=2\text{--}3$); `goal` and `owner_timeline` are one-way only. |
+| `pr-description`| PR description check | Summary, motivation, testing strategy | **Selective**: `testing` is reliable on small held-out samples ($N=2$); other sections are advisory. |
 | Custom (`-c`) | Domain-specific | Custom rules, customized thresholds, custom role email patterns | Configurable per repository. |
 
 ---
@@ -130,7 +130,7 @@ All autonomous agents must abide by the following 4 rules:
 
 2. **Language caveat & Provider calibration**:
    - **Language**: The benchmark is calibrated primarily for **English** documentation. Non-English (e.g. Japanese) held-out datasets are currently minimal (1 design doc, 3/46 safety fixtures). Treat non-English evaluations as exploratory.
-   - **Provider Calibration Status**: Checklist precision/recall tables have been empirically calibrated on TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`). Both providers verify `has_test_plan` (tech specs), `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable. See [docs/science/accuracy-benchmarks.md](docs/science/accuracy-benchmarks.md) for full empirical counts.
+   - **Provider Calibration Status**: Checklist precision/recall tables have been empirically calibrated on TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`). Both providers verify `has_test_plan` (tech specs; note post-hoc OpenAI prompt adjustment), `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable on small held-out samples. See [docs/science/accuracy-benchmarks.md](docs/science/accuracy-benchmarks.md) for full empirical counts and heuristic baseline comparisons.
 
 3. **Near-threshold results are soft**:
    - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary (calibrated on a pilot benchmark of 3 documents × 4 runs).
