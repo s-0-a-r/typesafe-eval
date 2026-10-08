@@ -100,7 +100,7 @@ To answer whether an LLM is necessary for checklist gating or if a simple regula
 
 1. **`has_test_plan` Prompt Adjustment**:
    - On 2026-10-08, `swift-se-0510` in `labels_tech_spec.heldout.yaml` scored $p=0.75$ on OpenAI. The prompt was revised to clarify that a dedicated section or explicit statement is required.
-   - Because this adjustment occurred after observing the held-out failure, it represents **post-hoc alignment**. Per [`PREREGISTRATION.md`](validation/corpus/PREREGISTRATION.md), true held-out confirmation requires testing on newly collected specifications.
+   - Because this adjustment occurred after observing the held-out failure, it represents **post-hoc alignment**. Per [`PREREGISTRATION.md`](https://github.com/s-0-a-r/typesafe-eval/blob/main/validation/corpus/PREREGISTRATION.md), true held-out confirmation requires testing on newly collected specifications.
 2. **Small Sample Sizes**:
    - Absent sample sizes in the corpus range from $N=2$ to $N=7$ per question. Users must treat "Reliable" designations as indicators that a question survived initial testing, not as an asymptotic guarantee of 100% accuracy.
 3. **Language Scope**:
