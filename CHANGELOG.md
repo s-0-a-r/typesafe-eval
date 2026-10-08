@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.2.1...typesafe-eval-v1.3.0) (2026-10-08)
+
+
+### Features
+
+* **safety:** add Japanese safety fixtures, phone features, and role email patterns ([01769ac](https://github.com/s-0-a-r/typesafe-eval/commit/01769acbb3a09cabcb0b9336188609e7f6f4db44))
+* **safety:** add Japanese safety fixtures, phone features, and role email patterns ([37e1ac4](https://github.com/s-0-a-r/typesafe-eval/commit/37e1ac4bd99f68154cd30c9a53a5f40cdbceda18))
+
+
+### Bug Fixes
+
+* **presets:** align tech-spec has_test_plan prompt with labeling criteria to achieve 100% detection ([52be2a3](https://github.com/s-0-a-r/typesafe-eval/commit/52be2a38965424344473c1be1fb6f3394a72a13f))
+* **presets:** align tech-spec has_test_plan prompt with labeling criteria to achieve 100% detection ([dc9d6e3](https://github.com/s-0-a-r/typesafe-eval/commit/dc9d6e362a5d63e32dcdccac45f1616229c18fee))
+
+
+### Documentation
+
+* **agents:** formalize pre-merge /boost review and release DoD checklist ([f712a46](https://github.com/s-0-a-r/typesafe-eval/commit/f712a46076bcdc92e7a966765c8c76c095d37b48))
+* **agents:** formalize pre-merge /boost review and release DoD checklist in AGENTS.md ([e7b0c07](https://github.com/s-0-a-r/typesafe-eval/commit/e7b0c07371df82880a206c491d24ef06b156ee51))
+* restructure README to elevate empirical reliability scope and practical scenarios ([19fa5af](https://github.com/s-0-a-r/typesafe-eval/commit/19fa5afbed32ef5c785b93f607c02579d29605a3))
+* restructure README to prioritize empirical scope and practical gating scenarios ([385c40d](https://github.com/s-0-a-r/typesafe-eval/commit/385c40d40ddadb8c611ed31e3c6b5b6cb9b44030))
+* **science:** publish empirical accuracy benchmarks for OpenAI Decisions API ([a38425f](https://github.com/s-0-a-r/typesafe-eval/commit/a38425f262ce513625569f5a1a56b905b4ddf1b7))
+* **science:** publish empirical accuracy benchmarks for OpenAI Decisions API ([1f32614](https://github.com/s-0-a-r/typesafe-eval/commit/1f32614455c3d709968beff54be725c10d0a6606))
+
 ## [1.2.1](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.2.0...typesafe-eval-v1.2.1) (2026-10-08)
 
 
