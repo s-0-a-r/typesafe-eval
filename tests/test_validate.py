@@ -846,3 +846,63 @@ def test_validate_unplaced_warning_in_pairs(tmp_path, monkeypatch):
     assert len(data["unplaced_warnings"]) == 1
     assert after.name in data["unplaced_warnings"][0]
     assert "were not found in any of 2 chunks" in data["unplaced_warnings"][0]
+
+
+def test_validate_multi_provider_options(tmp_path, monkeypatch):
+    """Test that validate command accepts --provider and --model options in dry-run mode."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Test Document\nSample text for validation.", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\nruns: 1\ndocuments:\n  - path: {doc.name}\n    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "validate",
+            str(labels_file),
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-6-luna",
+            "--dry-run",
+            "-f",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["preset_name"] == "safety"
+    assert data["mock"] is True
+
+
+def test_validate_openai_missing_key_exit_3(tmp_path, monkeypatch):
+    """Test that validate with --provider openai exits 3 if OPENAI_API_KEY is missing."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Test Document\nSample text for validation.", encoding="utf-8")
+
+    labels_file = tmp_path / "labels.yaml"
+    labels_file.write_text(
+        f"preset: safety\nruns: 1\ndocuments:\n  - path: {doc.name}\n    expect: {{has_pii: absent}}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "validate",
+            str(labels_file),
+            "--provider",
+            "openai",
+        ],
+    )
+    assert result.exit_code == 3
+    assert "No OpenAI API key provided" in result.stderr

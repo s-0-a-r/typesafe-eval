@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 from datetime import datetime
@@ -23,11 +24,32 @@ TARGET_SPECS = [
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Run validation corpus evaluations")
+    parser.add_argument(
+        "--provider",
+        choices=["auto", "openai", "typesafe", "jev"],
+        default="auto",
+        help="Evaluation provider (default: auto)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Model override (e.g. gpt-6-luna or jev-1.13.0)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run validation in dry-run mode using mock results",
+    )
+    args = parser.parse_args()
+
     date_str = datetime.now().strftime("%Y-%m-%d")
-    out_dir = Path("validation/corpus/results") / date_str
+    folder_suffix = f"_{args.provider}" if args.provider != "auto" else ""
+    out_dir = Path("validation/corpus/results") / f"{date_str}{folder_suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"=== Starting Corpus Validation Run ({date_str}) ===")
+    print(f"Provider: {args.provider} (model: {args.model or 'default'})")
     print(f"Output directory: {out_dir}\n")
 
     summary_results: list[tuple[str, bool, int, str]] = []
@@ -48,11 +70,17 @@ def main() -> None:
             spec_path,
             "--runs",
             str(runs),
+            "--provider",
+            args.provider,
             "-f",
             "json",
             "-o",
             str(json_out),
         ]
+        if args.model:
+            cmd.extend(["--model", args.model])
+        if args.dry_run:
+            cmd.append("--dry-run")
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode == 0:
             print(f"    ✔ Success (saved to {json_out.name})")

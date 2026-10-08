@@ -50,14 +50,16 @@ typesafe-eval docs/*.md --dry-run
 
 ---
 
-## 2. Evaluation Presets
+## 2. Evaluation Presets & Empirical Scope
 
-| Preset | Purpose | Primary Checks |
-| :--- | :--- | :--- |
-| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs |
-| `quality` | Document quality | Readability, structural clarity, completeness, actionable takeaways |
-| `tech-spec` | Architecture & RFCs | Technical rigor, system design clarity, failure mode analysis, edge cases |
-| Custom (`-c`) | Domain-specific | Custom rules, customized thresholds, custom role email patterns |
+| Preset | Purpose | Primary Checks | Empirical Reliability Status |
+| :--- | :--- | :--- | :--- |
+| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs | **High (Deterministic)**: 100% fixture accuracy in offline mode; zero API calls required. |
+| `quality` | Structural regression | Structural clarity (`clarity`), stylistic tone (`tone`) | **Limited**: Suited for `--baseline` detecting major degradation; cannot differentiate real review revisions from originals. |
+| `tech-spec` | Architecture & RFCs | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective**: `has_test_plan` is verified reliable; `readiness` is an unmeasured categorical choice. |
+| `design-doc` | Design doc checklist | System architecture sections, alternatives, rollbacks, failure modes | **Selective**: `alternatives`, `rollback`, `open_questions` are reliable; `goal` and `owner_timeline` are one-way only. |
+| `pr-description`| PR description check | Summary, motivation, testing strategy | **Selective**: `testing` is verified reliable; other sections are advisory. |
+| Custom (`-c`) | Domain-specific | Custom rules, customized thresholds, custom role email patterns | Configurable per repository. |
 
 ---
 
@@ -126,12 +128,12 @@ All autonomous agents must abide by the following 4 rules:
    - Cap automated revision loops at **2 rounds maximum**.
    - Do not distort, degrade, or over-optimize natural writing just to chase higher numeric scores (Goodhart's Law). Address specific items listed in `violations`, then finalize your edit.
 
-2. **Language caveat**:
-   - TypeSafe System One (Jev) is calibrated for **English** documentation.
-   - On non-English text, treat borderline scores or low confidence with caution and inform the user.
+2. **Language caveat & Provider calibration**:
+   - **Language**: The benchmark is calibrated primarily for **English** documentation. Non-English (e.g. Japanese) held-out datasets are currently minimal (1 design doc, 3/46 safety fixtures). Treat non-English evaluations as exploratory.
+   - **Provider Calibration Status**: Checklist precision/recall tables were calibrated on TypeSafe System One (`jev-1.13.0`). OpenAI Decisions API (`gpt-6-luna`) has verified deterministic zero-noise output ($\Delta = 0.0000$), but its task-accuracy calibration on the held-out corpus is in progress.
 
 3. **Near-threshold results are soft**:
-   - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary.
+   - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary (calibrated on a pilot benchmark of 3 documents × 4 runs).
    - Report the calibrated probability range (e.g. `p = 0.48–0.60`) to the user as a contextual observation rather than an absolute failure.
 
 4. **Never pass API key through the agent**:
