@@ -9,6 +9,10 @@
 Fast, typed, multi-dimensional document evaluation CLI and CI quality gate powered by the **OpenAI Decisions API** (`gpt-6-luna`) and **TypeSafe System One API** (`jev-1.13.0`).
 
 > 📚 **Documentation Portal**: [https://s-0-a-r.github.io/typesafe-eval/](https://s-0-a-r.github.io/typesafe-eval/)
+>
+> ⚖️ **Empirical Calibration & Boundaries**: Unlike typical LLM grading tools, `typesafe-eval` separates tuning and held-out corpora with pre-registered criteria and explicitly documents where evaluation fails. See [Built-in Presets & Calibration Status](#-built-in-presets--calibration-status) for the exact list of reliable vs. unverified questions.
+>
+> ⚠️ **Provider Calibration Status**: The empirical accuracy benchmarks below were measured on TypeSafe System One (`jev-1.13.0`). While the OpenAI Decisions API (`gpt-6-luna`) route has verified zero run-to-run noise ($\Delta = 0.0000$), its task-accuracy benchmark on the held-out corpus is currently in progress. Treat OpenAI Decisions API gates with appropriate caution.
 
 ---
 
@@ -319,9 +323,10 @@ typesafe-eval docs/*.md --preset quality --baseline baseline.json
     - `tech-spec`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0111`)
     - `design-doc`: 99th percentile |Δ| = `0.020`, max = `0.020` (mean |Δ| = `0.0021`)
     - `pr-description`: 99th percentile |Δ| = `0.040`, max = `0.040` (mean |Δ| = `0.0086`)
-    - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`), confirming that the default `0.10` threshold provides a robust statistical buffer (>2.5× to 3× empirical noise) against false regression alerts.
+    - Overall 99th percentile across all presets is `0.030` (overall mean `0.0045`, max `0.040`). While the default `0.10` threshold provides an empirical buffer (~2.5× to 3× of this observed maximum), note that this pilot measurement was conducted across 3 documents × 4 runs (36–180 pairwise comparisons per preset). In a sample of 36 comparisons, the "99th percentile" is practically equivalent to the observed sample maximum; users should treat this as a pilot benchmark rather than an asymptotic distribution guarantee across all document lengths and domains.
   - **OpenAI Decisions API (`gpt-6-luna`)** (45 evaluations, 198 pairwise comparisons):
     - Overall 99th percentile |Δ| = `0.0000`, max = `0.0000` (overall mean `0.0000`). Forward-pass logit extraction is strictly deterministic across runs with 0 output tokens.
+    - *Accuracy Caveat*: Zero run-to-run noise reflects model determinism, not task accuracy. Benchmark held-out accuracy calibration for `gpt-6-luna` is currently undergoing measurement.
 - **Truncation Guard**: If document truncation status differs between the baseline and current run (`was_truncated` mismatch), a warning is emitted on `stderr` because truncation shifts presence probabilities.
 - **Diff Output**: Terminal tables, Markdown reports, and JSON exports display previous value, current value, and Δ (`prev: X (Δ -Y)`). Documents missing from the baseline are evaluated normally and marked `new`.
 - **Input Validation**: Dry-run baselines (containing documents with `mock: true`) and baselines from another preset are rejected with a usage error (exit code 2).

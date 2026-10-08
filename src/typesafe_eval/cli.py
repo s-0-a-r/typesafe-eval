@@ -629,7 +629,18 @@ def eval_command(
 @click.option(
     "--api-key",
     envvar="TYPESAFE_API_KEY",
-    help="TypeSafe API key (falls back to TYPESAFE_API_KEY environment variable).",
+    help="TypeSafe or OpenAI API key (falls back to TYPESAFE_API_KEY or OPENAI_API_KEY).",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["auto", "openai", "typesafe", "jev"], case_sensitive=False),
+    default="auto",
+    help="Decision provider backend (auto, openai, typesafe). Default: auto.",
+)
+@click.option(
+    "--model",
+    default=None,
+    help="Model override (e.g. gpt-6-luna for OpenAI, jev-1.13.0 for TypeSafe).",
 )
 def validate_command(
     labels_file: str | None,
@@ -642,6 +653,8 @@ def validate_command(
     ablate_labels_out: Path | None,
     dry_run: bool,
     api_key: str | None,
+    provider: str = "auto",
+    model: str | None = None,
     mask_secrets: bool = True,
 ) -> None:
     """Run validation across fixed test documents using a labels.yaml specification or generate ablation variants."""
@@ -692,15 +705,46 @@ def validate_command(
         err_console.print(f"[bold red]Validation setup error:[/bold red] {e}")
         sys.exit(2)
 
+    # Resolve provider and model from CLI or preset configuration
+    ctx = click.get_current_context(silent=True)
+    is_cli_provider = (
+        ctx.get_parameter_source("provider") == click.core.ParameterSource.COMMANDLINE
+        if ctx
+        else False
+    )
+    active_provider: str = (
+        provider
+        if (is_cli_provider or not getattr(preset_cfg, "provider", None))
+        else (preset_cfg.provider or provider)
+    )
+    active_model = model or getattr(preset_cfg, "model", None)
+
+    actual_api_key = api_key
+    if active_provider.lower() == "openai":
+        api_key_source = ctx.get_parameter_source("api_key") if ctx else None
+        if api_key_source != click.core.ParameterSource.COMMANDLINE:
+            actual_api_key = os.environ.get("OPENAI_API_KEY")
+
     # Initialize evaluator
-    evaluator = TypeSafeEvaluator(api_key=api_key)
+    evaluator = TypeSafeEvaluator(
+        api_key=actual_api_key,
+        provider=active_provider,
+        model=active_model,
+    )
 
     if not dry_run and not evaluator.api_key:
-        click.echo(
-            "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
-            "or pass --api-key / specify in configuration.",
-            err=True,
-        )
+        if active_provider.lower() == "openai":
+            click.echo(
+                "No OpenAI API key provided. Set the OPENAI_API_KEY environment variable "
+                "or pass --api-key.",
+                err=True,
+            )
+        else:
+            click.echo(
+                "No TypeSafe API key provided. Set the TYPESAFE_API_KEY environment variable "
+                "or pass --api-key / specify in configuration.",
+                err=True,
+            )
         sys.exit(3)
 
     # Run validation
