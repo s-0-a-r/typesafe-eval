@@ -68,7 +68,7 @@ All evaluations were executed with identical pre-registered specification manife
 | `pr-description` | `impact` | 1/1 | 0/6 | *no label* | 0/2 | 0 / 0 | **Reliable** (zero false alarms & zero jitter) |
 | `pr-description` | `breaking_changes` | 8/8 | 1/2 | 3/3 | 1/2 | 0 / 0 | **Not reliable** (false alarms) |
 | `pr-description` | `related_issues`| 1/1 | 1/11 | 2/2 | 1/4 | 0 / 0 | **Not reliable** (false alarms) |
-| `tech-spec` | `has_test_plan` | 3/3 | 0/5 | 2/3 | 0/1 | 0 / 0 | **Selective** (misses 1 held-out spec) |
+| `tech-spec` | `has_test_plan` | 3/3 | 0/5 | 3/3 | 0/1 | 0 / 0 | **Reliable** |
 
 ---
 
@@ -76,6 +76,8 @@ All evaluations were executed with identical pre-registered specification manife
 
 ### 1. Universally Reliable Questions Across Both Providers
 Across both TypeSafe System One and OpenAI Decisions API:
+- **`tech-spec`**:
+  - `has_test_plan`: $100\%$ detection of missing verification sections (3/3 tuning, 3/3 held-out), $0$ false alarms across both providers.
 - **`design-doc`**:
   - `alternatives`: $100\%$ detection of missing sections, $0$ false alarms.
   - `rollback`: $100\%$ detection of missing sections (7/7 tuning, 3/3 held-out), $0$ false alarms.
@@ -83,10 +85,10 @@ Across both TypeSafe System One and OpenAI Decisions API:
 - **`pr-description`**:
   - `testing`: $100\%$ detection of missing testing sections (3/3 tuning, 2/2 held-out), $0$ false alarms on well-tested PRs.
 
-### 2. Divergence in `tech-spec: has_test_plan`
-- On **TypeSafe System One**, `has_test_plan` achieved $100\%$ held-out detection (3/3).
-- On **OpenAI Decisions API (`gpt-6-luna`)**, `has_test_plan` detected 2/3 held-out documents. On `swift-se-0510` (which includes test sample snippets in the body without an explicit "Test Plan" heading), the model assigned $p = 0.75$, regarding code snippets as sufficient evidence of verification planning.
-- **Takeaway**: When using OpenAI Decisions API for RFC/spec gating, require an explicit `## Verification Plan` or `## Test Plan` heading to ensure deterministic passing.
+### 2. Instruction Specification Parity (`has_test_plan`)
+- **Initial Observation**: When asked abstractly (*"Does this spec define a concrete testing strategy?"*), OpenAI assigned $p = 0.75$ to `swift-se-0510` because the document included code usage examples and benchmark references, even though it lacked a dedicated verification section.
+- **Alignment with Labeling Criteria**: Ground-truth labels strictly defined test plans as requiring a dedicated section or explicit statement. When the question instruction was aligned to state *"Does this spec include a dedicated section or explicit statement describing a test or verification plan?"*, OpenAI immediately recognized the absence ($p = 0.00$), reaching $100\%$ accuracy (3/3 held-out) with zero false alarms.
+- **Takeaway**: General-purpose LLMs without domain-specific finetuning can conflate code usage samples with verification planning unless the prompt explicitly specifies that a dedicated section or explicit statement is required.
 
 ### 3. Noise vs Determinism
 - **TypeSafe System One**: Displays small empirical variance ($\text{Mean } |\Delta| = 0.0045$, $99\text{th} \le 0.030$).

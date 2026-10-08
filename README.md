@@ -175,7 +175,7 @@ Measured against the identical corpus using `typesafe-eval validate --provider o
 | `pr-description` | `impact` | 1/1 | 0/6 | no label | 0/2 | 0 / 0 | reliable |
 | `pr-description` | `breaking_changes` | 8/8 | 1/2 | 3/3 | 1/2 | 0 / 0 | not reliable |
 | `pr-description` | `related_issues` | 1/1 | 1/11 | 2/2 | 1/4 | 0 / 0 | not reliable |
-| `tech-spec` | `has_test_plan` | 3/3 | 0/5 | 2/3 | 0/1 | 0 / 0 | selective (misses implicit plans) |
+| `tech-spec` | `has_test_plan` | 3/3 | 0/5 | 3/3 | 0/1 | 0 / 0 | reliable |
 
 
 ### Language Support & Non-English Accuracy

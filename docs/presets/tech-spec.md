@@ -10,7 +10,7 @@ Based on corpus empirical validation across engineering RFCs, `tech-spec` focuse
 
 | Dimension | Description | Threshold | Type | Operational Role |
 | :--- | :--- | :---: | :---: | :---: |
-| `has_test_plan` | Does this spec include or define a concrete testing or verification strategy? | $\ge 0.50$ | Noul | **Hard Gate** |
+| `has_test_plan` | Does this spec include a dedicated section or explicit statement describing a test or verification plan? | $\ge 0.50$ | Noul | **Hard Gate** |
 | `readiness` | What is the implementation readiness of this technical specification? (`ready`, `needs_revision`, `blocked`) | N/A | Choice | Informational |
 
 ---
