@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.1.0...typesafe-eval-v1.2.0) (2026-10-08)
+
+
+### Features
+
+* **multimodal:** support markdown embedded diagrams via Decisions API ([#146](https://github.com/s-0-a-r/typesafe-eval/issues/146)) ([b8e53cf](https://github.com/s-0-a-r/typesafe-eval/commit/b8e53cfbdad58bcbf27a74fcb1ea851a17712fd2))
+* **multimodal:** support markdown embedded diagrams via Decisions API ([#146](https://github.com/s-0-a-r/typesafe-eval/issues/146)) ([0c1068c](https://github.com/s-0-a-r/typesafe-eval/commit/0c1068c508abdb971506446b10bd84682b850d00))
+
 ## [1.1.0](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.0.0...typesafe-eval-v1.1.0) (2026-10-07)
 
 
