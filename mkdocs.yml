@@ -85,6 +85,7 @@ nav:
       - Pre-commit Hook: integrations/pre-commit.md
       - Claude Code & IDE Hooks: integrations/claude-code.md
       - Git Diff & CI Gating: integrations/git-diff.md
+      - Multimodal Evaluation: guides/multimodal.md
   - Agent Integration:
       - AGENTS.md & 4 Mandatory Rules: agents/guidance.md
       - JSON Contract (v1.0): agents/json-contract.md

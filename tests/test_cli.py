@@ -277,3 +277,45 @@ documents:
     runner = CliRunner()
     result = runner.invoke(main, ["validate", str(labels_file), "--dry-run"])
     assert result.exit_code == 3
+
+
+def test_cli_multimodal_flag_emits_security_advisory(tmp_path):
+    """Verify --include-images emits security advisory to stderr while stdout remains pure JSON."""
+    doc = tmp_path / "diagram.md"
+    doc.write_text("# Doc\nDiagram: ![Arch](missing.png)", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [str(doc), "--preset", "quality", "--dry-run", "--include-images", "-f", "json"],
+    )
+    assert result.exit_code == 0
+
+    # Stderr must contain the advisory
+    assert "Security advisory:" in result.stderr
+    assert "automatically redacted" in result.stderr
+    assert "sensitive secrets" in result.stderr
+
+    # Stdout must remain 100% pure JSON parsable
+    parsed = json.loads(result.stdout)
+    assert len(parsed) == 1
+    assert parsed[0]["filename"] == "diagram.md"
+    assert parsed[0]["images_evaluated"] == 0
+    # Missing image warning recorded in result warnings
+    assert any("Image file not found" in w for w in parsed[0]["warnings"])
+
+
+def test_cli_multimodal_disabled_by_default(tmp_path):
+    """Verify multimodal is disabled by default and produces no advisory."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\nNo images", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [str(doc), "--preset", "quality", "--dry-run", "-f", "json"],
+    )
+    assert result.exit_code == 0
+    assert "Security advisory:" not in result.stderr
+    parsed = json.loads(result.stdout)
+    assert parsed[0]["images_evaluated"] == 0

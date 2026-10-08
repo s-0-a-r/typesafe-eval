@@ -35,6 +35,9 @@ typesafe-eval docs/*.md -j 8
 # Multi-provider evaluation (OpenAI Decisions API with gpt-6-luna)
 typesafe-eval docs/*.md --preset quality --provider openai
 
+# Multimodal evaluation (diagrams & images with OpenAI Decisions API)
+typesafe-eval docs/*.md --preset quality --provider openai --include-images
+
 # Exclude files or patterns
 typesafe-eval docs/*.md --exclude "*.draft.md" -e "docs/templates/**"
 

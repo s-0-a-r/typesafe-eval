@@ -1,5 +1,6 @@
 """Evaluation engine wrapping TypeSafe System One API client."""
 
+import hashlib
 import os
 import re
 import threading
@@ -12,6 +13,7 @@ from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 
 from typesafe_eval.cache import EvaluationCache
 from typesafe_eval.exceptions import AuthenticationError
+from typesafe_eval.images import ExtractedImage, extract_and_resolve_images
 from typesafe_eval.models import (
     CANDIDATE_DECISION_THRESHOLD,
     NEAR_THRESHOLD_MARGIN,
@@ -263,6 +265,8 @@ class TypeSafeEvaluator:
         max_chars: int = 25000,
         dry_run: bool = False,
         offline: bool = False,
+        include_images: bool | None = None,
+        max_images_per_doc: int | None = None,
     ) -> DocumentEvalResult:
         """Evaluates a single document file against the specified preset."""
         path = Path(filepath)
@@ -276,6 +280,8 @@ class TypeSafeEvaluator:
             max_chars=max_chars,
             dry_run=dry_run,
             offline=offline,
+            include_images=include_images,
+            max_images_per_doc=max_images_per_doc,
         )
 
     def evaluate_content(
@@ -288,11 +294,49 @@ class TypeSafeEvaluator:
         max_chars: int = 25000,
         dry_run: bool = False,
         offline: bool = False,
+        include_images: bool | None = None,
+        max_images_per_doc: int | None = None,
     ) -> DocumentEvalResult:
         """Evaluates in-memory document content against the specified preset."""
+        raw_content = content
+        effective_include_images = (
+            include_images
+            if include_images is not None
+            else getattr(preset, "include_images", False)
+        )
+        effective_max_images = (
+            max_images_per_doc
+            if max_images_per_doc is not None
+            else getattr(preset, "max_images_per_doc", 5)
+        )
+
+        extracted_images: list[ExtractedImage] = []
+        image_warnings: list[str] = []
+        if effective_include_images:
+            base_dir: Path | None = None
+            if filepath != "<memory>":
+                p = Path(filepath)
+                base_dir = p.parent if p.is_file() or p.suffix else p
+            extracted_images, image_warnings = extract_and_resolve_images(
+                raw_content,
+                base_path=base_dir,
+                max_images=effective_max_images,
+            )
+
+        images_hash = (
+            hashlib.sha256("".join(img.data_url for img in extracted_images).encode()).hexdigest()
+            if extracted_images
+            else None
+        )
+
         if self.cache and self.cache.enabled and not dry_run and not offline:
             cached_result = self.cache.get(
-                content, preset, mask_secrets=mask_secrets, max_chars=max_chars
+                content,
+                preset,
+                mask_secrets=mask_secrets,
+                max_chars=max_chars,
+                include_images=effective_include_images,
+                images_hash=images_hash,
             )
             if cached_result is not None:
                 cached_result.filepath = str(filepath)
@@ -497,6 +541,8 @@ class TypeSafeEvaluator:
                 redaction_details=redaction_details,
                 filename=filename,
                 content=raw_content,
+                images=extracted_images,
+                image_warnings=image_warnings,
             )
 
         if offline:
@@ -508,6 +554,8 @@ class TypeSafeEvaluator:
                 redaction_details=redaction_details,
                 filename=filename,
                 content=raw_content,
+                images=extracted_images,
+                image_warnings=image_warnings,
             )
 
         # 5. Build SDK questions
@@ -563,6 +611,8 @@ class TypeSafeEvaluator:
                 "document": doc_text,
                 "filename": filename,
             }
+            if effective_include_images and extracted_images:
+                st["images"] = extracted_images
             if is_full:
                 if redaction_details and (
                     redaction_details.get("total", 0) > 0
@@ -1189,13 +1239,15 @@ class TypeSafeEvaluator:
             composite_score=composite_score,
             passed_thresholds=passed,
             violations=violations,
-            warnings=warnings,
+            warnings=warnings + image_warnings,
             usage=usage_dict,
             model=model_name,
             was_truncated=was_truncated,
             api_calls=api_calls,
             redactions_count=redaction_count,
             redaction_details=redaction_details,
+            images_evaluated=len(extracted_images),
+            image_paths=[img.source for img in extracted_images],
         )
 
         if self.cache and self.cache.enabled and not dry_run and not offline:
@@ -1205,6 +1257,8 @@ class TypeSafeEvaluator:
                 eval_result,
                 mask_secrets=mask_secrets,
                 max_chars=max_chars,
+                include_images=effective_include_images,
+                images_hash=images_hash,
             )
 
         return eval_result
@@ -1320,6 +1374,8 @@ class TypeSafeEvaluator:
         redaction_details: dict[str, Any] | None = None,
         filename: str | None = None,
         content: str | None = None,
+        images: list[ExtractedImage] | None = None,
+        image_warnings: list[str] | None = None,
     ) -> DocumentEvalResult:
         """Returns mock evaluation result for dry-run or testing."""
         scores = {}
@@ -1656,7 +1712,7 @@ class TypeSafeEvaluator:
             composite_score=composite,
             passed_thresholds=True,
             violations=[],
-            warnings=[],
+            warnings=image_warnings or [],
             usage={"input_tokens": 120 * api_calls, "output_tokens": 30 * api_calls},
             model=self.model or ("mock-openai" if self.provider == "openai" else "mock-jev"),
             was_truncated=was_truncated,
@@ -1664,6 +1720,8 @@ class TypeSafeEvaluator:
             redactions_count=redaction_count,
             redaction_details=redaction_details,
             mock=True,
+            images_evaluated=len(images) if images else 0,
+            image_paths=[img.source for img in images] if images else [],
         )
 
     def _build_offline_result(
@@ -1675,6 +1733,8 @@ class TypeSafeEvaluator:
         redaction_details: dict[str, Any] | None,
         filename: str | None = None,
         content: str | None = None,
+        images: list[ExtractedImage] | None = None,
+        image_warnings: list[str] | None = None,
     ) -> DocumentEvalResult:
         """Constructs an offline evaluation result using only local regex rules and sanitization."""
         doc_filename = filename or Path(filepath).name
@@ -1869,7 +1929,7 @@ class TypeSafeEvaluator:
             composite_score=None,
             passed_thresholds=passed,
             violations=violations,
-            warnings=warnings,
+            warnings=warnings + (image_warnings or []),
             usage={"input_tokens": 0, "output_tokens": 0},
             model="offline-rules",
             was_truncated=was_truncated,
@@ -1877,4 +1937,6 @@ class TypeSafeEvaluator:
             redactions_count=redaction_count,
             redaction_details=redaction_details,
             mock=False,
+            images_evaluated=len(images) if images else 0,
+            image_paths=[img.source for img in images] if images else [],
         )

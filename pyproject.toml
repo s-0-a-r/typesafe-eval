@@ -85,7 +85,7 @@ only-include = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "src"]
 markers = [
     "acceptance: End-to-end real CLI process acceptance tests",
 ]

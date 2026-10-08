@@ -34,6 +34,8 @@ class PresetConfig(BaseModel):
     exclude: list[str] = Field(default_factory=list)
     provider: str | None = None
     model: str | None = None
+    include_images: bool = False
+    max_images_per_doc: int = 5
     questions: dict[str, QuestionConfig]
 
     @model_validator(mode="before")
@@ -188,6 +190,8 @@ class DocumentEvalResult(BaseModel):
     baseline_diff: BaselineDiff | None = None
     mock: bool = False
     cached: bool = False
+    images_evaluated: int = 0
+    image_paths: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
