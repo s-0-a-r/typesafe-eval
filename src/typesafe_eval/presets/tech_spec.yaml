@@ -5,7 +5,7 @@ questions:
   has_test_plan:
     type: noul
     label: "Test / Verification Plan"
-    instructions: "Does this spec include or define a concrete testing or verification strategy?"
+    instructions: "Does this spec include a dedicated section or explicit statement describing a test or verification plan?"
     weight: 1.0
     min_threshold: 0.5
 
