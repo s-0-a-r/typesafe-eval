@@ -300,7 +300,9 @@ class TypeSafeEvaluator:
         """Evaluates in-memory document content against the specified preset."""
         raw_content = content
         effective_include_images = (
-            include_images if include_images is not None else getattr(preset, "include_images", False)
+            include_images
+            if include_images is not None
+            else getattr(preset, "include_images", False)
         )
         effective_max_images = (
             max_images_per_doc

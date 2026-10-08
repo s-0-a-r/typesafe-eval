@@ -153,9 +153,7 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
         images = state.get("images") or []
 
         if images:
-            multimodal_parts: list[dict[str, Any]] = [
-                {"type": "input_text", "text": input_text}
-            ]
+            multimodal_parts: list[dict[str, Any]] = [{"type": "input_text", "text": input_text}]
             for img in images:
                 if hasattr(img, "data_url"):
                     data_url = img.data_url

@@ -119,7 +119,9 @@ def extract_and_resolve_images(
                 if approx_size > max_size_bytes:
                     limit_mb = max_size_bytes / (1024 * 1024)
                     size_mb = approx_size / (1024 * 1024)
-                    warnings.append(f"Inline data URL image exceeds {limit_mb:.0f}MB limit ({size_mb:.1f}MB)")
+                    warnings.append(
+                        f"Inline data URL image exceeds {limit_mb:.0f}MB limit ({size_mb:.1f}MB)"
+                    )
                     continue
                 extracted.append(
                     ExtractedImage(

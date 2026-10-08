@@ -10,7 +10,9 @@ from typesafe_eval.images import (
 )
 
 
-def _create_sample_png(path: Path, content: bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRtest") -> Path:
+def _create_sample_png(
+    path: Path, content: bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRtest"
+) -> Path:
     path.write_bytes(content)
     return path
 
@@ -24,7 +26,7 @@ def test_strip_markdown_code_blocks():
         "img_tag = '![code](images/code.png)'\n"
         "```\n"
         "Inline `![inline](images/inline.png)` should also be stripped.\n"
-        "And another real one: <img src=\"images/real.jpg\" alt=\"real\">\n"
+        'And another real one: <img src="images/real.jpg" alt="real">\n'
     )
     clean = strip_markdown_code_blocks(text)
     assert "images/diag.png" in clean
@@ -133,9 +135,7 @@ def test_image_count_budget_truncation(tmp_path):
         _create_sample_png(tmp_path / f"img_{i}.png")
 
     doc_content = "\n".join(f"![img{i}](img_{i}.png)" for i in range(4))
-    images, warnings = extract_and_resolve_images(
-        doc_content, base_path=tmp_path, max_images=2
-    )
+    images, warnings = extract_and_resolve_images(doc_content, base_path=tmp_path, max_images=2)
 
     assert len(images) == 2
     assert images[0].source == "img_0.png"

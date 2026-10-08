@@ -297,9 +297,7 @@ def test_openai_provider_multimodal_payload():
     provider = OpenAIDecisionsProvider(api_key="sk-mock-key")
     mock_resp = {
         "model": "gpt-6-luna",
-        "answers": [
-            {"name": "diagram_consistent", "type": "predicate", "probability": 0.95}
-        ],
+        "answers": [{"name": "diagram_consistent", "type": "predicate", "probability": 0.95}],
     }
     mock_http_resp = MagicMock(status_code=200, raise_for_status=MagicMock())
     mock_http_resp.json.return_value = mock_resp
@@ -364,9 +362,7 @@ def test_typesafe_provider_skips_images_with_notice(capsys):
         "document": "Test doc",
         "images": [test_image],
     }
-    questions = {
-        "q1": DecisionQuestion(type="noul", instructions="test")
-    }
+    questions = {"q1": DecisionQuestion(type="noul", instructions="test")}
 
     resp = provider.decide(state=state, questions=questions)
     assert resp.nouls["q1"].noul == 0.1
@@ -378,4 +374,7 @@ def test_typesafe_provider_skips_images_with_notice(capsys):
 
     # Verify stderr notice was emitted
     captured = capsys.readouterr()
-    assert "Notice: TypeSafe System One (Jev) is text-only; embedded images were skipped." in captured.err
+    assert (
+        "Notice: TypeSafe System One (Jev) is text-only; embedded images were skipped."
+        in captured.err
+    )

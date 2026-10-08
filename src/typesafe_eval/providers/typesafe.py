@@ -111,6 +111,7 @@ class TypeSafeProvider(BaseDecisionProvider):
         call_state = dict(state)
         if call_state.pop("images", None):
             import sys
+
             sys.stderr.write(
                 "Notice: TypeSafe System One (Jev) is text-only; embedded images were skipped.\n"
             )

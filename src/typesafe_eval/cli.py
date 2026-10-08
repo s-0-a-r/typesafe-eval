@@ -449,10 +449,14 @@ def eval_command(
             actual_api_key = os.environ.get("OPENAI_API_KEY")
 
     effective_include_images = (
-        include_images if include_images is not None else getattr(preset_cfg, "include_images", False)
+        include_images
+        if include_images is not None
+        else getattr(preset_cfg, "include_images", False)
     )
     effective_max_images = (
-        max_images_per_doc if max_images_per_doc is not None else getattr(preset_cfg, "max_images_per_doc", 5)
+        max_images_per_doc
+        if max_images_per_doc is not None
+        else getattr(preset_cfg, "max_images_per_doc", 5)
     )
 
     if effective_include_images:
