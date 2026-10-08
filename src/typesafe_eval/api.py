@@ -59,6 +59,8 @@ def evaluate(
     filepath: str | Path | None = None,
     project_root: str | Path | None = None,
     evaluator: TypeSafeEvaluator | None = None,
+    include_images: bool | None = None,
+    max_images_per_doc: int | None = None,
 ) -> DocumentEvalResult:
     """Evaluates raw in-memory content against a specified preset."""
     if not isinstance(content, str):
@@ -87,6 +89,8 @@ def evaluate(
             max_chars=max_chars,
             dry_run=dry_run,
             offline=offline,
+            include_images=include_images,
+            max_images_per_doc=max_images_per_doc,
         )
     except TypeSafeEvalError:
         raise
@@ -117,6 +121,8 @@ def evaluate_document(
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
     project_root: str | Path | None = None,
+    include_images: bool | None = None,
+    max_images_per_doc: int | None = None,
 ) -> DocumentEvalResult:
     """Evaluates a single document file from disk against a specified preset."""
     doc_path = Path(path)
@@ -142,6 +148,8 @@ def evaluate_document(
         filename=doc_path.name,
         filepath=str(doc_path),
         project_root=project_root or doc_path.parent,
+        include_images=include_images,
+        max_images_per_doc=max_images_per_doc,
     )
 
 
@@ -160,6 +168,8 @@ def evaluate_documents(
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
     project_root: str | Path | None = None,
+    include_images: bool | None = None,
+    max_images_per_doc: int | None = None,
 ) -> list[DocumentEvalResult]:
     """Evaluates multiple document files concurrently preserving input order."""
     if not paths:
@@ -217,6 +227,8 @@ def evaluate_documents(
             filepath=str(doc_p),
             project_root=project_root or doc_p.parent,
             evaluator=shared_evaluator,
+            include_images=include_images,
+            max_images_per_doc=max_images_per_doc,
         )
 
     concurrency = max(1, concurrency)

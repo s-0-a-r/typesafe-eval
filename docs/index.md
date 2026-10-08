@@ -47,6 +47,7 @@ Document Markdown
 - 🤖 **Agent-First Design**: Formatted for autonomous coding agents (Codex, Claude Code, Copilot, Antigravity CLI) with clean `schema_version: "1.0"` stdout JSON streams.
 - 🗄️ **Content-Addressable Result Caching**: SHA-256 caching (`--cache`) avoids re-evaluating unchanged documents.
 - 📴 **Deterministic Offline Mode**: `--offline` gating using client-side rules with 0 API calls.
+- 🖼️ **Multimodal Document Evaluation**: Evaluate architecture diagrams, schematics, and embedded images alongside prose via the OpenAI Decisions API (`--include-images`).
 - 🐍 **Type-Safe Public Python API**: Fully typed `evaluate()`, `evaluate_document()`, and `evaluate_documents()` with PEP 561 `py.typed` compliance.
 
 ---

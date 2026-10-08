@@ -269,6 +269,21 @@ def main() -> None:
     type=str,
     help="Glob pattern(s) to exclude from evaluation (can be specified multiple times).",
 )
+@click.option(
+    "--include-images/--no-include-images",
+    "--multimodal/--no-multimodal",
+    "include_images",
+    default=None,
+    help="Evaluate embedded markdown/HTML images alongside text (OpenAI Decisions API). Default: disabled.",
+)
+@click.option(
+    "--max-images-per-doc",
+    "--max-images",
+    "max_images_per_doc",
+    type=click.IntRange(min=1, max=128),
+    default=None,
+    help="Maximum images per document to evaluate (1-128). Default: 5 or config value.",
+)
 def eval_command(
     files: list[str],
     preset: str | None,
@@ -291,6 +306,8 @@ def eval_command(
     cache: bool,
     cache_dir: Path | None,
     exclude_patterns: tuple[str, ...],
+    include_images: bool | None,
+    max_images_per_doc: int | None,
 ) -> None:
     """Evaluate documents against quality, safety, or custom evaluation presets."""
     if list_presets:
@@ -431,6 +448,20 @@ def eval_command(
         if api_key_source != click.core.ParameterSource.COMMANDLINE:
             actual_api_key = os.environ.get("OPENAI_API_KEY")
 
+    effective_include_images = (
+        include_images if include_images is not None else getattr(preset_cfg, "include_images", False)
+    )
+    effective_max_images = (
+        max_images_per_doc if max_images_per_doc is not None else getattr(preset_cfg, "max_images_per_doc", 5)
+    )
+
+    if effective_include_images:
+        err_console.print(
+            "[yellow]Security advisory:[/yellow] Multimodal evaluation is enabled. "
+            "Embedded images are NOT automatically redacted for credentials or PII. "
+            "Ensure diagrams do not contain sensitive secrets or private information."
+        )
+
     evaluator = TypeSafeEvaluator(
         api_key=actual_api_key,
         provider=active_provider,
@@ -449,6 +480,8 @@ def eval_command(
                 max_chars=max_chars,
                 dry_run=dry_run,
                 offline=offline,
+                include_images=effective_include_images,
+                max_images_per_doc=effective_max_images,
             )
             return (target_path, res, None)
         except Exception as e:

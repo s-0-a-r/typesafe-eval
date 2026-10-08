@@ -42,6 +42,9 @@ typesafe-eval docs/*.md --preset safety --provider typesafe
 
 # Offline mode (zero API calls, deterministic regex rules)
 typesafe-eval docs/*.md --preset safety --offline
+
+# Multimodal evaluation: analyze markdown embedded diagrams alongside text
+typesafe-eval rfc/*.md --preset tech-spec --provider openai --include-images
 ```
 
 ### Project Configuration (`.typesafe-eval.yaml` & `pyproject.toml`)
@@ -84,6 +87,7 @@ model = "gpt-6-luna"
 `typesafe-eval` is an evaluation harness and CI gate that wraps decision APIs. It adds:
 
 - **Zero Raw Leakage & Candidate Masking**: Raw AWS keys, passwords, personal emails, and phone numbers are redacted into safe placeholders (`[SECRET_1]`, `[EMAIL_1]`) *before* transmission to external APIs. Even when `--no-mask` is passed, detection and candidate metadata extraction run safely.
+- **Multimodal Document Evaluation (`--include-images` / `--multimodal`)**: Opt-in evaluation of markdown and HTML embedded diagrams, topologies, and UI mockups alongside prose via OpenAI Decisions API (`gpt-6-luna`), verifying alignment between visual architecture and text.
 - **Offline Rules-Only Mode (`--offline`)**: Zero-network local evaluation relying strictly on deterministic safety and credential rules without requiring external API keys.
 - **Content-Addressable Result Caching (`--cache`)**: SHA-256 content-hash caching to eliminate redundant evaluations in local iterative development and CI re-runs, with `typesafe-eval cache clear`.
 - **Validation & Calibration Harness (`validate`)**: Built-in test runner for evaluating presets against ground-truth document sets and ablation variants (`labels.yaml`) to verify calibration, detection rates, and regression directions.

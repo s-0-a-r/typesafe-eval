@@ -147,9 +147,37 @@ class OpenAIDecisionsProvider(BaseDecisionProvider):
                     }
                 )
 
+        # Build state context input (text-only string or multimodal parts array)
+        # Standard state keys: 'document', 'document_truncated', 'raw_document'
+        input_text = state.get("document") or state.get("document_truncated") or ""
+        images = state.get("images") or []
+
+        if images:
+            multimodal_parts: list[dict[str, Any]] = [
+                {"type": "input_text", "text": input_text}
+            ]
+            for img in images:
+                if hasattr(img, "data_url"):
+                    data_url = img.data_url
+                elif isinstance(img, dict) and "data_url" in img:
+                    data_url = img["data_url"]
+                elif isinstance(img, str):
+                    data_url = img
+                else:
+                    continue
+                multimodal_parts.append(
+                    {
+                        "type": "input_image",
+                        "image_url": data_url,
+                    }
+                )
+            input_payload: Any = multimodal_parts
+        else:
+            input_payload = input_text
+
         request_body: dict[str, Any] = {
             "model": self.model,
-            "input": input_text,
+            "input": input_payload,
             "questions": questions_payload,
         }
 

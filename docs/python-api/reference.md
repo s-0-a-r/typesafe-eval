@@ -24,6 +24,8 @@ def evaluate(
     filepath: str | Path | None = None,
     project_root: str | Path | None = None,
     evaluator: TypeSafeEvaluator | None = None,
+    include_images: bool | None = None,
+    max_images_per_doc: int | None = None,
 ) -> DocumentEvalResult: ...
 ```
 
@@ -42,6 +44,8 @@ def evaluate_document(
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
     project_root: str | Path | None = None,
+    include_images: bool | None = None,
+    max_images_per_doc: int | None = None,
 ) -> DocumentEvalResult: ...
 ```
 
@@ -62,6 +66,8 @@ def evaluate_documents(
     max_chars: int = 120_000,
     raise_on_violation: bool = False,
     project_root: str | Path | None = None,
+    include_images: bool | None = None,
+    max_images_per_doc: int | None = None,
 ) -> list[DocumentEvalResult]: ...
 ```
 
@@ -90,6 +96,8 @@ The unified evaluation result structure returned for every evaluated document (P
 | `phone_evaluations` | `list[PhoneEvaluationResult]` | Masked phone detection records. |
 | `ip_evaluations` | `list[IPEvaluationResult]` | Masked IP detection records. |
 | `url_evaluations` | `list[URLEvaluationResult]` | Masked URL detection records. |
+| `images_evaluated` | `int` | Number of resolved markdown images evaluated (default 0). |
+| `image_paths` | `list[str]` | Paths or source URIs of resolved images sent for evaluation. |
 
 Methods:
 - `model_dump() -> dict[str, Any]`: Returns a JSON-serializable dictionary conforming to `schema_version: "1.0"`.

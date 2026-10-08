@@ -45,3 +45,6 @@ htmlcov/
 
 # MkDocs
 site/
+
+# Diffs
+diff.txt

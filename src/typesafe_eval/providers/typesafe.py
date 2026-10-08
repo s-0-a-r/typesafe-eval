@@ -107,13 +107,21 @@ class TypeSafeProvider(BaseDecisionProvider):
                     },
                 )
 
+        # TypeSafe System One is text-only; notify and omit images if present
+        call_state = dict(state)
+        if call_state.pop("images", None):
+            import sys
+            sys.stderr.write(
+                "Notice: TypeSafe System One (Jev) is text-only; embedded images were skipped.\n"
+            )
+
         # Call with retry on transient network errors
         attempt = 0
         last_exc: Exception | None = None
         while attempt < self.max_attempts:
             attempt += 1
             try:
-                raw_resp = client.system_one(state=state, questions=sdk_questions)
+                raw_resp = client.system_one(state=call_state, questions=sdk_questions)
                 break
             except Exception as e:
                 last_exc = e
