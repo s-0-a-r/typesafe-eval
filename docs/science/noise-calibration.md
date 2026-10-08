@@ -57,7 +57,7 @@ Measured across 45 total uncached evaluations (3 documents $\times$ 3 runs acros
 ## Key Conclusions
 
 1. **Safety Margin Validity**:
-   - For `jev-1.13.0`, the 99th percentile noise is **$0.030$** (max **$0.040$**), confirming that the $\pm 0.10$ threshold margin provides a robust buffer (>2.5× empirical noise).
+   - For `jev-1.13.0`, the 99th percentile noise is **$0.030$** (max **$0.040$**), providing an empirical buffer (~2.5× to 3× of observed maximum) for the $\pm 0.10$ threshold margin. Note that this pilot benchmark was measured across 3 documents × 4 runs (36–180 pairwise comparisons per preset), where sample percentiles approximate the observed maximum.
    - For `gpt-6-luna`, forward-pass logit extraction is strictly deterministic ($\Delta = 0.0000$), eliminating score jitter entirely between identical runs.
 
 2. **Near-Threshold Annealing**:
