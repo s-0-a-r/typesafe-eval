@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.2.0...typesafe-eval-v1.2.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **science:** restore documentation integrity and wire validate multi-provider support ([7f7b6e1](https://github.com/s-0-a-r/typesafe-eval/commit/7f7b6e18daadd9e4e10297a4bf57eec9f46cc54b))
+* **science:** restore documentation integrity and wire validate multi-provider support ([9ba1ced](https://github.com/s-0-a-r/typesafe-eval/commit/9ba1cedeecc9a8f3830ce48cca7187258140e1fe))
+
 ## [1.2.0](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.1.0...typesafe-eval-v1.2.0) (2026-10-08)
 
 
