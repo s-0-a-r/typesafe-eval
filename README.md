@@ -10,9 +10,9 @@ Fast, typed, multi-dimensional document evaluation CLI and CI quality gate power
 
 > 📚 **Documentation Portal**: [https://s-0-a-r.github.io/typesafe-eval/](https://s-0-a-r.github.io/typesafe-eval/)
 >
-> ⚖️ **Empirical Calibration & Boundaries**: Unlike typical LLM grading tools, `typesafe-eval` separates tuning and held-out corpora with pre-registered criteria and explicitly documents where evaluation fails. See [Built-in Presets & Calibration Status](#-built-in-presets--calibration-status) for the exact list of reliable vs. unverified questions.
+> ⚖️ **Empirical Calibration & Boundaries**: Unlike typical LLM grading tools, `typesafe-eval` separates tuning and held-out corpora with pre-registered criteria and explicitly documents where evaluation fails. See [Built-in Presets & Calibration Status](#-built-in-presets--calibration-status) and [Multi-Provider Empirical Accuracy](docs/science/accuracy-benchmarks.md) for the exact list of reliable vs. unverified questions.
 >
-> ⚠️ **Provider Calibration Status**: The empirical accuracy benchmarks below were measured on TypeSafe System One (`jev-1.13.0`). While the OpenAI Decisions API (`gpt-6-luna`) route has verified zero run-to-run noise ($\Delta = 0.0000$), its task-accuracy benchmark on the held-out corpus is currently in progress. Treat OpenAI Decisions API gates with appropriate caution.
+> 📊 **Provider Calibration Status**: Both TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`) have been measured against the held-out corpus. Both providers verify `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable. On technical specs, TypeSafe verifies `has_test_plan`, whereas OpenAI requires explicit section headings to avoid missing verification sections. See [Empirical Accuracy Benchmarks](docs/science/accuracy-benchmarks.md) for full metrics.
 
 ---
 
@@ -154,6 +154,29 @@ Measured with the v0.4.0 wording (`design-doc` and `pr-description` as of commit
 | `tech-spec` | `has_test_plan` | 3/3 | 0/5 | 3/3 | 0/1 | 0 / 0 | reliable |
 
 The `non_goals` rows include hand-written Non-goals sections inserted into public specifications as positive controls (3 tuning, 2 held-out); all scored 0.99. The tuning `related_issues` false alarm is a pull request whose only reference is a link to another pull request; the question names issues, tickets, design docs and discussions, not pull requests.
+
+#### Checklist counts: OpenAI Decisions API (`gpt-6-luna`)
+
+Measured against the identical corpus using `typesafe-eval validate --provider openai`:
+
+| Preset | Question | Tuning: missing flagged | Tuning: false alarms | Held-out: missing flagged | Held-out: false alarms | Near 0.5 (tuning / held-out) | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `design-doc` | `goal` | no label | 0/9 | no label | 0/4 | 0 / 0 | recognizes stated goal only |
+| `design-doc` | `non_goals` | 6/7 | 0/4 | 2/2 | 0/3 | 0 / 0 | not reliable |
+| `design-doc` | `alternatives` | 2/2 | 0/5 | no label | 0/3 | 0 / 0 | reliable |
+| `design-doc` | `risks` | 3/3 | 0/2 | 1/2 | 0/1 | 0 / 0 | not reliable |
+| `design-doc` | `rollback` | 7/7 | 0/2 | 3/3 | no label | 0 / 0 | reliable |
+| `design-doc` | `metrics` | 4/4 | 1/2 | 2/2 | 0/1 | 0 / 0 | not reliable |
+| `design-doc` | `migration` | 2/2 | 1/4 | 2/2 | no label | 0 / 0 | not reliable |
+| `design-doc` | `open_questions` | 4/4 | 0/4 | 3/3 | 0/1 | 0 / 0 | reliable |
+| `design-doc` | `owner_timeline` | 4/4 | no label | no label | no label | 0 / 0 | flags missing only |
+| `pr-description` | `summary` | no label | 0/10 | no label | 0/6 | 0 / 0 | recognizes stated goal only |
+| `pr-description` | `testing` | 3/3 | 0/4 | 2/2 | 0/2 | 0 / 0 | reliable |
+| `pr-description` | `impact` | 1/1 | 0/6 | no label | 0/2 | 0 / 0 | reliable |
+| `pr-description` | `breaking_changes` | 8/8 | 1/2 | 3/3 | 1/2 | 0 / 0 | not reliable |
+| `pr-description` | `related_issues` | 1/1 | 1/11 | 2/2 | 1/4 | 0 / 0 | not reliable |
+| `tech-spec` | `has_test_plan` | 3/3 | 0/5 | 2/3 | 0/1 | 0 / 0 | selective (misses implicit plans) |
+
 
 ### Language Support & Non-English Accuracy
 
