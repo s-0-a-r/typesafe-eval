@@ -130,7 +130,7 @@ All autonomous agents must abide by the following 4 rules:
 
 2. **Language caveat & Provider calibration**:
    - **Language**: The benchmark is calibrated primarily for **English** documentation. Non-English (e.g. Japanese) held-out datasets are currently minimal (1 design doc, 3/46 safety fixtures). Treat non-English evaluations as exploratory.
-   - **Provider Calibration Status**: Checklist precision/recall tables were calibrated on TypeSafe System One (`jev-1.13.0`). OpenAI Decisions API (`gpt-6-luna`) has verified deterministic zero-noise output ($\Delta = 0.0000$), but its task-accuracy calibration on the held-out corpus is in progress.
+   - **Provider Calibration Status**: Checklist precision/recall tables have been empirically calibrated on TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`). Both providers verify `has_test_plan` (tech specs), `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable. See [docs/science/accuracy-benchmarks.md](docs/science/accuracy-benchmarks.md) for full empirical counts.
 
 3. **Near-threshold results are soft**:
    - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary (calibrated on a pilot benchmark of 3 documents × 4 runs).
@@ -145,6 +145,9 @@ All autonomous agents must abide by the following 4 rules:
 ## 6. Antigravity Code Review Skill (`/boost`)
 
 For Google Antigravity CLI agents reviewing code changes, diffs, or pull requests in this repository, an automated workspace review skill is provided at `.agents/skills/code-review/`.
+
+**Mandatory Pre-Merge Gating**:
+Autonomous agents MUST NOT merge any pull request (whether feature PR to `release/*` or promotion PR to `main`) without first executing and reporting a full `/boost` 5-pillar code review with an explicit `APPROVED` verdict. Passing CI checks alone does not authorize merge.
 
 When conducting code reviews, agents should invoke the **`/boost`** review routine to evaluate changes across the 5 core pillars:
 1. **Safety & Redaction**: Zero raw secret/email leaks, Exit 1-over-3 precedence, and pre-strip comment detection.
@@ -180,9 +183,24 @@ All autonomous coding agents operating in this repository **must follow the rele
 
 ### The Branching Contract
 1. **Never Branch Directly from `main` for Development**:
-   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v0.8.0`).
+   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v1.3.0`).
 2. **Never Target `main` for Feature PRs**:
    - Pull requests for feature work, fixes, and refactoring must target `base: release/v<version>`.
    - Direct PRs to `main` from non-release branches are strictly prohibited and automatically blocked by CI (`.github/workflows/branch_policy.yml`).
-3. **Release Promotion**:
+3. **Release Promotion to `main`**:
    - Only release branches (`release/v*`) may target `main` when initiating the final release PR.
+   - When all planned features and fixes for a release branch are merged, the agent **must not stop or consider the task complete** until the release promotion PR (`release/v<version>` -> `main`) is created, reviewed, verified, merged into `main`, and the release workflow is initiated.
+
+---
+
+## 9. Definition of Done (DoD) & Non-Omission Checklist
+
+To eliminate review omissions and release omissions, autonomous agents must verify this checklist before considering a request finished:
+
+- [ ] **Implementation Complete**: All code, docs, and fixtures written and clean (`ruff check`, `ruff format`, `mypy src`).
+- [ ] **Unit Tests Passing**: 100% pass on pytest suite.
+- [ ] **AC Subprocess Verified**: 19/19 items reported `PASS` via `python scripts/verify_ac.py`.
+- [ ] **Pre-Merge `/boost` Code Review**: Formally evaluated and documented across the 5 pillars with `VERDICT: APPROVED` prior to merge.
+- [ ] **Feature PR Merged**: PR targeting `release/v<version>` merged cleanly.
+- [ ] **Release Promotion PR (`release/v*` -> `main`)**: Created, AC attached, CI passing, and merged to `main` to trigger the final release.
+- [ ] **Release Please Gating**: Release Please PR / tag verified.
