@@ -130,7 +130,7 @@ All autonomous agents must abide by the following 4 rules:
 
 2. **Language caveat & Provider calibration**:
    - **Language**: The benchmark is calibrated primarily for **English** documentation. Non-English (e.g. Japanese) held-out datasets are currently minimal (1 design doc, 3/46 safety fixtures). Treat non-English evaluations as exploratory.
-   - **Provider Calibration Status**: Checklist precision/recall tables were calibrated on TypeSafe System One (`jev-1.13.0`). OpenAI Decisions API (`gpt-6-luna`) has verified deterministic zero-noise output ($\Delta = 0.0000$), but its task-accuracy calibration on the held-out corpus is in progress.
+   - **Provider Calibration Status**: Checklist precision/recall tables have been empirically calibrated on TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`). Both providers verify `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable. See [docs/science/accuracy-benchmarks.md](docs/science/accuracy-benchmarks.md) for full empirical counts.
 
 3. **Near-threshold results are soft**:
    - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary (calibrated on a pilot benchmark of 3 documents × 4 runs).

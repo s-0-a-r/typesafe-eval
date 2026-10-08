@@ -92,4 +92,5 @@ nav:
       - Exit Code Protocol: agents/exit-codes.md
   - Architecture & Science:
       - Noise Calibration: science/noise-calibration.md
+      - Accuracy Benchmarks: science/accuracy-benchmarks.md
       - Redaction & Sanitization: science/redaction.md
