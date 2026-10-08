@@ -27,7 +27,7 @@ from typesafe_eval.presets import (
     load_project_config,
 )
 
-__version__ = "1.1.0"  # x-release-please-version
+__version__ = "1.2.0"  # x-release-please-version
 
 __all__ = [
     "__version__",
