@@ -69,6 +69,13 @@ ROLE_EMAIL_LOCAL_PARTS = {
     "customer-care",
     "customerservice",
     "customer-service",
+    # Japanese enterprise department roles
+    "jinji",
+    "keiri",
+    "somu",
+    "eigyo",
+    "koho",
+    "toiawase",
 }
 
 ROLE_EMAIL_AFFIXES = (
@@ -99,6 +106,7 @@ FREE_OR_PERSONAL_DOMAINS = {
     "zoho.com",
     "mail.com",
     "gmx.com",
+    "yahoo.co.jp",
 }
 
 PHONE_SUPPORT_PREFIXES = ("0120", "0800", "0570", "1-800", "800", "+800", "+1-800", "+1 800")
@@ -233,6 +241,7 @@ def extract_phone_features(phone_str: str, surrounding_text: str = "") -> dict[s
         "looks_like_support": looks_like_support,
         "is_support_prefix": is_support_prefix,
         "near_support_keyword": near_support_kw,
+        "is_mobile": is_mobile_prefix,
     }
 
 
