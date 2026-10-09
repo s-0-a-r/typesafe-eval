@@ -1,6 +1,7 @@
 """Command line interface for TypeSafe document evaluation and validation."""
 
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -832,11 +833,17 @@ jobs:
 """
 
 CLAUDE_HOOK_CONFIG = """{
+  "description": "TypeSafe document evaluation safety hook for Claude Code",
   "hooks": {
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
-        "command": "python3 hooks/claude_safety_hook.py"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/claude_safety_hook.py"
+          }
+        ]
       }
     ]
   }
@@ -852,7 +859,7 @@ CLAUDE_HOOK_CONFIG = """{
     "--claude-code",
     "opt_claude_code",
     is_flag=True,
-    help="Configure Claude Code safety hook (hooks/hooks.json).",
+    help="Configure Claude Code safety hook (.claude/settings.json).",
 )
 @click.option(
     "--github-action",
@@ -894,8 +901,61 @@ def init(
             pc_path.write_text(f"repos:\n{PRE_COMMIT_SNIPPET}", encoding="utf-8")
             configured.append(".pre-commit-config.yaml (created)")
 
-    # 2. Claude Code Hook
+    # 2. Claude Code Hook (.claude/settings.json + hooks/hooks.json)
     if opt_claude_code:
+        claude_dir = Path(".claude")
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        settings_path = claude_dir / "settings.json"
+
+        hook_entry = {
+            "matcher": "Edit|Write|MultiEdit",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "python3 hooks/claude_safety_hook.py",
+                }
+            ],
+        }
+
+        if settings_path.exists():
+            try:
+                data = json.loads(settings_path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+
+            hooks_obj = data.setdefault("hooks", {})
+            if not isinstance(hooks_obj, dict):
+                hooks_obj = data["hooks"] = {}
+
+            post_tool_use = hooks_obj.setdefault("PostToolUse", [])
+            if not isinstance(post_tool_use, list):
+                post_tool_use = hooks_obj["PostToolUse"] = []
+
+            is_configured = False
+            for item in post_tool_use:
+                if isinstance(item, dict):
+                    for h in item.get("hooks", []):
+                        if isinstance(h, dict) and "claude_safety_hook.py" in h.get("command", ""):
+                            is_configured = True
+                            break
+                    if "claude_safety_hook.py" in item.get("command", ""):
+                        is_configured = True
+                if is_configured:
+                    break
+
+            if is_configured:
+                configured.append(".claude/settings.json (already configured)")
+            else:
+                post_tool_use.append(hook_entry)
+                settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                configured.append(".claude/settings.json (updated)")
+        else:
+            data = {"hooks": {"PostToolUse": [hook_entry]}}
+            settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            configured.append(".claude/settings.json (created)")
+
         hooks_dir = Path("hooks")
         hooks_dir.mkdir(exist_ok=True)
         hh_path = hooks_dir / "hooks.json"
