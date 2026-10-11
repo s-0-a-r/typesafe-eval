@@ -2,7 +2,7 @@
 """Claude Code PostToolUse safety evaluation hook wrapper for typesafe-eval (#35).
 
 Maps typesafe-eval exit codes to Claude Code hook semantics:
-  - Exit 1 (safety violation) -> exit 2 with violation summary on stderr (blocks/alerts Claude).
+  - Exit 1 (safety violation) -> exit 2 with violation summary on stderr (alerts Claude to content violations after file generation/modification).
   - Exit 2 / 3 (CLI/runtime error, or missing API key) -> exit 0 (skips gracefully, never exit 2).
   - Exit 0 (clean) -> exit 0.
 """
