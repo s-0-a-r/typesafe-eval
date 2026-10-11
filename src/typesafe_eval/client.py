@@ -284,68 +284,20 @@ class TypeSafeEvaluator:
             max_images_per_doc=max_images_per_doc,
         )
 
-    def evaluate_content(
+    def _prepare_sanitization_and_candidates(
         self,
-        content: str,
+        raw_content: str,
         preset: PresetConfig,
-        filename: str = "<memory>",
-        filepath: str | Path = "<memory>",
-        mask_secrets: bool = True,
-        max_chars: int = 25000,
-        dry_run: bool = False,
-        offline: bool = False,
-        include_images: bool | None = None,
-        max_images_per_doc: int | None = None,
-    ) -> DocumentEvalResult:
-        """Evaluates in-memory document content against the specified preset."""
-        raw_content = content
-        effective_include_images = (
-            include_images
-            if include_images is not None
-            else getattr(preset, "include_images", False)
-        )
-        effective_max_images = (
-            max_images_per_doc
-            if max_images_per_doc is not None
-            else getattr(preset, "max_images_per_doc", 5)
-        )
-
-        extracted_images: list[ExtractedImage] = []
-        image_warnings: list[str] = []
-        if effective_include_images:
-            base_dir: Path | None = None
-            if filepath != "<memory>":
-                p = Path(filepath)
-                base_dir = p.parent if p.is_file() or p.suffix else p
-            extracted_images, image_warnings = extract_and_resolve_images(
-                raw_content,
-                base_path=base_dir,
-                max_images=effective_max_images,
-            )
-
-        images_hash = (
-            hashlib.sha256("".join(img.data_url for img in extracted_images).encode()).hexdigest()
-            if extracted_images
-            else None
-        )
-
-        if self.cache and self.cache.enabled and not dry_run and not offline:
-            cached_result = self.cache.get(
-                content,
-                preset,
-                mask_secrets=mask_secrets,
-                max_chars=max_chars,
-                include_images=effective_include_images,
-                images_hash=images_hash,
-            )
-            if cached_result is not None:
-                cached_result.filepath = str(filepath)
-                cached_result.filename = filename
-                return cached_result
-
-        raw_content = content
-
-        # 1. Sanitize (detection & feature extraction run on raw_content before stripping HTML comments)
+        mask_secrets: bool,
+    ) -> tuple[
+        str,
+        int,
+        dict[str, Any],
+        frozenset[str],
+        list[tuple[str, str, Noul]],
+        Callable[[str, str], bool],
+    ]:
+        """Runs pre-evaluation sanitization and builds dynamic candidate Noul questions."""
         custom_roles = preset.sanitizer.role_emails if preset.sanitizer else None
         sanitized_content, redaction_count, redaction_details = mask_sensitive_data(
             raw_content, mask=mask_secrets, return_details=True, custom_role_patterns=custom_roles
@@ -358,7 +310,6 @@ class TypeSafeEvaluator:
         _raw_token_cache: dict[str, set[str]] = {}
 
         def _raw_tokens_in(text: str) -> set[str]:
-            # Re-run the same detector on the chunk so a raw value matches only as a whole detected token.
             if text not in _raw_token_cache:
                 _, _, chunk_details = mask_sensitive_data(
                     text, mask=False, return_details=True, custom_role_patterns=custom_roles
@@ -394,7 +345,6 @@ class TypeSafeEvaluator:
             if _item_in_text(p, sanitized_content) and not _item_in_text(p, content)
         )
 
-        # 2. Build candidate specs (dynamic per-candidate Noul questions)
         candidate_specs: list[tuple[str, str, Noul]] = []
 
         redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
@@ -499,13 +449,29 @@ class TypeSafeEvaluator:
                     )
                 )
 
-        # 3. Length check & chunking determination
+        return (
+            content,
+            redaction_count,
+            redaction_details,
+            comment_stripped_placeholders,
+            candidate_specs,
+            _item_in_text,
+        )
+
+    @staticmethod
+    def _plan_chunks(
+        content: str,
+        preset: PresetConfig,
+        has_candidate_specs: bool,
+        max_chars: int,
+    ) -> tuple[list[str], str, bool, int, bool]:
+        """Determines text chunking, truncation guards, and anticipated API calls."""
         is_long = len(content) > max_chars
         has_nouls = any(q.type == "noul" for q in preset.questions.values())
         has_scores_or_choices = any(
             q.type in ("score", "choice") for q in preset.questions.values()
         )
-        has_nouls_or_candidates = has_nouls or bool(candidate_specs)
+        has_nouls_or_candidates = has_nouls or has_candidate_specs
 
         if is_long:
             if has_scores_or_choices and has_nouls_or_candidates:
@@ -530,35 +496,13 @@ class TypeSafeEvaluator:
             api_calls = 1
             was_truncated = False
 
-        # 4. Dry run & offline bypass
-        if dry_run:
-            return self._build_mock_result(
-                filepath=str(filepath),
-                preset=preset,
-                was_truncated=was_truncated,
-                api_calls=api_calls,
-                redaction_count=redaction_count,
-                redaction_details=redaction_details,
-                filename=filename,
-                content=raw_content,
-                images=extracted_images,
-                image_warnings=image_warnings,
-            )
+        return chunks, content_truncated, was_truncated, api_calls, is_long
 
-        if offline:
-            return self._build_offline_result(
-                filepath=str(filepath),
-                preset=preset,
-                was_truncated=was_truncated,
-                redaction_count=redaction_count,
-                redaction_details=redaction_details,
-                filename=filename,
-                content=raw_content,
-                images=extracted_images,
-                image_warnings=image_warnings,
-            )
-
-        # 5. Build SDK questions
+    @staticmethod
+    def _build_sdk_preset_questions(
+        preset: PresetConfig,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Instantiates Score, Choice, and Noul objects for all preset-defined questions."""
         sdk_score_choice_questions: dict[str, Any] = {}
         sdk_preset_noul_questions: dict[str, Any] = {}
         for q_id, q_cfg in preset.questions.items():
@@ -577,7 +521,6 @@ class TypeSafeEvaluator:
                     instructions=q_cfg.instructions,
                 )
             elif q_cfg.type == "choice":
-                # Ensure criteria is dict
                 criteria = q_cfg.criteria
                 if isinstance(criteria, list):
                     criteria = dict.fromkeys(criteria)
@@ -585,110 +528,338 @@ class TypeSafeEvaluator:
                     instructions=q_cfg.instructions,
                     criteria=cast(Any, criteria),
                 )
+        return sdk_score_choice_questions, sdk_preset_noul_questions
 
-        # 5. Call Decision Provider (TypeSafe System One or OpenAI Decisions)
-        client = self._get_provider()
+    @staticmethod
+    def _make_state(
+        doc_text: str,
+        filename: str,
+        effective_include_images: bool,
+        extracted_images: list[ExtractedImage],
+        redaction_details: dict[str, Any] | None,
+        redacted_emails: list[dict[str, Any]],
+        redacted_phones: list[dict[str, Any]],
+        redacted_ips: list[dict[str, Any]],
+        redacted_urls: list[dict[str, Any]],
+        redacted_secrets: list[dict[str, Any]],
+        is_full: bool = True,
+        in_chunk_fn: Callable[[str, str], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Constructs state payload for decision provider invocation."""
+        st: dict[str, Any] = {
+            "document": doc_text,
+            "filename": filename,
+        }
+        if effective_include_images and extracted_images:
+            st["images"] = extracted_images
+        if is_full:
+            if redaction_details and (
+                redaction_details.get("total", 0) > 0 or redaction_details.get("examples", 0) > 0
+            ):
+                st["redactions"] = {
+                    "credentials": redaction_details.get("credentials", 0),
+                    "pii": redaction_details.get("pii_personal", 0),
+                    "pii_personal": redaction_details.get("pii_personal", 0),
+                    "pii_role": redaction_details.get("pii_role", 0),
+                    "examples": redaction_details.get("examples", 0),
+                }
+            if redacted_emails:
+                st["redacted_emails"] = redacted_emails
+            if redacted_phones:
+                st["redacted_phones"] = redacted_phones
+            if redacted_ips:
+                st["redacted_ips"] = redacted_ips
+            if redacted_urls:
+                st["redacted_urls"] = redacted_urls
+            if redacted_secrets:
+                st["redacted_secrets"] = redacted_secrets
+        else:
+            assert in_chunk_fn is not None
+            chunk_em = [f for f in redacted_emails if in_chunk_fn(f["placeholder"], doc_text)]
+            chunk_ph = [f for f in redacted_phones if in_chunk_fn(f["placeholder"], doc_text)]
+            chunk_ip = [f for f in redacted_ips if in_chunk_fn(f["placeholder"], doc_text)]
+            chunk_ur = [f for f in redacted_urls if in_chunk_fn(f["placeholder"], doc_text)]
+            chunk_sec = [f for f in redacted_secrets if in_chunk_fn(f["placeholder"], doc_text)]
+            if chunk_em:
+                st["redacted_emails"] = chunk_em
+            if chunk_ph:
+                st["redacted_phones"] = chunk_ph
+            if chunk_ip:
+                st["redacted_ips"] = chunk_ip
+            if chunk_ur:
+                st["redacted_urls"] = chunk_ur
+            if chunk_sec:
+                st["redacted_secrets"] = chunk_sec
+        return st
+
+    @staticmethod
+    def _apply_preflight_overrides(
+        preset: PresetConfig,
+        redaction_details: dict[str, Any] | None,
+        nouls: dict[str, NoulResult],
+    ) -> None:
+        """Applies pre-flight heuristic scan overrides to credentials and PII questions."""
+        cred_q_id = _find_preflight_question(preset, "credentials")
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+        if cred_count > 0 and cred_q_id:
+            if cred_q_id in nouls:
+                nouls[cred_q_id].overridden_by = "preflight_scan"
+            else:
+                nouls[cred_q_id] = NoulResult(
+                    probability=None,
+                    overridden_by="preflight_scan",
+                )
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = (
+            redaction_details.get("by_type", {}).get("email_free_mail", 0)
+            if redaction_details
+            else 0
+        )
+        if pii_count > 0 and pii_q_id:
+            if pii_q_id in nouls:
+                nouls[pii_q_id].overridden_by = "preflight_scan"
+            else:
+                nouls[pii_q_id] = NoulResult(
+                    probability=None,
+                    overridden_by="preflight_scan",
+                )
+
+    def _execute_single_pass(
+        self,
+        client: Any,
+        content: str,
+        filename: str,
+        preset: PresetConfig,
+        sdk_score_choice_questions: dict[str, Any],
+        sdk_preset_noul_questions: dict[str, Any],
+        candidate_specs: list[tuple[str, str, Noul]],
+        redaction_details: dict[str, Any],
+        extracted_images: list[ExtractedImage],
+        effective_include_images: bool,
+        redacted_emails: list[dict[str, Any]],
+        redacted_phones: list[dict[str, Any]],
+        redacted_ips: list[dict[str, Any]],
+        redacted_urls: list[dict[str, Any]],
+        redacted_secrets: list[dict[str, Any]],
+    ) -> tuple[
+        dict[str, ScoreResult],
+        dict[str, NoulResult],
+        dict[str, ChoiceResult],
+        dict[str, list[float]],
+        int,
+        int,
+        str,
+    ]:
+        """Executes decision provider evaluation in a single document pass with candidate batching."""
+        scores: dict[str, ScoreResult] = {}
+        nouls: dict[str, NoulResult] = {}
+        choices: dict[str, ChoiceResult] = {}
+        candidate_prob_map: dict[str, list[float]] = {}
         total_input_tokens = 0
         total_output_tokens = 0
         model_name = getattr(client, "default_model", "type-safe-one")
 
+        st = self._make_state(
+            doc_text=content,
+            filename=filename,
+            effective_include_images=effective_include_images,
+            extracted_images=extracted_images,
+            redaction_details=redaction_details,
+            redacted_emails=redacted_emails,
+            redacted_phones=redacted_phones,
+            redacted_ips=redacted_ips,
+            redacted_urls=redacted_urls,
+            redacted_secrets=redacted_secrets,
+            is_full=True,
+        )
+
+        batch_size = self.max_candidate_batch_size
+        candidate_batches = [
+            candidate_specs[i : i + batch_size] for i in range(0, len(candidate_specs), batch_size)
+        ] or [[]]
+
+        first_questions = {**sdk_score_choice_questions, **sdk_preset_noul_questions}
+        for _, q_id, q_obj in candidate_batches[0]:
+            first_questions[q_id] = q_obj
+
+        response = _call_system_one_with_retry(client, state=st, questions=first_questions)
+        if response.usage:
+            total_input_tokens += response.usage.input_tokens
+            total_output_tokens += response.usage.output_tokens
+        if response.model:
+            model_name = response.model
+
+        cred_q_id = _find_preflight_question(preset, "credentials")
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+        is_cred_override = cred_count > 0 and cred_q_id
+
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = (
+            redaction_details.get("by_type", {}).get("email_free_mail", 0)
+            if redaction_details
+            else 0
+        )
+        is_pii_override = pii_count > 0 and pii_q_id
+
+        missing_questions = []
+        for q_id, q_cfg in preset.questions.items():
+            if q_cfg.type == "score":
+                if q_id in response.scores:
+                    ans = response.scores[q_id]
+                    num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
+                    max_score = float(max(num_levels - 1, 1))
+                    norm_score = min(max(ans.score / max_score, 0.0), 1.0)
+                    scores[q_id] = ScoreResult(
+                        score=ans.score,
+                        max_score=max_score,
+                        normalized_score=norm_score,
+                        confidence=ans.confidence,
+                        probabilities={str(k): v for k, v in ans.probabilities.items()}
+                        if ans.probabilities
+                        else {},
+                    )
+                else:
+                    missing_questions.append(q_id)
+            elif q_cfg.type == "noul":
+                if q_id in response.nouls:
+                    nouls[q_id] = NoulResult(
+                        probability=response.nouls[q_id].noul,
+                    )
+                elif (is_cred_override and q_id == cred_q_id) or (
+                    is_pii_override and q_id == pii_q_id
+                ):
+                    nouls[q_id] = NoulResult(
+                        probability=None,
+                        overridden_by="preflight_scan",
+                    )
+                else:
+                    missing_questions.append(q_id)
+            elif q_cfg.type == "choice":
+                if q_id in response.choices:
+                    ans = response.choices[q_id]
+                    choices[q_id] = ChoiceResult(
+                        choice=ans.choice,
+                        confidence=ans.confidence,
+                        probabilities={str(k): v for k, v in ans.probabilities.items()}
+                        if ans.probabilities
+                        else {},
+                    )
+                else:
+                    missing_questions.append(q_id)
+
+        for _, q_id, _ in candidate_batches[0]:
+            if q_id in response.nouls:
+                candidate_prob_map[q_id] = [response.nouls[q_id].noul]
+            else:
+                missing_questions.append(q_id)
+
+        for sub_batch in candidate_batches[1:]:
+            sub_questions = {q_id: q_obj for _, q_id, q_obj in sub_batch}
+            sub_resp = _call_system_one_with_retry(client, state=st, questions=sub_questions)
+            if sub_resp.usage:
+                total_input_tokens += sub_resp.usage.input_tokens
+                total_output_tokens += sub_resp.usage.output_tokens
+            for _, q_id, _ in sub_batch:
+                if q_id in sub_resp.nouls:
+                    candidate_prob_map[q_id] = [sub_resp.nouls[q_id].noul]
+                else:
+                    missing_questions.append(q_id)
+
+        if missing_questions:
+            q_names = ", ".join(f"'{q}'" for q in missing_questions)
+            raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
+
+        return (
+            scores,
+            nouls,
+            choices,
+            candidate_prob_map,
+            total_input_tokens,
+            total_output_tokens,
+            model_name,
+        )
+
+    def _execute_chunked(
+        self,
+        client: Any,
+        chunks: list[str],
+        content_truncated: str,
+        filename: str,
+        preset: PresetConfig,
+        has_scores_or_choices: bool,
+        sdk_score_choice_questions: dict[str, Any],
+        sdk_preset_noul_questions: dict[str, Any],
+        candidate_specs: list[tuple[str, str, Noul]],
+        redaction_details: dict[str, Any],
+        extracted_images: list[ExtractedImage],
+        effective_include_images: bool,
+        redacted_emails: list[dict[str, Any]],
+        redacted_phones: list[dict[str, Any]],
+        redacted_ips: list[dict[str, Any]],
+        redacted_urls: list[dict[str, Any]],
+        redacted_secrets: list[dict[str, Any]],
+        comment_stripped_placeholders: frozenset[str],
+        _item_in_text: Callable[[str, str], bool],
+    ) -> tuple[
+        dict[str, ScoreResult],
+        dict[str, NoulResult],
+        dict[str, ChoiceResult],
+        dict[str, list[float]],
+        int,
+        int,
+        str,
+        frozenset[str],
+    ]:
+        """Executes chunked evaluation for long documents, tracking unplaced items and aggregating candidate nouls."""
         scores: dict[str, ScoreResult] = {}
         nouls: dict[str, NoulResult] = {}
         choices: dict[str, ChoiceResult] = {}
         candidate_prob_map: dict[str, list[float]] = {}
         preset_noul_probs: dict[str, list[float]] = {q_id: [] for q_id in sdk_preset_noul_questions}
+        total_input_tokens = 0
+        total_output_tokens = 0
+        model_name = getattr(client, "default_model", "type-safe-one")
 
-        # Placeholders found in no chunk; filled once before the chunk loop, then treated as present in every chunk.
-        unplaced: frozenset[str] = frozenset()
+        cred_q_id = _find_preflight_question(preset, "credentials")
+        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
+        is_cred_override = cred_count > 0 and cred_q_id
 
-        def _in_chunk(placeholder: str, text: str) -> bool:
-            return _in_chunk_helper(
-                placeholder, text, unplaced | comment_stripped_placeholders, _item_in_text
+        pii_q_id = _find_preflight_question(preset, "pii")
+        pii_count = (
+            redaction_details.get("by_type", {}).get("email_free_mail", 0)
+            if redaction_details
+            else 0
+        )
+        is_pii_override = pii_count > 0 and pii_q_id
+
+        if has_scores_or_choices:
+            st_trunc = self._make_state(
+                doc_text=content_truncated,
+                filename=filename,
+                effective_include_images=effective_include_images,
+                extracted_images=extracted_images,
+                redaction_details=redaction_details,
+                redacted_emails=redacted_emails,
+                redacted_phones=redacted_phones,
+                redacted_ips=redacted_ips,
+                redacted_urls=redacted_urls,
+                redacted_secrets=redacted_secrets,
+                is_full=True,
             )
-
-        def _make_state(doc_text: str, is_full: bool = True) -> dict[str, Any]:
-            st: dict[str, Any] = {
-                "document": doc_text,
-                "filename": filename,
-            }
-            if effective_include_images and extracted_images:
-                st["images"] = extracted_images
-            if is_full:
-                if redaction_details and (
-                    redaction_details.get("total", 0) > 0
-                    or redaction_details.get("examples", 0) > 0
-                ):
-                    st["redactions"] = {
-                        "credentials": redaction_details.get("credentials", 0),
-                        "pii": redaction_details.get("pii_personal", 0),
-                        "pii_personal": redaction_details.get("pii_personal", 0),
-                        "pii_role": redaction_details.get("pii_role", 0),
-                        "examples": redaction_details.get("examples", 0),
-                    }
-                if redacted_emails:
-                    st["redacted_emails"] = redacted_emails
-                if redacted_phones:
-                    st["redacted_phones"] = redacted_phones
-                if redacted_ips:
-                    st["redacted_ips"] = redacted_ips
-                if redacted_urls:
-                    st["redacted_urls"] = redacted_urls
-                if redacted_secrets:
-                    st["redacted_secrets"] = redacted_secrets
-            else:
-                chunk_em = [f for f in redacted_emails if _in_chunk(f["placeholder"], doc_text)]
-                chunk_ph = [f for f in redacted_phones if _in_chunk(f["placeholder"], doc_text)]
-                chunk_ip = [f for f in redacted_ips if _in_chunk(f["placeholder"], doc_text)]
-                chunk_ur = [f for f in redacted_urls if _in_chunk(f["placeholder"], doc_text)]
-                chunk_sec = [f for f in redacted_secrets if _in_chunk(f["placeholder"], doc_text)]
-                if chunk_em:
-                    st["redacted_emails"] = chunk_em
-                if chunk_ph:
-                    st["redacted_phones"] = chunk_ph
-                if chunk_ip:
-                    st["redacted_ips"] = chunk_ip
-                if chunk_ur:
-                    st["redacted_urls"] = chunk_ur
-                if chunk_sec:
-                    st["redacted_secrets"] = chunk_sec
-            return st
-
-        if not is_long:
-            st = _make_state(content, is_full=True)
-            batch_size = self.max_candidate_batch_size
-            candidate_batches = [
-                candidate_specs[i : i + batch_size]
-                for i in range(0, len(candidate_specs), batch_size)
-            ] or [[]]
-
-            first_questions = {**sdk_score_choice_questions, **sdk_preset_noul_questions}
-            for _, q_id, q_obj in candidate_batches[0]:
-                first_questions[q_id] = q_obj
-
-            response = _call_system_one_with_retry(client, state=st, questions=first_questions)
-            if response.usage:
-                total_input_tokens += response.usage.input_tokens
-                total_output_tokens += response.usage.output_tokens
-            if response.model:
-                model_name = response.model
-
-            cred_q_id = _find_preflight_question(preset, "credentials")
-            cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
-            is_cred_override = cred_count > 0 and cred_q_id
-
-            pii_q_id = _find_preflight_question(preset, "pii")
-            pii_count = (
-                redaction_details.get("by_type", {}).get("email_free_mail", 0)
-                if redaction_details
-                else 0
+            resp_sc = _call_system_one_with_retry(
+                client, state=st_trunc, questions=sdk_score_choice_questions
             )
-            is_pii_override = pii_count > 0 and pii_q_id
-
-            missing_questions = []
+            if resp_sc.usage:
+                total_input_tokens += resp_sc.usage.input_tokens
+                total_output_tokens += resp_sc.usage.output_tokens
+            if resp_sc.model:
+                model_name = resp_sc.model
+            missing_score_choice = []
             for q_id, q_cfg in preset.questions.items():
                 if q_cfg.type == "score":
-                    if q_id in response.scores:
-                        ans = response.scores[q_id]
+                    if q_id in resp_sc.scores:
+                        ans = resp_sc.scores[q_id]
                         num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
                         max_score = float(max(num_levels - 1, 1))
                         norm_score = min(max(ans.score / max_score, 0.0), 1.0)
@@ -702,24 +873,10 @@ class TypeSafeEvaluator:
                             else {},
                         )
                     else:
-                        missing_questions.append(q_id)
-                elif q_cfg.type == "noul":
-                    if q_id in response.nouls:
-                        nouls[q_id] = NoulResult(
-                            probability=response.nouls[q_id].noul,
-                        )
-                    elif (is_cred_override and q_id == cred_q_id) or (
-                        is_pii_override and q_id == pii_q_id
-                    ):
-                        nouls[q_id] = NoulResult(
-                            probability=None,
-                            overridden_by="preflight_scan",
-                        )
-                    else:
-                        missing_questions.append(q_id)
+                        missing_score_choice.append(q_id)
                 elif q_cfg.type == "choice":
-                    if q_id in response.choices:
-                        ans = response.choices[q_id]
+                    if q_id in resp_sc.choices:
+                        ans = resp_sc.choices[q_id]
                         choices[q_id] = ChoiceResult(
                             choice=ans.choice,
                             confidence=ans.confidence,
@@ -728,203 +885,167 @@ class TypeSafeEvaluator:
                             else {},
                         )
                     else:
-                        missing_questions.append(q_id)
-
-            for _, q_id, _ in candidate_batches[0]:
-                if q_id in response.nouls:
-                    candidate_prob_map[q_id] = [response.nouls[q_id].noul]
-                else:
-                    missing_questions.append(q_id)
-
-            # Evaluate any remaining candidate batches
-            for sub_batch in candidate_batches[1:]:
-                sub_questions = {q_id: q_obj for _, q_id, q_obj in sub_batch}
-                sub_resp = _call_system_one_with_retry(client, state=st, questions=sub_questions)
-                if sub_resp.usage:
-                    total_input_tokens += sub_resp.usage.input_tokens
-                    total_output_tokens += sub_resp.usage.output_tokens
-                for _, q_id, _ in sub_batch:
-                    if q_id in sub_resp.nouls:
-                        candidate_prob_map[q_id] = [sub_resp.nouls[q_id].noul]
-                    else:
-                        missing_questions.append(q_id)
-
-            if missing_questions:
-                q_names = ", ".join(f"'{q}'" for q in missing_questions)
+                        missing_score_choice.append(q_id)
+            if missing_score_choice:
+                q_names = ", ".join(f"'{q}'" for q in missing_score_choice)
                 raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
-        else:
-            cred_q_id = _find_preflight_question(preset, "credentials")
-            cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
-            is_cred_override = cred_count > 0 and cred_q_id
 
-            pii_q_id = _find_preflight_question(preset, "pii")
-            pii_count = (
-                redaction_details.get("by_type", {}).get("email_free_mail", 0)
-                if redaction_details
-                else 0
+        unplaced: frozenset[str] = frozenset()
+        if chunks:
+            all_redacted = (
+                redacted_emails + redacted_phones + redacted_ips + redacted_urls + redacted_secrets
             )
-            is_pii_override = pii_count > 0 and pii_q_id
+            unplaced = frozenset(
+                p
+                for p in (item.get("placeholder") for item in all_redacted)
+                if p and not any(_item_in_text(p, chk) for chk in chunks)
+            )
 
-            if has_scores_or_choices:
-                st_trunc = _make_state(content_truncated, is_full=True)
-                resp_sc = _call_system_one_with_retry(
-                    client, state=st_trunc, questions=sdk_score_choice_questions
-                )
-                if resp_sc.usage:
-                    total_input_tokens += resp_sc.usage.input_tokens
-                    total_output_tokens += resp_sc.usage.output_tokens
-                if resp_sc.model:
-                    model_name = resp_sc.model
-                missing_score_choice = []
-                for q_id, q_cfg in preset.questions.items():
-                    if q_cfg.type == "score":
-                        if q_id in resp_sc.scores:
-                            ans = resp_sc.scores[q_id]
-                            num_levels = len(q_cfg.criteria) if q_cfg.criteria else 3
-                            max_score = float(max(num_levels - 1, 1))
-                            norm_score = min(max(ans.score / max_score, 0.0), 1.0)
-                            scores[q_id] = ScoreResult(
-                                score=ans.score,
-                                max_score=max_score,
-                                normalized_score=norm_score,
-                                confidence=ans.confidence,
-                                probabilities={str(k): v for k, v in ans.probabilities.items()}
-                                if ans.probabilities
-                                else {},
-                            )
-                        else:
-                            missing_score_choice.append(q_id)
-                    elif q_cfg.type == "choice":
-                        if q_id in resp_sc.choices:
-                            ans = resp_sc.choices[q_id]
-                            choices[q_id] = ChoiceResult(
-                                choice=ans.choice,
-                                confidence=ans.confidence,
-                                probabilities={str(k): v for k, v in ans.probabilities.items()}
-                                if ans.probabilities
-                                else {},
-                            )
-                        else:
-                            missing_score_choice.append(q_id)
-                if missing_score_choice:
-                    q_names = ", ".join(f"'{q}'" for q in missing_score_choice)
-                    raise RuntimeError(f"Missing evaluation result for question(s) {q_names}")
-            if chunks:
-                all_redacted = (
-                    redacted_emails
-                    + redacted_phones
-                    + redacted_ips
-                    + redacted_urls
-                    + redacted_secrets
-                )
-                unplaced = frozenset(
-                    p
-                    for p in (item.get("placeholder") for item in all_redacted)
-                    if p and not any(_item_in_text(p, chk) for chk in chunks)
+            def _in_chunk(placeholder: str, text: str) -> bool:
+                return _in_chunk_helper(
+                    placeholder, text, unplaced | comment_stripped_placeholders, _item_in_text
                 )
 
-                n_chunks = len(chunks)
-                for chunk_idx, chunk_text_part in enumerate(chunks, start=1):
-                    chunk_st = _make_state(chunk_text_part, is_full=False)
-                    chunk_candidates = [
-                        (placeholder, q_id, q_obj)
-                        for placeholder, q_id, q_obj in candidate_specs
-                        if _in_chunk(placeholder, chunk_text_part)
-                    ]
-                    batch_size = self.max_candidate_batch_size
-                    chunk_batches = [
-                        chunk_candidates[i : i + batch_size]
-                        for i in range(0, len(chunk_candidates), batch_size)
-                    ] or [[]]
-
-                    chunk_questions = dict(sdk_preset_noul_questions)
-                    for _, q_id, q_obj in chunk_batches[0]:
-                        chunk_questions[q_id] = q_obj
-
-                    if chunk_questions:
-                        resp_chk = _call_system_one_with_retry(
-                            client, state=chunk_st, questions=chunk_questions
-                        )
-                        if resp_chk.usage:
-                            total_input_tokens += resp_chk.usage.input_tokens
-                            total_output_tokens += resp_chk.usage.output_tokens
-                        if resp_chk.model:
-                            model_name = resp_chk.model
-
-                        missing_chunk_questions = []
-                        for q_id in chunk_questions:
-                            if (is_cred_override and q_id == cred_q_id) or (
-                                is_pii_override and q_id == pii_q_id
-                            ):
-                                continue
-                            if q_id not in resp_chk.nouls:
-                                missing_chunk_questions.append(q_id)
-
-                        if missing_chunk_questions:
-                            q_names = ", ".join(f"'{q}'" for q in missing_chunk_questions)
-                            raise RuntimeError(
-                                f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
-                            )
-
-                        for q_id in sdk_preset_noul_questions:
-                            if q_id in resp_chk.nouls:
-                                preset_noul_probs[q_id].append(resp_chk.nouls[q_id].noul)
-                        for _, q_id, _ in chunk_batches[0]:
-                            if q_id in resp_chk.nouls:
-                                candidate_prob_map.setdefault(q_id, []).append(
-                                    resp_chk.nouls[q_id].noul
-                                )
-
-                    # Subsequent candidate batches in this chunk
-                    for sub_batch in chunk_batches[1:]:
-                        sub_questions = {q_id: q_obj for _, q_id, q_obj in sub_batch}
-                        sub_resp = _call_system_one_with_retry(
-                            client, state=chunk_st, questions=sub_questions
-                        )
-                        if sub_resp.usage:
-                            total_input_tokens += sub_resp.usage.input_tokens
-                            total_output_tokens += sub_resp.usage.output_tokens
-                        missing_sub = []
-                        for _, q_id, _ in sub_batch:
-                            if q_id in sub_resp.nouls:
-                                candidate_prob_map.setdefault(q_id, []).append(
-                                    sub_resp.nouls[q_id].noul
-                                )
-                            else:
-                                missing_sub.append(q_id)
-                        if missing_sub:
-                            q_names = ", ".join(f"'{q}'" for q in missing_sub)
-                            raise RuntimeError(
-                                f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
-                            )
-
-                never_asked = [
-                    q_id for _, q_id, _ in candidate_specs if q_id not in candidate_prob_map
+            n_chunks = len(chunks)
+            for chunk_idx, chunk_text_part in enumerate(chunks, start=1):
+                chunk_st = self._make_state(
+                    doc_text=chunk_text_part,
+                    filename=filename,
+                    effective_include_images=effective_include_images,
+                    extracted_images=extracted_images,
+                    redaction_details=redaction_details,
+                    redacted_emails=redacted_emails,
+                    redacted_phones=redacted_phones,
+                    redacted_ips=redacted_ips,
+                    redacted_urls=redacted_urls,
+                    redacted_secrets=redacted_secrets,
+                    is_full=False,
+                    in_chunk_fn=_in_chunk,
+                )
+                chunk_candidates = [
+                    (placeholder, q_id, q_obj)
+                    for placeholder, q_id, q_obj in candidate_specs
+                    if _in_chunk(placeholder, chunk_text_part)
                 ]
-                if never_asked:
-                    q_names = ", ".join(f"'{q}'" for q in never_asked)
-                    raise RuntimeError(
-                        f"Candidate question(s) {q_names} were not asked in any of {n_chunks} chunks"
+                batch_size = self.max_candidate_batch_size
+                chunk_batches = [
+                    chunk_candidates[i : i + batch_size]
+                    for i in range(0, len(chunk_candidates), batch_size)
+                ] or [[]]
+
+                chunk_questions = dict(sdk_preset_noul_questions)
+                for _, q_id, q_obj in chunk_batches[0]:
+                    chunk_questions[q_id] = q_obj
+
+                if chunk_questions:
+                    resp_chk = _call_system_one_with_retry(
+                        client, state=chunk_st, questions=chunk_questions
                     )
+                    if resp_chk.usage:
+                        total_input_tokens += resp_chk.usage.input_tokens
+                        total_output_tokens += resp_chk.usage.output_tokens
+                    if resp_chk.model:
+                        model_name = resp_chk.model
 
-                for q_id in sdk_preset_noul_questions:
-                    probs = preset_noul_probs.get(q_id, [])
-                    if probs:
-                        nouls[q_id] = NoulResult(probability=max(probs))
-                    elif (is_cred_override and q_id == cred_q_id) or (
-                        is_pii_override and q_id == pii_q_id
-                    ):
-                        nouls[q_id] = NoulResult(probability=None, overridden_by="preflight_scan")
-                    else:
-                        nouls[q_id] = NoulResult(probability=None)
+                    missing_chunk_questions = []
+                    for q_id in chunk_questions:
+                        if (is_cred_override and q_id == cred_q_id) or (
+                            is_pii_override and q_id == pii_q_id
+                        ):
+                            continue
+                        if q_id not in resp_chk.nouls:
+                            missing_chunk_questions.append(q_id)
 
+                    if missing_chunk_questions:
+                        q_names = ", ".join(f"'{q}'" for q in missing_chunk_questions)
+                        raise RuntimeError(
+                            f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
+                        )
+
+                    for q_id in sdk_preset_noul_questions:
+                        if q_id in resp_chk.nouls:
+                            preset_noul_probs[q_id].append(resp_chk.nouls[q_id].noul)
+                    for _, q_id, _ in chunk_batches[0]:
+                        if q_id in resp_chk.nouls:
+                            candidate_prob_map.setdefault(q_id, []).append(
+                                resp_chk.nouls[q_id].noul
+                            )
+
+                for sub_batch in chunk_batches[1:]:
+                    sub_questions = {q_id: q_obj for _, q_id, q_obj in sub_batch}
+                    sub_resp = _call_system_one_with_retry(
+                        client, state=chunk_st, questions=sub_questions
+                    )
+                    if sub_resp.usage:
+                        total_input_tokens += sub_resp.usage.input_tokens
+                        total_output_tokens += sub_resp.usage.output_tokens
+                    missing_sub = []
+                    for _, q_id, _ in sub_batch:
+                        if q_id in sub_resp.nouls:
+                            candidate_prob_map.setdefault(q_id, []).append(
+                                sub_resp.nouls[q_id].noul
+                            )
+                        else:
+                            missing_sub.append(q_id)
+                    if missing_sub:
+                        q_names = ", ".join(f"'{q}'" for q in missing_sub)
+                        raise RuntimeError(
+                            f"Missing evaluation result for question(s) {q_names} in chunk {chunk_idx}/{n_chunks}"
+                        )
+
+            never_asked = [q_id for _, q_id, _ in candidate_specs if q_id not in candidate_prob_map]
+            if never_asked:
+                q_names = ", ".join(f"'{q}'" for q in never_asked)
+                raise RuntimeError(
+                    f"Candidate question(s) {q_names} were not asked in any of {n_chunks} chunks"
+                )
+
+            for q_id in sdk_preset_noul_questions:
+                probs = preset_noul_probs.get(q_id, [])
+                if probs:
+                    nouls[q_id] = NoulResult(probability=max(probs))
+                elif (is_cred_override and q_id == cred_q_id) or (
+                    is_pii_override and q_id == pii_q_id
+                ):
+                    nouls[q_id] = NoulResult(probability=None, overridden_by="preflight_scan")
+                else:
+                    nouls[q_id] = NoulResult(probability=None)
+
+        return (
+            scores,
+            nouls,
+            choices,
+            candidate_prob_map,
+            total_input_tokens,
+            total_output_tokens,
+            model_name,
+            unplaced,
+        )
+
+    @staticmethod
+    def _assemble_candidate_evaluations(
+        redaction_details: dict[str, Any] | None,
+        candidate_prob_map: dict[str, list[float]],
+    ) -> tuple[
+        list[EmailEvaluationResult],
+        list[PhoneEvaluationResult],
+        list[IPEvaluationResult],
+        list[URLEvaluationResult],
+        list[SecretEvaluationResult],
+        list[str],
+        list[str],
+        list[str],
+        list[str],
+        list[str],
+    ]:
+        """Maps candidate decision model probabilities and heuristics to structured evaluation outcomes."""
         email_violations: list[str] = []
         phone_violations: list[str] = []
         ip_violations: list[str] = []
         url_violations: list[str] = []
         secret_violations: list[str] = []
 
-        # Emails
+        redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
         email_evaluations: list[EmailEvaluationResult] = []
         for feature in redacted_emails:
             placeholder = feature["placeholder"]
@@ -968,7 +1089,7 @@ class TypeSafeEvaluator:
                         f"PII Exposure: {placeholder} is an individual address{prob_str}"
                     )
 
-        # Phones
+        redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
         phone_evaluations: list[PhoneEvaluationResult] = []
         for feature in redacted_phones:
             placeholder = feature["placeholder"]
@@ -1004,7 +1125,7 @@ class TypeSafeEvaluator:
                     f"PII Exposure: {placeholder} is an individual phone number{prob_str}"
                 )
 
-        # IPs
+        redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
         ip_evaluations: list[IPEvaluationResult] = []
         for feature in redacted_ips:
             placeholder = feature["placeholder"]
@@ -1048,7 +1169,7 @@ class TypeSafeEvaluator:
                         f"PII Exposure: {placeholder} is an internal/sensitive IP address{prob_str}"
                     )
 
-        # URLs
+        redacted_urls = redaction_details.get("redacted_urls", []) if redaction_details else []
         url_evaluations: list[URLEvaluationResult] = []
         for feature in redacted_urls:
             placeholder = feature["placeholder"]
@@ -1097,7 +1218,9 @@ class TypeSafeEvaluator:
                         f"PII Exposure: {placeholder} is an internal/sensitive URL{prob_str}"
                     )
 
-        # Secrets
+        redacted_secrets = (
+            redaction_details.get("redacted_secrets", []) if redaction_details else []
+        )
         secret_evaluations: list[SecretEvaluationResult] = []
         for feature in redacted_secrets:
             placeholder = feature["placeholder"]
@@ -1155,34 +1278,223 @@ class TypeSafeEvaluator:
                         f"Credential Exposure: {placeholder} is an exposed secret{prob_str}"
                     )
 
-        # Preflight overrides for credentials & PII
-        cred_q_id = _find_preflight_question(preset, "credentials")
-        cred_count = redaction_details.get("credentials", 0) if redaction_details else 0
-        if cred_count > 0 and cred_q_id:
-            if cred_q_id in nouls:
-                nouls[cred_q_id].overridden_by = "preflight_scan"
-            else:
-                nouls[cred_q_id] = NoulResult(
-                    probability=None,
-                    overridden_by="preflight_scan",
-                )
-
-        pii_q_id = _find_preflight_question(preset, "pii")
-        pii_count = (
-            redaction_details.get("by_type", {}).get("email_free_mail", 0)
-            if redaction_details
-            else 0
+        return (
+            email_evaluations,
+            phone_evaluations,
+            ip_evaluations,
+            url_evaluations,
+            secret_evaluations,
+            email_violations,
+            phone_violations,
+            ip_violations,
+            url_violations,
+            secret_violations,
         )
-        if pii_count > 0 and pii_q_id:
-            if pii_q_id in nouls:
-                nouls[pii_q_id].overridden_by = "preflight_scan"
-            else:
-                nouls[pii_q_id] = NoulResult(
-                    probability=None,
-                    overridden_by="preflight_scan",
-                )
 
-        # 7. Compute deterministic composite score and threshold check
+    def evaluate_content(
+        self,
+        content: str,
+        preset: PresetConfig,
+        filename: str = "<memory>",
+        filepath: str | Path = "<memory>",
+        mask_secrets: bool = True,
+        max_chars: int = 25000,
+        dry_run: bool = False,
+        offline: bool = False,
+        include_images: bool | None = None,
+        max_images_per_doc: int | None = None,
+    ) -> DocumentEvalResult:
+        """Evaluates in-memory document content against the specified preset."""
+        raw_content = content
+        effective_include_images = (
+            include_images
+            if include_images is not None
+            else getattr(preset, "include_images", False)
+        )
+        effective_max_images = (
+            max_images_per_doc
+            if max_images_per_doc is not None
+            else getattr(preset, "max_images_per_doc", 5)
+        )
+
+        extracted_images: list[ExtractedImage] = []
+        image_warnings: list[str] = []
+        if effective_include_images:
+            base_dir: Path | None = None
+            if filepath != "<memory>":
+                p = Path(filepath)
+                base_dir = p.parent if p.is_file() or p.suffix else p
+            extracted_images, image_warnings = extract_and_resolve_images(
+                raw_content,
+                base_path=base_dir,
+                max_images=effective_max_images,
+            )
+
+        images_hash = (
+            hashlib.sha256("".join(img.data_url for img in extracted_images).encode()).hexdigest()
+            if extracted_images
+            else None
+        )
+
+        if self.cache and self.cache.enabled and not dry_run and not offline:
+            cached_result = self.cache.get(
+                content,
+                preset,
+                mask_secrets=mask_secrets,
+                max_chars=max_chars,
+                include_images=effective_include_images,
+                images_hash=images_hash,
+            )
+            if cached_result is not None:
+                cached_result.filepath = str(filepath)
+                cached_result.filename = filename
+                return cached_result
+
+        # 1. Sanitize & build candidate questions
+        (
+            content,
+            redaction_count,
+            redaction_details,
+            comment_stripped_placeholders,
+            candidate_specs,
+            _item_in_text,
+        ) = self._prepare_sanitization_and_candidates(raw_content, preset, mask_secrets)
+
+        redacted_emails = redaction_details.get("redacted_emails", []) if redaction_details else []
+        redacted_phones = redaction_details.get("redacted_phones", []) if redaction_details else []
+        redacted_ips = redaction_details.get("redacted_ips", []) if redaction_details else []
+        redacted_urls = redaction_details.get("redacted_urls", []) if redaction_details else []
+        redacted_secrets = (
+            redaction_details.get("redacted_secrets", []) if redaction_details else []
+        )
+
+        # 2. Plan chunking and guard length
+        chunks, content_truncated, was_truncated, api_calls, is_long = self._plan_chunks(
+            content=content,
+            preset=preset,
+            has_candidate_specs=bool(candidate_specs),
+            max_chars=max_chars,
+        )
+
+        # 3. Dry-run and offline fast-paths
+        if dry_run:
+            return self._build_mock_result(
+                filepath=str(filepath),
+                preset=preset,
+                was_truncated=was_truncated,
+                api_calls=api_calls,
+                redaction_count=redaction_count,
+                redaction_details=redaction_details,
+                filename=filename,
+                content=raw_content,
+                images=extracted_images,
+                image_warnings=image_warnings,
+            )
+
+        if offline:
+            return self._build_offline_result(
+                filepath=str(filepath),
+                preset=preset,
+                was_truncated=was_truncated,
+                redaction_count=redaction_count,
+                redaction_details=redaction_details,
+                filename=filename,
+                content=raw_content,
+                images=extracted_images,
+                image_warnings=image_warnings,
+            )
+
+        # 4. Build SDK preset questions
+        sdk_score_choice_questions, sdk_preset_noul_questions = self._build_sdk_preset_questions(
+            preset
+        )
+
+        # 5. Dispatch provider (single-pass or chunked)
+        client = self._get_provider()
+        unplaced: frozenset[str] = frozenset()
+        has_scores_or_choices = any(
+            q.type in ("score", "choice") for q in preset.questions.values()
+        )
+
+        if not is_long:
+            (
+                scores,
+                nouls,
+                choices,
+                candidate_prob_map,
+                total_input_tokens,
+                total_output_tokens,
+                model_name,
+            ) = self._execute_single_pass(
+                client=client,
+                content=content,
+                filename=filename,
+                preset=preset,
+                sdk_score_choice_questions=sdk_score_choice_questions,
+                sdk_preset_noul_questions=sdk_preset_noul_questions,
+                candidate_specs=candidate_specs,
+                redaction_details=redaction_details,
+                extracted_images=extracted_images,
+                effective_include_images=effective_include_images,
+                redacted_emails=redacted_emails,
+                redacted_phones=redacted_phones,
+                redacted_ips=redacted_ips,
+                redacted_urls=redacted_urls,
+                redacted_secrets=redacted_secrets,
+            )
+        else:
+            (
+                scores,
+                nouls,
+                choices,
+                candidate_prob_map,
+                total_input_tokens,
+                total_output_tokens,
+                model_name,
+                unplaced,
+            ) = self._execute_chunked(
+                client=client,
+                chunks=chunks,
+                content_truncated=content_truncated,
+                filename=filename,
+                preset=preset,
+                has_scores_or_choices=has_scores_or_choices,
+                sdk_score_choice_questions=sdk_score_choice_questions,
+                sdk_preset_noul_questions=sdk_preset_noul_questions,
+                candidate_specs=candidate_specs,
+                redaction_details=redaction_details,
+                extracted_images=extracted_images,
+                effective_include_images=effective_include_images,
+                redacted_emails=redacted_emails,
+                redacted_phones=redacted_phones,
+                redacted_ips=redacted_ips,
+                redacted_urls=redacted_urls,
+                redacted_secrets=redacted_secrets,
+                comment_stripped_placeholders=comment_stripped_placeholders,
+                _item_in_text=_item_in_text,
+            )
+
+        # 6. Assemble candidate evaluations
+        (
+            email_evaluations,
+            phone_evaluations,
+            ip_evaluations,
+            url_evaluations,
+            secret_evaluations,
+            email_violations,
+            phone_violations,
+            ip_violations,
+            url_violations,
+            secret_violations,
+        ) = self._assemble_candidate_evaluations(
+            redaction_details=redaction_details,
+            candidate_prob_map=candidate_prob_map,
+        )
+
+        # 7. Apply preflight overrides
+        self._apply_preflight_overrides(preset, redaction_details, nouls)
+
+        # 8. Compute composite score and threshold check
         composite_score, passed, violations, warnings = self._evaluate_thresholds_and_composite(
             preset=preset,
             scores=scores,
