@@ -3,8 +3,13 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
-        "command": "python3 hooks/claude_safety_hook.py"
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/claude_safety_hook.py"
+          }
+        ]
       }
     ]
   }

@@ -189,10 +189,12 @@ def test_cli_init_subcommand(tmp_path, monkeypatch):
     res = runner.invoke(main, ["init", "--all"])
     assert res.exit_code == 0
     assert "✓ .pre-commit-config.yaml" in res.output
+    assert "✓ .claude/settings.json" in res.output
     assert "✓ hooks/hooks.json" in res.output
     assert "✓ .github/workflows/typesafe-eval.yml" in res.output
 
     assert (tmp_path / ".pre-commit-config.yaml").is_file()
+    assert (tmp_path / ".claude" / "settings.json").is_file()
     assert (tmp_path / "hooks" / "hooks.json").is_file()
     assert (tmp_path / ".github" / "workflows" / "typesafe-eval.yml").is_file()
 

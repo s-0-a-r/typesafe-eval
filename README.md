@@ -20,13 +20,13 @@ Unlike typical LLM document evaluation tools that produce uncalibrated scores, `
 
 | Preset | Target Scope | Primary Checks | Empirical Reliability Status |
 | :--- | :--- | :--- | :--- |
-| `safety` | Secret & PII Gating | Credentials, personal emails (free-mail vs. role), phone numbers, private IPs, sensitive URLs | **High (Deterministic)**: 100% fixture accuracy in offline mode; zero API calls required. Includes Japanese mobile prefixes (`090`/`080`/`070`), toll-free (`0120`/`0570`), and enterprise department role emails (`jinji`, `keiri`, `somu`). |
-| `tech-spec` | RFCs & Specifications | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective**: `has_test_plan` is verified **100% reliable** on both OpenAI (`gpt-6-luna`) and TypeSafe (`jev-1.13.0`) when explicit verification headings are present. `readiness` is an unmeasured categorical choice. |
-| `design-doc` | System Architecture | Section presence checklist (goals, alternatives, rollbacks, failure modes) | **Selective**: `alternatives`, `rollback`, and `open_questions` are empirically reliable. `goal` and `owner_timeline` are one-way only. **Not reliable**: `non_goals`, `risks`, `migration`, `metrics`. |
+| `safety` | Secret & PII Gating | Credentials, personal emails (free-mail vs. role), phone numbers, private IPs, sensitive URLs | **Deterministic Offline Rules**: Zero API calls required. Differentiates Japanese mobile numbers (`090`/`080`/`070`) from toll-free lines (`0120`/`0570`) and corporate switchboards (`03` + 代表), and permits Japanese department roles (`jinji@`, `keiri@`, `somu@`, etc.) while catching personal free-mail (`yahoo.co.jp`, `gmail.com`). |
+| `tech-spec` | RFCs & Specifications | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective (Small Sample N=3)**: Flags 3 of 3 absent specs on corpus. TypeSafe (`jev-1.13.0`) confirmed; OpenAI (`gpt-6-luna`) adjusted post-hoc on `swift-se-0510` (see Accuracy Benchmarks). `readiness` is an unmeasured categorical choice. |
+| `design-doc` | System Architecture | Section presence checklist (goals, alternatives, rollbacks, failure modes) | **Selective (Small Sample N=2–3)**: `alternatives`, `rollback`, and `open_questions` are reliable on corpus. `goal` and `owner_timeline` are one-way only. **Not reliable**: `non_goals`, `risks`, `migration`, `metrics`. |
 | `quality` | Structural Regression | Clarity score (`clarity`), stylistic tone (`tone`) | **Limited**: Suited for `--baseline` detecting major degradation (text corruption, sentence shuffling). **Cannot differentiate real human review revisions from original drafts** ($\Delta = +0.013$ against between-document $\sigma = 0.116$). Absolute scores cannot be compared across different documents. |
-| `pr-description` | Pull Request Summaries | PR checklist (summary, testing strategy, impact, breaking changes) | **Selective**: `testing` is verified reliable. `summary`, `impact`, `breaking_changes`, and `related_issues` are advisory / not reliable. |
+| `pr-description` | Pull Request Summaries | PR checklist (summary, testing strategy, impact, breaking changes) | **Selective**: `testing` is reliable on corpus ($N=2$). `summary`, `impact`, `breaking_changes`, and `related_issues` are advisory / not reliable. |
 
-> 📊 **Full Accuracy Tables**: For exact precision, recall, and false alarm counts on held-out documents, see [Multi-Provider Empirical Accuracy](docs/science/accuracy-benchmarks.md).
+> 📊 **Accuracy Tables & Regex Comparison**: See [Multi-Provider Empirical Accuracy](docs/science/accuracy-benchmarks.md) for exact precision/recall counts and a side-by-side comparison with simple keyword regex (`baseline_heuristic.py`).
 
 ---
 
@@ -49,7 +49,7 @@ Automate structural sanity checks on architecture proposals:
 # Gate pull requests touching technical designs
 typesafe-eval docs/design/*.md --preset design-doc -f github
 ```
-- **Enforce as Hard Blockers**: `alternatives`, `rollback`, and `open_questions` (verified reliable detection).
+- **Enforce as Hard Blockers**: `alternatives`, `rollback`, and `open_questions` (verified detection on corpus). Note: on documents with canonical headers, keyword regex achieves similar recall; the LLM adds value primarily on non-standard headings.
 - **Treat as Advisory**: Flag missing `risks`, `metrics`, or `migration` for human reviewer attention, but avoid hard-failing builds on them.
 
 ### 3. Engineering RFC Test Plan Enforcement
@@ -57,7 +57,7 @@ Ensure technical specifications include a verifiable testing strategy:
 ```bash
 typesafe-eval rfc/*.md --preset tech-spec
 ```
-- Reliably detects missing test/verification plans (`has_test_plan`: 100% detection on held-out specs across both OpenAI and TypeSafe engines).
+- Reliably detects missing test/verification plans (flagged 3 of 3 absent specs on corpus). Note: on specifications with standard markdown headings, a simple keyword regex matches LLM detection at zero cost; the LLM provides value primarily when testing strategies are described in freeform prose.
 
 ### 4. Regression Detection Between Document Revisions
 Detect structural degradation between document versions without comparing absolute numbers:

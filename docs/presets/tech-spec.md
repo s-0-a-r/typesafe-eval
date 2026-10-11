@@ -6,7 +6,7 @@ The `tech-spec` preset evaluates architecture proposals, Request for Comments (R
 
 ## Core Focus: Empirical Feasibility
 
-Based on corpus empirical validation across engineering RFCs, `tech-spec` focuses on dimensions proven to achieve 100% detection and 0% false alarm rates:
+Based on corpus empirical validation across engineering RFCs, `tech-spec` focuses on dimensions evaluated across held-out sets (with post-hoc calibration noted for OpenAI Decisions API on `swift-se-0510`; see [Accuracy Benchmarks](../science/accuracy-benchmarks.md)):
 
 | Dimension | Description | Threshold | Type | Operational Role |
 | :--- | :--- | :---: | :---: | :---: |

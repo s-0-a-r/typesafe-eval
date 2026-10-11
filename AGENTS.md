@@ -54,11 +54,11 @@ typesafe-eval docs/*.md --dry-run
 
 | Preset | Purpose | Primary Checks | Empirical Reliability Status |
 | :--- | :--- | :--- | :--- |
-| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs | **High (Deterministic)**: 100% fixture accuracy in offline mode; zero API calls required. |
+| `safety` | PII & Secret gating | Credentials, personal emails (free-mail vs role), phone numbers, private IPs, sensitive URLs | **High (Deterministic)**: Verified across internal fixture suites; zero API calls required. Emphasizes Japanese contextual phone & role email rules. |
 | `quality` | Structural regression | Structural clarity (`clarity`), stylistic tone (`tone`) | **Limited**: Suited for `--baseline` detecting major degradation; cannot differentiate real review revisions from originals. |
-| `tech-spec` | Architecture & RFCs | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective**: `has_test_plan` is verified reliable; `readiness` is an unmeasured categorical choice. |
-| `design-doc` | Design doc checklist | System architecture sections, alternatives, rollbacks, failure modes | **Selective**: `alternatives`, `rollback`, `open_questions` are reliable; `goal` and `owner_timeline` are one-way only. |
-| `pr-description`| PR description check | Summary, motivation, testing strategy | **Selective**: `testing` is verified reliable; other sections are advisory. |
+| `tech-spec` | Architecture & RFCs | Verification plan (`has_test_plan`), engineering readiness (`readiness`) | **Selective**: `has_test_plan` passed initial held-out sets (with post-hoc prompt adjustment noted for OpenAI Decisions API); `readiness` is an unmeasured categorical choice. |
+| `design-doc` | Design doc checklist | System architecture sections, alternatives, rollbacks, failure modes | **Selective**: `alternatives`, `rollback`, `open_questions` are reliable on small held-out samples ($N=2\text{--}3$); `goal` and `owner_timeline` are one-way only. |
+| `pr-description`| PR description check | Summary, motivation, testing strategy | **Selective**: `testing` is reliable on small held-out samples ($N=2$); other sections are advisory. |
 | Custom (`-c`) | Domain-specific | Custom rules, customized thresholds, custom role email patterns | Configurable per repository. |
 
 ---
@@ -130,7 +130,7 @@ All autonomous agents must abide by the following 4 rules:
 
 2. **Language caveat & Provider calibration**:
    - **Language**: The benchmark is calibrated primarily for **English** documentation. Non-English (e.g. Japanese) held-out datasets are currently minimal (1 design doc, 3/46 safety fixtures). Treat non-English evaluations as exploratory.
-   - **Provider Calibration Status**: Checklist precision/recall tables have been empirically calibrated on TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`). Both providers verify `has_test_plan` (tech specs), `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable. See [docs/science/accuracy-benchmarks.md](docs/science/accuracy-benchmarks.md) for full empirical counts.
+   - **Provider Calibration Status**: Checklist precision/recall tables have been empirically calibrated on TypeSafe System One (`jev-1.13.0`) and OpenAI Decisions API (`gpt-6-luna`). Both providers verify `has_test_plan` (tech specs; note post-hoc OpenAI prompt adjustment), `alternatives`, `rollback`, and `open_questions` (design docs) as well as `testing` (PR descriptions) as reliable on small held-out samples. See [docs/science/accuracy-benchmarks.md](docs/science/accuracy-benchmarks.md) for full empirical counts and heuristic baseline comparisons.
 
 3. **Near-threshold results are soft**:
    - Questions and candidates marked with `near_threshold: true` fall within ±0.10 of the decision boundary (calibrated on a pilot benchmark of 3 documents × 4 runs).
@@ -177,13 +177,31 @@ All autonomous agents (and developers) operating in this repository **must verif
 
 ---
 
-## 8. Mandatory Release Branch Workflow
+## 8. Mandatory Issue-First Development Workflow
+
+All autonomous coding agents operating in this repository **must follow the Issue-First Contract**:
+
+1. **Issue Creation Precedes Branching**:
+   - Never create a branch or begin code changes without an existing tracking GitHub Issue.
+   - If an issue does not already exist, create one using `gh issue create` with clear context, requirements, and acceptance scope.
+2. **Issue-Referenced Branch Naming**:
+   - Development branches must reference the issue number in their name:
+     - `feat/<issue-number>-<short-description>`
+     - `fix/<issue-number>-<short-description>`
+     - `chore/<issue-number>-<short-description>`
+     - `refactor/<issue-number>-<short-description>`
+3. **Automated Issue Linkage**:
+   - Every Pull Request body must explicitly declare `Closes #<issue-number>` (or `Fixes #<issue-number>`) so that merging the PR automatically closes the issue and maintains an audit trail.
+
+---
+
+## 9. Mandatory Release Branch Workflow
 
 All autonomous coding agents operating in this repository **must follow the release branch development lifecycle**:
 
 ### The Branching Contract
 1. **Never Branch Directly from `main` for Development**:
-   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v1.3.0`).
+   - Development branches (`feat/*`, `fix/*`, `chore/*`, `refactor/*`) must branch from the active release branch (`release/v<version>`, e.g. `release/v1.4.0`).
 2. **Never Target `main` for Feature PRs**:
    - Pull requests for feature work, fixes, and refactoring must target `base: release/v<version>`.
    - Direct PRs to `main` from non-release branches are strictly prohibited and automatically blocked by CI (`.github/workflows/branch_policy.yml`).
@@ -193,14 +211,15 @@ All autonomous coding agents operating in this repository **must follow the rele
 
 ---
 
-## 9. Definition of Done (DoD) & Non-Omission Checklist
+## 10. Definition of Done (DoD) & Non-Omission Checklist
 
 To eliminate review omissions and release omissions, autonomous agents must verify this checklist before considering a request finished:
 
+- [ ] **Issue Created**: GitHub Issue created before branching, defining goals and scope.
 - [ ] **Implementation Complete**: All code, docs, and fixtures written and clean (`ruff check`, `ruff format`, `mypy src`).
 - [ ] **Unit Tests Passing**: 100% pass on pytest suite.
 - [ ] **AC Subprocess Verified**: 19/19 items reported `PASS` via `python scripts/verify_ac.py`.
 - [ ] **Pre-Merge `/boost` Code Review**: Formally evaluated and documented across the 5 pillars with `VERDICT: APPROVED` prior to merge.
-- [ ] **Feature PR Merged**: PR targeting `release/v<version>` merged cleanly.
+- [ ] **Feature PR Merged**: PR targeting `release/v<version>` merged cleanly with `Closes #<issue-number>`.
 - [ ] **Release Promotion PR (`release/v*` -> `main`)**: Created, AC attached, CI passing, and merged to `main` to trigger the final release.
 - [ ] **Release Please Gating**: Release Please PR / tag verified.

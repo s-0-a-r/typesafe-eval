@@ -29,8 +29,43 @@ def test_hooks_json_validity():
     assert len(post_tool_use) >= 1
 
     entry = post_tool_use[0]
-    assert entry.get("matcher") == "Write|Edit"
-    assert "claude_safety_hook.py" in entry.get("command", "")
+    assert "Edit" in entry.get("matcher", "")
+    if "hooks" in entry:
+        nested_hook = entry["hooks"][0]
+        assert "claude_safety_hook.py" in nested_hook.get("command", "")
+        assert nested_hook.get("type") == "command"
+    else:
+        assert "claude_safety_hook.py" in entry.get("command", "")
+
+
+def test_claude_settings_json_configuration(tmp_path, monkeypatch):
+    """Verify typesafe-eval init creates .claude/settings.json with nested hook schema."""
+    from click.testing import CliRunner
+
+    from typesafe_eval.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    res = runner.invoke(main, ["init", "--claude-code"])
+    assert res.exit_code == 0
+    assert "✓ .claude/settings.json (created)" in res.output
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    assert settings_file.is_file()
+
+    with open(settings_file, encoding="utf-8") as f:
+        data = json.load(f)
+
+    post_tool_use = data["hooks"]["PostToolUse"]
+    assert len(post_tool_use) == 1
+    entry = post_tool_use[0]
+    assert entry["matcher"] == "Edit|Write|MultiEdit"
+    assert entry["hooks"] == [{"type": "command", "command": "python3 hooks/claude_safety_hook.py"}]
+
+    # Re-running init should detect already configured
+    res2 = runner.invoke(main, ["init", "--claude-code"])
+    assert res2.exit_code == 0
+    assert "✓ .claude/settings.json (already configured)" in res2.output
 
 
 def test_skill_md_content_and_guidance_rules():

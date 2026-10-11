@@ -173,6 +173,20 @@ The API evaluates all questions of a preset in one request, so removing two ques
 
 Result, run once on 2026-09-29 16:55 (tool 0a56f28, the merge that removed the Scores; `results/2026-09-29e/`): tuning 3/3 absent flagged, 0/5 false alarms; held-out 3/3, 0/1; no present item within 0.5 ± 0.15. Against round 0b every probability moved by 0.01 or less. `has_test_plan` meets all four criteria and ships as reliable. `readiness` answered ready 19 / needs_revision 5 over these runs, against 162 / 158 with the four-question preset, so its answers depend on the other questions in the request; it stays unmeasured.
 
+## Deviation: OpenAI Decisions API post-hoc prompt adjustment (2026-10-08)
+
+On 2026-10-08, multi-provider evaluation on OpenAI Decisions API (`gpt-6-luna`) was executed across the corpus. On `labels_tech_spec.heldout.yaml`, the specification `swift-se-0510` (which lacks a dedicated verification section but includes code usage samples and benchmark commentary) scored $p = 0.75$, failing the held-out detection requirement (1 of 3 absent specifications missed).
+
+In commit `dc9d6e3`, the prompt in `tech_spec.yaml` was modified from:
+`Does this spec include or define a concrete testing or verification strategy?`
+to:
+`Does this spec include a dedicated section or explicit statement describing a test or verification plan?`
+
+When re-evaluated on `labels_tech_spec.heldout.yaml`, `swift-se-0510` scored $p = 0.00$, flagging all 3/3 absent specifications with 0/1 false alarms.
+
+**Preregistration Caveat**: Because this prompt revision was made after inspecting held-out failure data on `swift-se-0510`, this re-measurement violates the strict separation rule in §Held-out ("Held-out runs once per preset version... A later confirmatory claim needs newly collected documents"). Consequently, the 3/3 held-out detection for OpenAI is an **in-sample tuning observation**, not a preregistered held-out confirmation. Until evaluated on a freshly collected held-out specification corpus, `has_test_plan` under OpenAI cannot claim preregistered held-out validation.
+
+
 ## Added before the rounds
 
 - **non_goals positive controls.** The corpus had only 2 documents whose `non_goals` label is present, so a stricter wording could not show new false alarms. `build_pairs.py` inserts a short hand-written Non-goals section into public specifications (tuning: kep-3140, kep-3325, rfc-3027; held-out: pep-0655, pep-0709), labeled `non_goals: present`. `risks` still has few present labels (tuning 2, held-out 1); that is a disclosed limitation.

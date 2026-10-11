@@ -13,13 +13,31 @@ Integrate `typesafe-eval` into your AI development workflows, including Claude C
 typesafe-eval init --claude-code
 ```
 
-This creates `.claude/hooks/post-tool-run.py` (or registers the hook in `hooks/hooks.json`).
+This configures `.claude/settings.json` with the nested `PostToolUse` command schema:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/claude_safety_hook.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+and also writes `hooks/hooks.json` for plugin packaging compatibility.
 
 ### How It Works
 When Claude Code edits or generates markdown documentation:
 1. The hook triggers on files modified by Claude Code.
 2. It executes `typesafe-eval doc.md --preset safety --offline -f json`.
-3. If personal emails or credentials are detected, the hook returns an error output directly to Claude Code.
+3. If personal emails, phone numbers, or credentials are detected, the hook returns an error output (exit code 2) directly to Claude Code.
 4. Claude Code immediately recognizes the violation and rewrites the content with appropriate mock values or redactions.
 
 ---
