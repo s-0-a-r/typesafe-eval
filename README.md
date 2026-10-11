@@ -174,7 +174,10 @@ result = evaluate(
     content="# Architecture\n\n## Verification Plan\nUnit and integration tests...",
     preset="tech-spec",
 )
-print(f"Passed: {result.passed_thresholds}, Score: {result.composite_score}")
+if result.passed_thresholds:
+    print("Passed all gates!")
+else:
+    print(f"Violations detected: {result.violations}")
 
 # Evaluate file with exception on violation
 doc_result = evaluate_document("rfc/001.md", preset="tech-spec", raise_on_violation=True)

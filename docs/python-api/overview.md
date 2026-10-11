@@ -47,7 +47,7 @@ result = evaluate(
 )
 
 if result.passed_thresholds:
-    print(f"Passed! Composite score: {result.composite_score}")
+    print("Passed all gates!")
 else:
     print(f"Failed violations: {result.violations}")
 ```
