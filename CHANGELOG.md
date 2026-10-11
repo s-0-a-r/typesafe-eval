@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.3.0...typesafe-eval-v1.4.0) (2026-10-11)
+
+
+### Features & Architecture Refactoring
+
+* **core:** decompose 980-line evaluate_content monolith in client.py into modular helpers ([#170](https://github.com/s-0-a-r/typesafe-eval/issues/170)), closes [#165](https://github.com/s-0-a-r/typesafe-eval/issues/165)
+* **science:** disclose preregistration deviation for has_test_plan and publish heuristic baseline ([#167](https://github.com/s-0-a-r/typesafe-eval/issues/167)), closes [#162](https://github.com/s-0-a-r/typesafe-eval/issues/162)
+
+
+### Bug Fixes
+
+* **cli:** correct Claude Code hook configuration to use .claude/settings.json schema ([#168](https://github.com/s-0-a-r/typesafe-eval/issues/168)) ([461640b](https://github.com/s-0-a-r/typesafe-eval/commit/461640b1bfd807e3a1dcb603f33a9bfab086b07c)), closes [#163](https://github.com/s-0-a-r/typesafe-eval/issues/163)
+
+
+### Documentation
+
+* **agents:** mandate Issue-first workflow and Definition of Done in AGENTS.md ([1312334](https://github.com/s-0-a-r/typesafe-eval/commit/1312334e02b9c0a81d67a8505cec330c33479de2)), closes [#161](https://github.com/s-0-a-r/typesafe-eval/issues/161)
+* **safety:** reframe safety preset positioning around Japanese contextual PII and role rules ([#169](https://github.com/s-0-a-r/typesafe-eval/issues/169)) ([4db965b](https://github.com/s-0-a-r/typesafe-eval/commit/4db965be3b58e2ae11ba272ca2144133ebd18929)), closes [#164](https://github.com/s-0-a-r/typesafe-eval/issues/164)
+
 ## [1.3.0](https://github.com/s-0-a-r/typesafe-eval/compare/typesafe-eval-v1.2.1...typesafe-eval-v1.3.0) (2026-10-08)
 
 
